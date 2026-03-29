@@ -64,6 +64,40 @@ client.on("messageCreate", (message) => {
     message.channel.send(`💰 Each user received ${amount} CP`);
   }
 
+  // !add → add an amount of CP to mentioned users
+  if (command === "add") {
+    const amount = parseInt(args[0]);
+    const users = message.mentions.users;
+
+    if (isNaN(amount) || users.size === 0) {
+      return message.reply("Usage: !add amount @user");
+    }
+
+    users.forEach(user => {
+      coins[user.id] = (coins[user.id] || 0) + amount;
+      message.channel.send(`✅ Added ${amount} CP to ${user.username}. They now have ${coins[user.id]} CP.`);
+    });
+
+    saveCoins();
+  }
+
+  // !remove → remove an amount of CP from mentioned users
+  if (command === "remove") {
+    const amount = parseInt(args[0]);
+    const users = message.mentions.users;
+
+    if (isNaN(amount) || users.size === 0) {
+      return message.reply("Usage: !remove amount @user");
+    }
+
+    users.forEach(user => {
+      coins[user.id] = (coins[user.id] || 0) - amount;
+      message.channel.send(`❌ Removed ${amount} CP from ${user.username}. They now have ${coins[user.id]} CP.`);
+    });
+
+    saveCoins();
+  }
+
   // !donate → give each user half the amount
   if (command === "donate") {
     const amount = parseInt(args[0]);

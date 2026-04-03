@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const cron = require('node-cron');
 
 const client = new Client({
   intents: [
@@ -30,9 +31,58 @@ function saveCoins() {
   fs.writeFileSync(COINS_FILE, JSON.stringify(coins, null, 2));
 }
 
-// Startup message
-client.once('ready', () => {
+// Helper to build leaderboard text
+async function buildLeaderboard() {
+  if (Object.keys(coins).length === 0) return "No loot points recorded yet!";
+
+  const sorted = Object.entries(coins).sort((a, b) => b[1] - a[1]);
+
+  const lines = await Promise.all(
+    sorted.map(async ([userId, amount], index) => {
+      try {
+        const user = await client.users.fetch(userId);
+        return `${index + 1}. ${user.username} — ${amount} LP`;
+      } catch {
+        return `${index + 1}. Unknown User — ${amount} LP`;
+      }
+    })
+  );
+
+  return `🏆 **Loot Points Leaderboard**\n${lines.join("\n")}`;
+}
+
+// Startup message + daily leaderboard scheduler
+client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
+
+  const channelId = process.env.DAILY_CHANNEL_ID;
+  if (!channelId) {
+    console.warn("DAILY_CHANNEL_ID not set — daily leaderboard will not post.");
+    return;
+  }
+
+  // Post startup message + current leaderboard to the channel
+  try {
+    const channel = await client.channels.fetch(channelId);
+    const leaderboard = await buildLeaderboard();
+    channel.send(`✅ **Bot is online!**\n${leaderboard}`);
+  } catch (err) {
+    console.error("Failed to post startup message:", err);
+  }
+
+  // Runs every day at 11:59 PM (UTC by default)
+  cron.schedule("59 23 * * *", async () => {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      const leaderboard = await buildLeaderboard();
+      channel.send(`📅 **Daily Loot Points Summary**\n${leaderboard}`);
+      console.log("Daily leaderboard posted.");
+    } catch (err) {
+      console.error("Failed to post daily leaderboard:", err);
+    }
+  });
+
+  console.log("Daily leaderboard scheduled for 11:59 PM UTC.");
 });
 
 client.on("messageCreate", async (message) => {
@@ -120,24 +170,8 @@ client.on("messageCreate", async (message) => {
 
   // !total → show leaderboard of all loot points sorted highest to lowest
   if (command === "total") {
-    if (Object.keys(coins).length === 0) {
-      return message.channel.send("No loot points recorded yet!");
-    }
-
-    const sorted = Object.entries(coins).sort((a, b) => b[1] - a[1]);
-
-    const lines = await Promise.all(
-      sorted.map(async ([userId, amount], index) => {
-        try {
-          const user = await client.users.fetch(userId);
-          return `${index + 1}. ${user.username} — ${amount} LP`;
-        } catch {
-          return `${index + 1}. Unknown User — ${amount} LP`;
-        }
-      })
-    );
-
-    message.channel.send(`🏆 **Loot Points Leaderboard**\n${lines.join("\n")}`);
+    const leaderboard = await buildLeaderboard();
+    message.channel.send(leaderboard);
   }
 });
 

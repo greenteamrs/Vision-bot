@@ -44,3 +44,8 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+DAILY_CHANNEL_ID = "1489638196458422482"

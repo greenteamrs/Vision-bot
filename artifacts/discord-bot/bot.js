@@ -52,7 +52,7 @@ async function buildLeaderboard() {
 }
 
 // Startup message + daily leaderboard scheduler
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
 
   const channelId = process.env.DAILY_CHANNEL_ID;

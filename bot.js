@@ -14,18 +14,18 @@ const client = new Client({
 const PREFIX = "!";
 const COINS_FILE = path.join(__dirname, 'coins.json');
 
-// Load coins from file if exists
+// Load loot points from file if exists
 let coins = {};
 if (fs.existsSync(COINS_FILE)) {
   try {
     coins = JSON.parse(fs.readFileSync(COINS_FILE));
   } catch (err) {
-    console.error("Error reading coins.json, starting with empty coins");
+    console.error("Error reading coins.json, starting with empty loot points");
     coins = {};
   }
 }
 
-// Function to save coins to disk
+// Function to save loot points to disk
 function saveCoins() {
   fs.writeFileSync(COINS_FILE, JSON.stringify(coins, null, 2));
 }
@@ -35,17 +35,17 @@ client.once('ready', () => {
   console.log(`${client.user.tag} is online and ready!`);
 });
 
-client.on("messageCreate", (message) => {
+client.on("messageCreate", async (message) => {
   if (!message.content.startsWith(PREFIX) || message.author.bot) return;
 
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // !cp → check balance
-  if (command === "cp") {
+  // !lp → check balance
+  if (command === "lp") {
     const user = message.mentions.users.first() || message.author;
     const balance = coins[user.id] || 0;
-    message.channel.send(`${user.username} has ${balance} CP`);
+    message.channel.send(`${user.username} has ${balance} LP`);
   }
 
   // !split → give each user full amount
@@ -62,10 +62,10 @@ client.on("messageCreate", (message) => {
     });
 
     saveCoins();
-    message.channel.send(`💰 Each user received ${amount} CP`);
+    message.channel.send(`💰 Each user received ${amount} LP`);
   }
 
-  // !add → add an amount of CP to mentioned users
+  // !add → add an amount of LP to mentioned users
   if (command === "add") {
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
@@ -76,13 +76,13 @@ client.on("messageCreate", (message) => {
 
     users.forEach(user => {
       coins[user.id] = (coins[user.id] || 0) + amount;
-      message.channel.send(`✅ Added ${amount} CP to ${user.username}. They now have ${coins[user.id]} CP.`);
+      message.channel.send(`✅ Added ${amount} LP to ${user.username}. They now have ${coins[user.id]} LP.`);
     });
 
     saveCoins();
   }
 
-  // !remove → remove an amount of CP from mentioned users
+  // !remove → remove an amount of LP from mentioned users
   if (command === "remove") {
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
@@ -93,7 +93,7 @@ client.on("messageCreate", (message) => {
 
     users.forEach(user => {
       coins[user.id] = (coins[user.id] || 0) - amount;
-      message.channel.send(`❌ Removed ${amount} CP from ${user.username}. They now have ${coins[user.id]} CP.`);
+      message.channel.send(`❌ Removed ${amount} LP from ${user.username}. They now have ${coins[user.id]} LP.`);
     });
 
     saveCoins();
@@ -115,7 +115,29 @@ client.on("messageCreate", (message) => {
     });
 
     saveCoins();
-    message.channel.send(`💖 Each user received ${halfAmount} CP`);
+    message.channel.send(`💖 Each user received ${halfAmount} LP`);
+  }
+
+  // !total → show leaderboard of all loot points sorted highest to lowest
+  if (command === "total") {
+    if (Object.keys(coins).length === 0) {
+      return message.channel.send("No loot points recorded yet!");
+    }
+
+    const sorted = Object.entries(coins).sort((a, b) => b[1] - a[1]);
+
+    const lines = await Promise.all(
+      sorted.map(async ([userId, amount], index) => {
+        try {
+          const user = await client.users.fetch(userId);
+          return `${index + 1}. ${user.username} — ${amount} LP`;
+        } catch {
+          return `${index + 1}. Unknown User — ${amount} LP`;
+        }
+      })
+    );
+
+    message.channel.send(`🏆 **Loot Points Leaderboard**\n${lines.join("\n")}`);
   }
 });
 

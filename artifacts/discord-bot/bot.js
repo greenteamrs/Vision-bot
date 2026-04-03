@@ -156,7 +156,8 @@ client.on("messageCreate", async (message) => {
     });
 
     await saveCoins();
-    message.channel.send(`💰 Each user received ${amount} LP`);
+    const splitLines = users.map(user => `${user.username} received ${amount} LP — they now have ${coins[user.id]} LP`).join("\n");
+    message.channel.send(`💰 **Split:**\n${splitLines}`);
   }
 
   // !add → add LP to mentioned users
@@ -209,7 +210,8 @@ client.on("messageCreate", async (message) => {
     });
 
     await saveCoins();
-    message.channel.send(`💖 Each user received ${halfAmount} LP`);
+    const donateLines = users.map(user => `${user.username} received ${halfAmount} LP — they now have ${coins[user.id]} LP`).join("\n");
+    message.channel.send(`💖 **Donate:**\n${donateLines}`);
   }
 
   // !total → show leaderboard

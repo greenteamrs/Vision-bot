@@ -1,6 +1,5 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const https = require('https');
 const http = require('http');
 const cron = require('node-cron');
 
@@ -13,22 +12,60 @@ const client = new Client({
 });
 
 const PREFIX = "!";
-const COINS_FILE = path.join(__dirname, 'coins.json');
+const BIN_ID = process.env.JSONBIN_BIN_ID;
+const API_KEY = process.env.JSONBIN_API_KEY;
 
-// Load loot points from file if exists
+// In-memory loot points (loaded from JSONBin on startup)
 let coins = {};
-if (fs.existsSync(COINS_FILE)) {
-  try {
-    coins = JSON.parse(fs.readFileSync(COINS_FILE));
-  } catch (err) {
-    console.error("Error reading coins.json, starting with empty loot points");
-    coins = {};
-  }
+
+// Read loot points from JSONBin
+function loadCoins() {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.jsonbin.io',
+      path: `/v3/b/${BIN_ID}/latest`,
+      method: 'GET',
+      headers: { 'X-Master-Key': API_KEY }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed.record || {});
+        } catch {
+          resolve({});
+        }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
 }
 
-// Function to save loot points to disk
+// Save loot points to JSONBin
 function saveCoins() {
-  fs.writeFileSync(COINS_FILE, JSON.stringify(coins, null, 2));
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(coins);
+    const options = {
+      hostname: 'api.jsonbin.io',
+      path: `/v3/b/${BIN_ID}`,
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': API_KEY,
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+    const req = https.request(options, (res) => {
+      res.on('data', () => {});
+      res.on('end', resolve);
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
 }
 
 // Helper to build leaderboard text
@@ -51,17 +88,24 @@ async function buildLeaderboard() {
   return `🏆 **Loot Points Leaderboard**\n${lines.join("\n")}`;
 }
 
-// Startup message + daily leaderboard scheduler
+// Startup: load coins, post online message + leaderboard, schedule daily summary
 client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
 
+  try {
+    coins = await loadCoins();
+    console.log("Loot points loaded from JSONBin.");
+  } catch (err) {
+    console.error("Failed to load loot points from JSONBin:", err);
+  }
+
   const channelId = process.env.DAILY_CHANNEL_ID;
   if (!channelId) {
-    console.warn("DAILY_CHANNEL_ID not set — daily leaderboard will not post.");
+    console.warn("DAILY_CHANNEL_ID not set — skipping channel messages.");
     return;
   }
 
-  // Post startup message + current leaderboard to the channel
+  // Post startup message + leaderboard
   try {
     const channel = await client.channels.fetch(channelId);
     const leaderboard = await buildLeaderboard();
@@ -70,7 +114,7 @@ client.once('ready', async () => {
     console.error("Failed to post startup message:", err);
   }
 
-  // Runs every day at 11:59 PM (UTC by default)
+  // Daily leaderboard at 11:59 PM UTC
   cron.schedule("59 23 * * *", async () => {
     try {
       const channel = await client.channels.fetch(channelId);
@@ -111,11 +155,11 @@ client.on("messageCreate", async (message) => {
       coins[user.id] = (coins[user.id] || 0) + amount;
     });
 
-    saveCoins();
+    await saveCoins();
     message.channel.send(`💰 Each user received ${amount} LP`);
   }
 
-  // !add → add an amount of LP to mentioned users
+  // !add → add LP to mentioned users
   if (command === "add") {
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
@@ -129,10 +173,10 @@ client.on("messageCreate", async (message) => {
       message.channel.send(`✅ Added ${amount} LP to ${user.username}. They now have ${coins[user.id]} LP.`);
     });
 
-    saveCoins();
+    await saveCoins();
   }
 
-  // !remove → remove an amount of LP from mentioned users
+  // !remove → remove LP from mentioned users
   if (command === "remove") {
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
@@ -146,7 +190,7 @@ client.on("messageCreate", async (message) => {
       message.channel.send(`❌ Removed ${amount} LP from ${user.username}. They now have ${coins[user.id]} LP.`);
     });
 
-    saveCoins();
+    await saveCoins();
   }
 
   // !donate → give each user half the amount
@@ -164,11 +208,11 @@ client.on("messageCreate", async (message) => {
       coins[user.id] = (coins[user.id] || 0) + halfAmount;
     });
 
-    saveCoins();
+    await saveCoins();
     message.channel.send(`💖 Each user received ${halfAmount} LP`);
   }
 
-  // !total → show leaderboard of all loot points sorted highest to lowest
+  // !total → show leaderboard
   if (command === "total") {
     const leaderboard = await buildLeaderboard();
     message.channel.send(leaderboard);

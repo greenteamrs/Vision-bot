@@ -49,3 +49,4 @@ timeoutMs = 20000
 
 [userenv.shared]
 DAILY_CHANNEL_ID = "1489638196458422482"
+JSONBIN_BIN_ID = "69cfda73aaba882197c02f8c"

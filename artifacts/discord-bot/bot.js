@@ -61,6 +61,15 @@ client.once('ready', () => {
     return;
   }
 
+  // Post startup message + current leaderboard to the channel
+  try {
+    const channel = await client.channels.fetch(channelId);
+    const leaderboard = await buildLeaderboard();
+    channel.send(`✅ **Bot is online!**\n${leaderboard}`);
+  } catch (err) {
+    console.error("Failed to post startup message:", err);
+  }
+
   // Runs every day at 11:59 PM (UTC by default)
   cron.schedule("59 23 * * *", async () => {
     try {

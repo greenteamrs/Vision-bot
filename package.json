@@ -12,6 +12,7 @@
   "type": "commonjs",
   "dependencies": {
     "discord.js": "^14.25.1",
+    "mongoose": "^9.3.3",
     "node-cron": "^4.2.1"
   }
 }

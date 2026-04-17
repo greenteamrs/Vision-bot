@@ -96,7 +96,7 @@ async function buildLeaderboard() {
 async function buildXpLeaderboard() {
   const users = await User.find().sort({ level: -1, xp: -1 }).limit(20);
   if (users.length === 0) return "No XP recorded yet!";
-  const lines = users.map((u, i) => `${i + 1}. ${u.username || u.userId} — Level ${u.level} | ${u.xp} XP`);
+  const lines = users.map((u, i) => `${i + 1}. ${u.username || u.userId} — Level ${u.level} | ${u.xp}/${xpForLevel(u.level)} XP`);
   return `⭐ **XP Leaderboard**\n${lines.join("\n")}`;
 }
 

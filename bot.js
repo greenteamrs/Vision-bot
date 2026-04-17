@@ -155,6 +155,7 @@ client.on(Events.MessageCreate, async (message) => {
       const updated = await addXp(message.author.id, message.author.username, xpGained);
 
       await User.updateOne({ userId: message.author.id }, { lastMessageXp: now });
+      console.log(`[XP] ${message.author.username} earned ${xpGained} XP from message. Level ${updated.level} | ${updated.xp} XP`);
 
       if (updated.level > prevLevel) {
         sendToXpChannel(`🎉 Congrats ${message.author.username}! You reached **Level ${updated.level}**!`);
@@ -408,7 +409,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         const prevLevel = user.level;
         const updated = await addXp(userId, username, 50);
         await User.updateOne({ userId }, { lastVoiceJoinXp: now });
-        console.log(`${username} earned 50 XP for joining voice.`);
+        console.log(`[XP] ${username} earned 50 XP for joining voice. Level ${updated.level} | ${updated.xp} XP`);
 
         if (updated.level > prevLevel) {
           sendToXpChannel(`🎉 ${username} reached **Level ${updated.level}**!`);

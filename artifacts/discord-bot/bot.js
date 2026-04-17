@@ -34,7 +34,6 @@ async function addXp(userId, username, amount) {
   user.xp += amount;
   user.username = username;
 
-  // Level up logic
   while (user.xp >= xpForLevel(user.level)) {
     user.xp -= xpForLevel(user.level);
     user.level += 1;
@@ -56,14 +55,23 @@ const client = new Client({
 });
 
 const PREFIX = "!";
-const AFKChannelName = "afk"; // adjust if your AFK channel has a different name
+const AFKChannelName = "afk";
+const XP_CHANNEL_ID = "1494732715063509113";
 
-// Track voice join times: { userId: Date }
 const voiceJoinTime = {};
-// Track 30-min XP intervals: { userId: intervalId }
 const voiceIntervals = {};
 
-// --- Loot Points helpers (kept from old system) ---
+// --- Send to XP channel ---
+async function sendToXpChannel(message) {
+  try {
+    const channel = await client.channels.fetch(XP_CHANNEL_ID);
+    channel.send(message);
+  } catch (err) {
+    console.error("Failed to send to XP channel:", err);
+  }
+}
+
+// --- Loot Points helpers ---
 async function getLootPoints(userId, username) {
   const user = await getUser(userId, username);
   return user.lootPoints;
@@ -77,7 +85,7 @@ async function modifyLootPoints(userId, username, amount) {
   return user.lootPoints;
 }
 
-// --- Leaderboard ---
+// --- Leaderboards ---
 async function buildLeaderboard() {
   const users = await User.find({ lootPoints: { $gt: 0 } }).sort({ lootPoints: -1 }).limit(20);
   if (users.length === 0) return "No loot points recorded yet!";
@@ -88,7 +96,7 @@ async function buildLeaderboard() {
 async function buildXpLeaderboard() {
   const users = await User.find().sort({ level: -1, xp: -1 }).limit(20);
   if (users.length === 0) return "No XP recorded yet!";
-  const lines = users.map((u, i) => `${i + 1}. ${u.username || u.userId} — Level ${u.level} (${u.xp} XP)`);
+  const lines = users.map((u, i) => `${i + 1}. ${u.username || u.userId} — Level ${u.level} | ${u.xp} XP`);
   return `⭐ **XP Leaderboard**\n${lines.join("\n")}`;
 }
 
@@ -137,17 +145,17 @@ client.on(Events.MessageCreate, async (message) => {
   try {
     const user = await getUser(message.author.id, message.author.username);
     const now = new Date();
-    const cooldown = 60 * 1000; // 1 minute
+    const cooldown = 60 * 1000;
 
     if (!user.lastMessageXp || (now - user.lastMessageXp) > cooldown) {
-      const xpGained = Math.floor(Math.random() * 11) + 15; // 15-25 XP
+      const xpGained = Math.floor(Math.random() * 11) + 15;
       const prevLevel = user.level;
       const updated = await addXp(message.author.id, message.author.username, xpGained);
 
       await User.updateOne({ userId: message.author.id }, { lastMessageXp: now });
 
       if (updated.level > prevLevel) {
-        message.channel.send(`🎉 Congrats ${message.author.username}! You reached **Level ${updated.level}**!`);
+        sendToXpChannel(`🎉 Congrats ${message.author.username}! You reached **Level ${updated.level}**!`);
       }
     }
   } catch (err) {
@@ -175,7 +183,21 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(`⭐ ${target.username} — **Level ${user.level}** | ${user.xp}/${needed} XP`);
   }
 
-  // !xptop → XP leaderboard
+  // !level → show your current level
+  if (command === "level") {
+    const target = message.mentions.users.first() || message.author;
+    const user = await getUser(target.id, target.username);
+    const needed = xpForLevel(user.level);
+    message.channel.send(`🏅 ${target.username} is **Level ${user.level}** — ${user.xp}/${needed} XP to next level`);
+  }
+
+  // !leaderboard → XP leaderboard with username, level, xp
+  if (command === "leaderboard") {
+    const lb = await buildXpLeaderboard();
+    message.channel.send(lb);
+  }
+
+  // !xptop → XP leaderboard (alias)
   if (command === "xptop") {
     const lb = await buildXpLeaderboard();
     message.channel.send(lb);
@@ -293,7 +315,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     try {
       const user = await getUser(userId, username);
       const now = new Date();
-      const cooldown = 60 * 60 * 1000; // 1 hour
+      const cooldown = 60 * 60 * 1000;
 
       if (!user.lastVoiceJoinXp || (now - user.lastVoiceJoinXp) > cooldown) {
         const prevLevel = user.level;
@@ -302,10 +324,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         console.log(`${username} earned 50 XP for joining voice.`);
 
         if (updated.level > prevLevel) {
-          try {
-            const channel = await client.channels.fetch(process.env.DAILY_CHANNEL_ID);
-            channel.send(`🎉 ${username} reached **Level ${updated.level}**!`);
-          } catch {}
+          sendToXpChannel(`🎉 ${username} reached **Level ${updated.level}**!`);
         }
       }
     } catch (err) {
@@ -315,7 +334,6 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     // Start 30-min interval XP (300 XP every 30 mins)
     voiceIntervals[userId] = setInterval(async () => {
       try {
-        // Re-check they are still in a non-AFK channel
         const member = await newState.guild.members.fetch(userId);
         if (!member.voice.channelId || isAfk(member.voice.channel)) return;
 
@@ -324,15 +342,12 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         console.log(`${username} earned 300 XP for 30 mins in voice.`);
 
         if (updated.level > prevLevel) {
-          try {
-            const channel = await client.channels.fetch(process.env.DAILY_CHANNEL_ID);
-            channel.send(`🎉 ${username} reached **Level ${updated.level}**!`);
-          } catch {}
+          sendToXpChannel(`🎉 ${username} reached **Level ${updated.level}**!`);
         }
       } catch (err) {
         console.error("Voice interval XP error:", err);
       }
-    }, 30 * 60 * 1000); // every 30 minutes
+    }, 30 * 60 * 1000);
   }
 
   // User left a voice channel or moved to AFK

@@ -118,7 +118,8 @@ client.once('ready', async () => {
   try {
     const channel = await client.channels.fetch(channelId);
     const leaderboard = await buildLeaderboard();
-    channel.send(`✅ **Bot is online!**\n${leaderboard}`);
+    const xpLeaderboard = await buildXpLeaderboard();
+    channel.send(`✅ **Bot is online!**\n${leaderboard}\n\n${xpLeaderboard}`);
   } catch (err) {
     console.error("Failed to post startup message:", err);
   }
@@ -128,7 +129,8 @@ client.once('ready', async () => {
     try {
       const channel = await client.channels.fetch(channelId);
       const leaderboard = await buildLeaderboard();
-      channel.send(`📅 **Daily Loot Points Summary**\n${leaderboard}`);
+      const xpLeaderboard = await buildXpLeaderboard();
+      channel.send(`📅 **Daily Summary**\n${leaderboard}\n\n${xpLeaderboard}`);
     } catch (err) {
       console.error("Failed to post daily leaderboard:", err);
     }

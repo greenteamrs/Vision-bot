@@ -426,8 +426,8 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         if (!member.voice.channelId || isAfk(member.voice.channel)) return;
 
         const prevLevel = (await getUser(userId, username)).level;
-        const updated = await addXp(userId, username, 300);
-        console.log(`${username} earned 300 XP for 30 mins in voice.`);
+        const updated = await addXp(userId, username, 1);
+        console.log(`[XP] ${username} earned 1 XP for 15s in voice. Level ${updated.level} | ${updated.xp} XP`);
 
         if (updated.level > prevLevel) {
           sendToXpChannel(`🎉 ${username} reached **Level ${updated.level}**!`);
@@ -435,7 +435,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       } catch (err) {
         console.error("Voice interval XP error:", err);
       }
-    }, 30 * 60 * 1000);
+    }, 15 * 1000); // TEST: every 15 seconds (change back to 30 * 60 * 1000 for production)
   }
 
   // User left a voice channel or moved to AFK

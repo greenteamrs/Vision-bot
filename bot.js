@@ -281,6 +281,13 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
+  // !cleanduplicates → remove old manually migrated entries (admin only)
+  if (command === "cleanduplicates") {
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
+    const result = await User.deleteMany({ userId: { $regex: /^migrated_/ } });
+    return message.channel.send(`✅ Removed **${result.deletedCount}** duplicate entries.`);
+  }
+
   // !importmee6 → import XP/levels from MEE6 (admin only)
   if (command === "importmee6") {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");

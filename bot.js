@@ -268,7 +268,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // !addxp → add XP (mods only)
   if (command === "addxp") {
-    if (!isMod(message.member)) return message.reply("❌ Only mods can use this command.");
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
     if (isNaN(amount) || users.size === 0) return message.reply("Usage: !addxp amount @user");
@@ -281,9 +281,59 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
+  // !importmee6 → import XP/levels from MEE6 (admin only)
+  if (command === "importmee6") {
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
+
+    await message.channel.send("⏳ Fetching MEE6 leaderboard, please wait...");
+
+    try {
+      const guildId = message.guild.id;
+      let page = 0;
+      let allPlayers = [];
+      let hasMore = true;
+
+      while (hasMore) {
+        const res = await fetch(`https://mee6.xyz/api/plugins/levels/leaderboard/${guildId}?limit=1000&page=${page}`);
+        if (!res.ok) {
+          return message.channel.send(`❌ Failed to fetch MEE6 data (status ${res.status}). Make sure the MEE6 levels plugin is public.`);
+        }
+        const data = await res.json();
+        const players = data.players || [];
+        allPlayers = allPlayers.concat(players);
+        hasMore = players.length === 1000;
+        page++;
+      }
+
+      if (allPlayers.length === 0) {
+        return message.channel.send("❌ No players found on the MEE6 leaderboard.");
+      }
+
+      let imported = 0;
+      for (const player of allPlayers) {
+        const userId = player.id;
+        const username = player.username;
+        const mee6Level = player.level || 0;
+        const mee6Xp = player.detailed_xp ? player.detailed_xp[0] : (player.xp || 0);
+
+        await User.findOneAndUpdate(
+          { userId },
+          { $set: { userId, username, level: mee6Level, xp: mee6Xp } },
+          { upsert: true, new: true }
+        );
+        imported++;
+      }
+
+      message.channel.send(`✅ Imported **${imported} users** from MEE6 successfully!`);
+    } catch (err) {
+      console.error("MEE6 import error:", err);
+      message.channel.send("❌ Something went wrong while importing from MEE6.");
+    }
+  }
+
   // !removexp → remove XP (mods only)
   if (command === "removexp") {
-    if (!isMod(message.member)) return message.reply("❌ Only mods can use this command.");
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
     if (isNaN(amount) || users.size === 0) return message.reply("Usage: !removexp amount @user");

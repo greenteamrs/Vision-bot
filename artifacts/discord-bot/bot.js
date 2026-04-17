@@ -259,32 +259,6 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
-  // !migratedata → one-time LP migration (mods only)
-  if (command === "migratedata") {
-    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
-    const oldData = [
-      { username: 'xfly',        lootPoints: 973 },
-      { username: '_valkan',     lootPoints: 893 },
-      { username: 'hades_7444',  lootPoints: 488 },
-      { username: 'gaz1188',     lootPoints: 387 },
-      { username: 'artemas5936', lootPoints: 8   },
-      { username: 'teamflight',  lootPoints: 6   },
-      { username: 'slacks96',    lootPoints: 6   },
-      { username: 'trapbunnies', lootPoints: 6   },
-    ];
-    const lines = [];
-    for (const entry of oldData) {
-      const fakeUserId = `migrated_${entry.username}`;
-      await User.findOneAndUpdate(
-        { username: entry.username },
-        { $set: { username: entry.username, lootPoints: entry.lootPoints }, $setOnInsert: { userId: fakeUserId } },
-        { upsert: true, new: true }
-      );
-      lines.push(`✅ ${entry.username} → ${entry.lootPoints} LP`);
-    }
-    return message.channel.send(`**Migration complete!**\n${lines.join('\n')}`);
-  }
-
   // !removexp → remove XP (mods only)
   if (command === "removexp") {
     if (!isMod(message.member)) return message.reply("❌ Only mods can use this command.");

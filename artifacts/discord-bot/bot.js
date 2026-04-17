@@ -26,7 +26,7 @@ async function getUser(userId, username) {
 }
 
 function xpForLevel(level) {
-  return 100 * (level + 1);
+  return 5 * level * level + 50 * level + 100;
 }
 
 async function addXp(userId, username, amount) {

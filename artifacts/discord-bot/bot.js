@@ -261,7 +261,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // !migratedata → one-time LP migration (mods only)
   if (command === "migratedata") {
-    if (!isMod(message.member)) return message.reply("❌ Only mods can use this command.");
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
     const oldData = [
       { username: 'xfly',        lootPoints: 973 },
       { username: '_valkan',     lootPoints: 893 },

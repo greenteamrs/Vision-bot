@@ -268,7 +268,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // !addxp → add XP (mods only)
   if (command === "addxp") {
-    if (!isMod(message.member)) return message.reply("❌ Only mods can use this command.");
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
     if (isNaN(amount) || users.size === 0) return message.reply("Usage: !addxp amount @user");
@@ -283,7 +283,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // !removexp → remove XP (mods only)
   if (command === "removexp") {
-    if (!isMod(message.member)) return message.reply("❌ Only mods can use this command.");
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
     if (isNaN(amount) || users.size === 0) return message.reply("Usage: !removexp amount @user");

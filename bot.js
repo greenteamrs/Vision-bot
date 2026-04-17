@@ -283,6 +283,34 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
+  // !fixlp → restore lost LP values by username (admin only)
+  if (command === "fixlp") {
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
+    const lpData = [
+      { username: '_valkan',     lootPoints: 893 },
+      { username: 'hades_7444',  lootPoints: 488 },
+      { username: 'gaz1188',     lootPoints: 387 },
+      { username: 'artemas5936', lootPoints: 8   },
+      { username: 'teamflight',  lootPoints: 6   },
+      { username: 'slacks96',    lootPoints: 6   },
+      { username: 'trapbunnies', lootPoints: 6   },
+    ];
+    const lines = [];
+    for (const entry of lpData) {
+      const result = await User.findOneAndUpdate(
+        { username: entry.username },
+        { $set: { lootPoints: entry.lootPoints } },
+        { new: true }
+      );
+      if (result) {
+        lines.push(`✅ ${entry.username} → ${entry.lootPoints} LP`);
+      } else {
+        lines.push(`⚠️ ${entry.username} not found in database`);
+      }
+    }
+    return message.channel.send(`**LP Restore Complete:**\n${lines.join('\n')}`);
+  }
+
   // !cleanduplicates → remove old manually migrated entries (admin only)
   if (command === "cleanduplicates") {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");

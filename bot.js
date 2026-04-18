@@ -61,6 +61,25 @@ const XP_CHANNEL_ID = "1494732715063509113";
 const voiceJoinTime = {};
 const voiceIntervals = {};
 
+// --- Level up messages ---
+const levelUpMessages = [
+  (user, level) => `A wild **${user}** has appeared at level **${level}**!`,
+  (user, level) => `**${user}** just leveled up to **${level}**. Let's gooo!`,
+  (user, level) => `Yay! You made it, **${user}**! Welcome to level **${level}**!`,
+  (user, level) => `**${user}** is joining the level **${level}** party!`,
+  (user, level) => `**${user}** reached level **${level}**. Absolutely unstoppable.`,
+  (user, level) => `Level **${level}** unlocked! Nice work, **${user}**!`,
+  (user, level) => `**${user}** just hit level **${level}**. The grind is real.`,
+  (user, level) => `Look who leveled up! **${user}** is now level **${level}**!`,
+  (user, level) => `**${user}** evolved into a level **${level}** legend!`,
+  (user, level) => `Up, up and away! **${user}** soared to level **${level}**!`,
+];
+
+function getLevelUpMessage(username, level) {
+  const fn = levelUpMessages[Math.floor(Math.random() * levelUpMessages.length)];
+  return fn(username, level);
+}
+
 // --- Send to XP channel ---
 async function sendToXpChannel(message) {
   try {
@@ -158,7 +177,7 @@ client.on(Events.MessageCreate, async (message) => {
       console.log(`[XP] ${message.author.username} earned ${xpGained} XP from message. Level ${updated.level} | ${updated.xp} XP`);
 
       if (updated.level > prevLevel) {
-        sendToXpChannel(`🎉 Congrats ${message.author.username}! You reached **Level ${updated.level}**!`);
+        sendToXpChannel(getLevelUpMessage(message.author.username, updated.level));
       }
     }
   } catch (err) {
@@ -412,7 +431,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         console.log(`[XP] ${username} earned 50 XP for joining voice. Level ${updated.level} | ${updated.xp} XP`);
 
         if (updated.level > prevLevel) {
-          sendToXpChannel(`🎉 ${username} reached **Level ${updated.level}**!`);
+          sendToXpChannel(getLevelUpMessage(username, updated.level));
         }
       }
     } catch (err) {
@@ -427,7 +446,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
         const prevLevel = (await getUser(userId, username)).level;
         const updated = await addXp(userId, username, 300);
-        console.log(`${username} earned 300 XP for 30 mins in voice.`);
+        console.log(`[XP] ${username} earned 300 XP for 30 mins in voice. Level ${updated.level} | ${updated.xp} XP`);
 
         if (updated.level > prevLevel) {
           sendToXpChannel(`🎉 ${username} reached **Level ${updated.level}**!`);
@@ -435,7 +454,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       } catch (err) {
         console.error("Voice interval XP error:", err);
       }
-    }, 30 * 60 * 1000);
+    }, 30 * 60 * 1000); // every 30 minutes
   }
 
   // User left a voice channel or moved to AFK

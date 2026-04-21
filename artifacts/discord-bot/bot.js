@@ -411,7 +411,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   const username = newState.member?.user?.username || oldState.member?.user?.username;
   if (!userId || newState.member?.user?.bot) return;
 
-  const isAfk = (channel) => channel && channel.id === channel.guild.afkChannelId;
+  const isAfk = (channel) => channel && channel.id === "155520058762723328";
 
   // User joined a voice channel
   if (!oldState.channelId && newState.channelId && !isAfk(newState.channel)) {

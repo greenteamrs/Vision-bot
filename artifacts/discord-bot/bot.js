@@ -55,7 +55,6 @@ const client = new Client({
 });
 
 const PREFIX = "!";
-const AFKChannelName = "afk";
 const XP_CHANNEL_ID = "1494732715063509113";
 
 const voiceJoinTime = {};
@@ -412,7 +411,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   const username = newState.member?.user?.username || oldState.member?.user?.username;
   if (!userId || newState.member?.user?.bot) return;
 
-  const isAfk = (channel) => channel && channel.name.toLowerCase().includes(AFKChannelName);
+  const isAfk = (channel) => channel && channel.id === channel.guild.afkChannelId;
 
   // User joined a voice channel
   if (!oldState.channelId && newState.channelId && !isAfk(newState.channel)) {

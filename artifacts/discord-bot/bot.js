@@ -261,23 +261,44 @@ client.once('ready', async () => {
   console.log("Daily leaderboard scheduled for 11:59 PM UTC.");
 });
 
+function hasVisionariesRole(member) {
+  return member && member.roles.cache.some(r => r.name.toLowerCase() === 'visionaries');
+}
+
+async function sendLongMessage(channel, header, lines) {
+  const chunks = [];
+  let current = header + '\n';
+  for (const line of lines) {
+    if ((current + line + '\n').length > 1900) {
+      chunks.push(current);
+      current = line + '\n';
+    } else {
+      current += line + '\n';
+    }
+  }
+  if (current.trim()) chunks.push(current);
+  for (const chunk of chunks) await channel.send(chunk);
+}
+
 // --- Message Handler ---
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
 
-  // XP for chatting
+  // XP for chatting — Visionaries role only
   try {
-    const s = await getSettings();
-    const user = await getUser(message.author.id, message.author.username);
-    const now = new Date();
+    if (hasVisionariesRole(message.member)) {
+      const s = await getSettings();
+      const user = await getUser(message.author.id, message.author.username);
+      const now = new Date();
 
-    if (!user.lastMessageXp || (now - user.lastMessageXp) > s.messageXpCooldownSecs * 1000) {
-      const xpGained = Math.floor(Math.random() * (s.messageXpMax - s.messageXpMin + 1)) + s.messageXpMin;
-      const prevLevel = user.level;
-      const updated = await addXp(message.author.id, message.author.username, xpGained);
-      await User.updateOne({ userId: message.author.id }, { lastMessageXp: now });
-      console.log(`[XP] ${message.author.username} earned ${xpGained} XP. Level ${updated.level} | ${updated.xp} XP`);
-      if (updated.level > prevLevel) sendToXpChannel(getLevelUpMessage(message.author.username, updated.level));
+      if (!user.lastMessageXp || (now - user.lastMessageXp) > s.messageXpCooldownSecs * 1000) {
+        const xpGained = Math.floor(Math.random() * (s.messageXpMax - s.messageXpMin + 1)) + s.messageXpMin;
+        const prevLevel = user.level;
+        const updated = await addXp(message.author.id, message.author.username, xpGained);
+        await User.updateOne({ userId: message.author.id }, { lastMessageXp: now });
+        console.log(`[XP] ${message.author.username} earned ${xpGained} XP. Level ${updated.level} | ${updated.xp} XP`);
+        if (updated.level > prevLevel) sendToXpChannel(getLevelUpMessage(message.author.username, updated.level));
+      }
     }
   } catch (err) {
     console.error("Message XP error:", err);
@@ -312,6 +333,22 @@ client.on(Events.MessageCreate, async (message) => {
 
   if (command === "total") {
     message.channel.send(await buildLeaderboard());
+  }
+
+  // !lplist → full LP list A-Z
+  if (command === "lplist") {
+    const users = await User.find({ lootPoints: { $gt: 0 } }).sort({ username: 1 });
+    if (users.length === 0) return message.channel.send("No loot points recorded yet!");
+    const lines = users.map(u => `• ${u.username || u.userId} — ${u.lootPoints} LP`);
+    await sendLongMessage(message.channel, `🏆 **LP List (A–Z) — ${users.length} members**`, lines);
+  }
+
+  // !xplist → full XP/level list A-Z
+  if (command === "xplist") {
+    const users = await User.find({ $or: [{ level: { $gt: 0 } }, { xp: { $gt: 0 } }] }).sort({ username: 1 });
+    if (users.length === 0) return message.channel.send("No XP recorded yet!");
+    const lines = users.map(u => `• ${u.username || u.userId} — Level ${u.level} | ${u.xp}/${xpForLevel(u.level)} XP`);
+    await sendLongMessage(message.channel, `⭐ **XP List (A–Z) — ${users.length} members**`, lines);
   }
 
   if (command === "rslink") {
@@ -520,14 +557,16 @@ client.on(Events.MessageCreate, async (message) => {
     const s = await getSettings();
     message.channel.send(`📖 **Visionary Bot Commands**
 
-**XP & Levels**
+**XP & Levels** *(Visionaries role only earns XP)*
 \`!xp [@user]\` — Check XP and level
 \`!level [@user]\` — Check current level
-\`!leaderboard\` / \`!xptop\` — XP leaderboard
+\`!leaderboard\` / \`!xptop\` — Top 20 XP leaderboard
+\`!xplist\` — Full XP list A–Z
 
 **Loot Points**
 \`!lp [@user]\` — Check LP balance
-\`!total\` — LP leaderboard
+\`!total\` — Top 20 LP leaderboard
+\`!lplist\` — Full LP list A–Z
 \`!split <amount> @users\` — Give each user LP
 \`!donate <amount> @users\` — Give each user half LP
 \`!add <amount> @user\` — Add LP
@@ -562,15 +601,19 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   if (!oldState.channelId && newState.channelId && !isAfk(newState.channel)) {
     voiceJoinTime[userId] = new Date();
 
+    // Voice join XP — Visionaries role only
     try {
-      const user = await getUser(userId, username);
-      const now = new Date();
-      if (!user.lastVoiceJoinXp || (now - user.lastVoiceJoinXp) > s.voiceJoinCooldownSecs * 1000) {
-        const prevLevel = user.level;
-        const updated = await addXp(userId, username, s.voiceJoinXp);
-        await User.updateOne({ userId }, { lastVoiceJoinXp: now });
-        console.log(`[XP] ${username} earned ${s.voiceJoinXp} XP for joining voice.`);
-        if (updated.level > prevLevel) sendToXpChannel(getLevelUpMessage(username, updated.level));
+      const member = await newState.guild.members.fetch(userId);
+      if (hasVisionariesRole(member)) {
+        const user = await getUser(userId, username);
+        const now = new Date();
+        if (!user.lastVoiceJoinXp || (now - user.lastVoiceJoinXp) > s.voiceJoinCooldownSecs * 1000) {
+          const prevLevel = user.level;
+          const updated = await addXp(userId, username, s.voiceJoinXp);
+          await User.updateOne({ userId }, { lastVoiceJoinXp: now });
+          console.log(`[XP] ${username} earned ${s.voiceJoinXp} XP for joining voice.`);
+          if (updated.level > prevLevel) sendToXpChannel(getLevelUpMessage(username, updated.level));
+        }
       }
     } catch (err) {
       console.error("Voice join XP error:", err);
@@ -581,6 +624,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
         const currentSettings = await getSettings();
         const member = await newState.guild.members.fetch(userId);
         if (!member.voice.channelId || isAfk(member.voice.channel)) return;
+        if (!hasVisionariesRole(member)) return;
         const prevLevel = (await getUser(userId, username)).level;
         const updated = await addXp(userId, username, currentSettings.voiceIntervalXp);
         console.log(`[XP] ${username} earned ${currentSettings.voiceIntervalXp} XP for voice activity.`);

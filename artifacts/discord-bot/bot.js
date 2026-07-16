@@ -1118,7 +1118,7 @@ const server = http.createServer(async (req, res) => {
       const name = (params.get('name') || '').trim();
       if (!name) { sendJson(res, 400, { error: 'name is required' }); return; }
       try {
-        const searchUrl = `https://api.wiseoldman.net/v2/groups/search?name=${encodeURIComponent(name)}&limit=10`;
+        const searchUrl = `https://api.wiseoldman.net/v2/groups?name=${encodeURIComponent(name)}&limit=10`;
         const r = await fetch(searchUrl, { headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot/1.0' } });
         if (!r.ok) { sendJson(res, 502, { error: `WOM API returned ${r.status}` }); return; }
         const body = await r.json();

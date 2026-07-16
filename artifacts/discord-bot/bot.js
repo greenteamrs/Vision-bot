@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema({
   rsName: { type: String, default: null },
   rsNames: { type: [String], default: [] },
   joinedServerAt: { type: Date, default: null },
+  joinedClanAt: { type: Date, default: null },
   notifiedRankId: { type: String, default: null },
 });
 
@@ -47,6 +48,7 @@ const settingsSchema = new mongoose.Schema({
   dropTopXp: { type: [Number], default: [5000, 4000, 3000, 2000, 1000, 1000, 1000, 1000, 1000, 1000] },
   afkChannelId: { type: String, default: '155520058762723328' },
   rankNotifyChannelId: { type: String, default: '' },
+  womGroupId: { type: String, default: '' },
 });
 
 const Settings = mongoose.model('Settings', settingsSchema);
@@ -68,7 +70,7 @@ async function saveSettings(data) {
     'messageXpMin', 'messageXpMax', 'messageXpCooldownSecs',
     'voiceJoinXp', 'voiceJoinCooldownSecs',
     'voiceIntervalXp', 'voiceIntervalMins',
-    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId',
+    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId',
   ];
   const update = {};
   for (const k of allowed) {
@@ -215,8 +217,44 @@ function isMod(member) {
 }
 
 function daysInClan(user) {
-  if (!user.joinedServerAt) return 0;
-  return Math.floor((Date.now() - new Date(user.joinedServerAt).getTime()) / (1000 * 60 * 60 * 24));
+  const date = user.joinedClanAt || user.joinedServerAt;
+  if (!date) return 0;
+  return Math.floor((Date.now() - new Date(date).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+async function syncWomMembers() {
+  const s = await getSettings();
+  if (!s.womGroupId) return { updated: 0, total: 0, error: 'No WOM Group ID set' };
+
+  const url = `https://api.wiseoldman.net/v2/groups/${s.womGroupId}/memberships`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot' }
+  });
+  if (!res.ok) throw new Error(`WOM API returned ${res.status}`);
+
+  const memberships = await res.json();
+  if (!Array.isArray(memberships)) throw new Error('Unexpected WOM API response format');
+
+  let updated = 0;
+  for (const m of memberships) {
+    const rsName = m.player?.displayName || m.player?.username;
+    if (!rsName || !m.createdAt) continue;
+
+    const user = await User.findOne({
+      $or: [
+        { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
+        { rsNames: new RegExp(`^${rsName}$`, 'i') },
+      ],
+    });
+    if (!user) continue;
+
+    const newDate = new Date(m.createdAt);
+    if (!user.joinedClanAt || Math.abs(user.joinedClanAt - newDate) > 1000) {
+      await User.updateOne({ _id: user._id }, { joinedClanAt: newDate });
+      updated++;
+    }
+  }
+  return { updated, total: memberships.length };
 }
 
 async function checkRankUps(guild) {
@@ -333,6 +371,20 @@ client.once('ready', async () => {
       console.log(`[Ranks] Daily check complete. ${count} rank-up notification(s) sent.`);
     } catch (err) {
       console.error("Daily rank check error:", err);
+    }
+  });
+
+  // Daily WOM sync at 6am UTC
+  cron.schedule("0 6 * * *", async () => {
+    try {
+      const result = await syncWomMembers();
+      if (result.error) {
+        console.log(`[WOM] Sync skipped: ${result.error}`);
+      } else {
+        console.log(`[WOM] Daily sync complete. ${result.updated} updated / ${result.total} clan members.`);
+      }
+    } catch (err) {
+      console.error("WOM daily sync error:", err.message);
     }
   });
 
@@ -678,6 +730,21 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
+  if (command === "syncwom" && isMod(message.member)) {
+    message.channel.send("⏳ Syncing clan join dates from WiseOldMan...");
+    try {
+      const result = await syncWomMembers();
+      if (result.error) {
+        message.channel.send(`⚠️ ${result.error} — set your WOM Group ID in the dashboard first.`);
+      } else {
+        message.channel.send(`✅ WOM sync complete! **${result.updated}** user(s) updated out of **${result.total}** clan members.`);
+      }
+    } catch (err) {
+      console.error("!syncwom error:", err);
+      message.channel.send(`❌ WOM sync failed: ${err.message}`);
+    }
+  }
+
   if (command === "checkranks" && isMod(message.member)) {
     message.channel.send("🔍 Checking rank-ups...");
     try {
@@ -720,6 +787,8 @@ client.on(Events.MessageCreate, async (message) => {
 \`!rsnames\` — List all linked RS names
 \`!rsset @user <rsname>\` — Link RS name for any user
 \`!droptop\` — Award monthly XP from screenshot
+\`!syncwom\` — Sync clan join dates from WiseOldMan
+\`!checkranks\` — Trigger rank-up notifications now
 
 📊 **Current XP Rates** (from dashboard)
 Message XP: ${s.messageXpMin}–${s.messageXpMax} XP (${s.messageXpCooldownSecs}s cooldown)
@@ -921,6 +990,17 @@ const server = http.createServer(async (req, res) => {
         userCount,
         uptime: process.uptime(),
       });
+      return;
+    }
+
+    // POST /api/wom/sync
+    if (pathname === '/api/wom/sync' && req.method === 'POST') {
+      try {
+        const result = await syncWomMembers();
+        sendJson(res, 200, result);
+      } catch (e) {
+        sendJson(res, 500, { error: e.message });
+      }
       return;
     }
 

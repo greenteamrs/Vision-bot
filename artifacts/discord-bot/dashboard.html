@@ -370,6 +370,7 @@
           <div class="field-grid">
             <div class="field"><label>AFK Channel ID</label><input type="text" id="afkChannelId" /></div>
             <div class="field"><label>Rank Notify Channel ID</label><input type="text" id="rankNotifyChannelId" placeholder="Leave blank to use XP channel" /></div>
+            <div class="field"><label>WiseOldMan Group ID</label><input type="text" id="womGroupId" placeholder="e.g. 1234" /></div>
           </div>
         </div>
 
@@ -411,6 +412,7 @@
           <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
             <button class="btn-save" onclick="openRankModal()">+ Add Rank</button>
             <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow()" id="btn-check-ranks">🔍 Check Now</button>
+            <button class="btn-save" style="background:#14532d;border:1px solid #16a34a;" onclick="syncWomDashboard()" id="btn-wom-sync">🌐 Sync from WiseOldMan</button>
           </div>
           <div class="card" style="padding:0;overflow:hidden;margin-bottom:0;" id="ranks-table-wrap">
             <table>
@@ -576,7 +578,7 @@
     // XP Settings fields
     ['messageXpMin','messageXpMax','messageXpCooldownSecs',
      'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins',
-     'afkChannelId','rankNotifyChannelId'].forEach(k => {
+     'afkChannelId','rankNotifyChannelId','womGroupId'].forEach(k => {
       const el = document.getElementById(k);
       if (el) el.value = s[k] ?? '';
     });
@@ -601,8 +603,8 @@
 
   async function saveXpSettings() {
     const keys = ['messageXpMin','messageXpMax','messageXpCooldownSecs',
-                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId'];
-    const strKeys = new Set(['afkChannelId','rankNotifyChannelId']);
+                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId','womGroupId'];
+    const strKeys = new Set(['afkChannelId','rankNotifyChannelId','womGroupId']);
     const data = {};
     keys.forEach(k => {
       const el = document.getElementById(k);
@@ -838,6 +840,29 @@
     } else {
       showToast('Failed to delete rank.', true);
     }
+  }
+
+  async function syncWomDashboard() {
+    const btn = document.getElementById('btn-wom-sync');
+    btn.disabled = true;
+    btn.textContent = '⏳ Syncing...';
+    try {
+      const res = await api('POST', '/api/wom/sync');
+      const data = await res.json();
+      if (res.ok) {
+        if (data.error) {
+          showToast(data.error, true);
+        } else {
+          showToast(`WOM sync complete — ${data.updated} user(s) updated out of ${data.total} clan members.`);
+        }
+      } else {
+        showToast(data.error || 'WOM sync failed.', true);
+      }
+    } catch (e) {
+      showToast('Error contacting WOM.', true);
+    }
+    btn.disabled = false;
+    btn.textContent = '🌐 Sync from WiseOldMan';
   }
 
   async function checkRankUpsNow() {

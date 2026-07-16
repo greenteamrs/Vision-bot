@@ -16,9 +16,22 @@ const userSchema = new mongoose.Schema({
   lastMessageXp: { type: Date, default: null },
   lastVoiceJoinXp: { type: Date, default: null },
   rsName: { type: String, default: null },
+  joinedServerAt: { type: Date, default: null },
+  notifiedRankId: { type: String, default: null },
 });
 
 const User = mongoose.model('User', userSchema);
+
+// --- MongoDB: Rank Schema ---
+const rankSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  minDays: { type: Number, default: 0 },
+  minLootPoints: { type: Number, default: 0 },
+  minLevel: { type: Number, default: 0 },
+  order: { type: Number, default: 0 },
+}, { timestamps: true });
+
+const Rank = mongoose.model('Rank', rankSchema);
 
 // --- MongoDB: Settings Schema ---
 const settingsSchema = new mongoose.Schema({

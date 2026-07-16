@@ -321,6 +321,7 @@
     <nav>
       <button class="active" onclick="showSection('overview', this)">📊 Overview</button>
       <button onclick="showSection('xp-settings', this)">⭐ XP Settings</button>
+      <button onclick="showSection('levels', this)">📈 Levels</button>
       <button onclick="showSection('awards', this)">🏆 Monthly Awards</button>
       <button onclick="showSection('ranks', this)">🎖️ Ranks</button>
       <button onclick="showSection('users', this)">👥 Users</button>
@@ -396,6 +397,67 @@
         <div class="save-row">
           <button class="btn-save" onclick="saveXpSettings()">Save XP Settings</button>
           <span class="save-msg" id="xp-save-msg">✓ Saved!</span>
+        </div>
+      </div>
+
+      <!-- LEVELS -->
+      <div class="section" id="section-levels">
+        <div class="section-title">Level System</div>
+
+        <div class="card">
+          <h3>📐 XP Formula</h3>
+          <p style="color:#888; font-size:0.88rem; margin-bottom:16px;">
+            XP required to advance <em>from</em> a given level is calculated as:<br>
+            <code style="background:#0f0f1a; padding:4px 10px; border-radius:6px; color:#a78bfa; font-size:0.95rem;">
+              floor( A × level² + B × level + C )
+            </code>
+          </p>
+          <div class="field-grid">
+            <div class="field">
+              <label>A — quadratic coefficient</label>
+              <input type="number" id="levelA" step="0.1" min="0" oninput="updateLevelPreview()" />
+              <small style="color:#666; font-size:0.78rem;">Controls how steeply XP grows with level</small>
+            </div>
+            <div class="field">
+              <label>B — linear coefficient</label>
+              <input type="number" id="levelB" step="1" min="0" oninput="updateLevelPreview()" />
+            </div>
+            <div class="field">
+              <label>C — base XP</label>
+              <input type="number" id="levelC" step="1" min="0" oninput="updateLevelPreview()" />
+              <small style="color:#666; font-size:0.78rem;">XP required to reach level 1</small>
+            </div>
+            <div class="field">
+              <label>Max Level</label>
+              <input type="number" id="levelMax" min="1" max="9999" oninput="updateLevelPreview()" />
+              <small style="color:#666; font-size:0.78rem;">Members stop levelling after this</small>
+            </div>
+          </div>
+          <div class="save-row" style="margin-top:8px;">
+            <button class="btn-save" onclick="saveLevelSettings()">Save Level Settings</button>
+            <span class="save-msg" id="levels-save-msg">✓ Saved!</span>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0; overflow:hidden;">
+          <div style="padding:16px 16px 8px; display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">📊 Level Preview</h3>
+            <span style="color:#666; font-size:0.8rem;">Showing first 30 levels</span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Level</th>
+                  <th>XP to level up</th>
+                  <th>Total XP from scratch</th>
+                </tr>
+              </thead>
+              <tbody id="level-preview-body">
+                <tr><td colspan="3" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -604,6 +666,13 @@
       if (el) el.value = s[k] ?? '';
     });
 
+    // Level settings fields
+    ['levelA','levelB','levelC','levelMax'].forEach(k => {
+      const el = document.getElementById(k);
+      if (el) el.value = s[k] ?? '';
+    });
+    updateLevelPreview();
+
     // Awards
     (s.dropTopXp || []).forEach((v, i) => {
       const el = document.getElementById(`award-${i}`);
@@ -640,6 +709,48 @@
     } else {
       showToast('Failed to save.', true);
     }
+  }
+
+  async function saveLevelSettings() {
+    const data = {
+      levelA: parseFloat(document.getElementById('levelA').value) || 5,
+      levelB: parseFloat(document.getElementById('levelB').value) || 50,
+      levelC: parseFloat(document.getElementById('levelC').value) || 100,
+      levelMax: parseInt(document.getElementById('levelMax').value) || 99,
+    };
+    const res = await api('POST', '/api/settings', data);
+    if (res.ok) {
+      showMsg('levels-save-msg');
+      showToast('Level settings saved!');
+      await loadSettings();
+    } else {
+      showToast('Failed to save.', true);
+    }
+  }
+
+  function updateLevelPreview() {
+    const A = parseFloat(document.getElementById('levelA')?.value) || 5;
+    const B = parseFloat(document.getElementById('levelB')?.value) || 50;
+    const C = parseFloat(document.getElementById('levelC')?.value) || 100;
+    const maxLvl = parseInt(document.getElementById('levelMax')?.value) || 99;
+    const rows = Math.min(30, maxLvl);
+    const tbody = document.getElementById('level-preview-body');
+    if (!tbody) return;
+    let totalXp = 0;
+    let html = '';
+    for (let lvl = 0; lvl < rows; lvl++) {
+      const needed = Math.floor(A * lvl * lvl + B * lvl + C);
+      totalXp += needed;
+      html += `<tr>
+        <td style="color:#c4b5fd;font-weight:600;">${lvl + 1}</td>
+        <td>${needed.toLocaleString()} XP</td>
+        <td style="color:#888;">${totalXp.toLocaleString()} XP</td>
+      </tr>`;
+    }
+    if (maxLvl > 30) {
+      html += `<tr><td colspan="3" style="text-align:center;color:#555;padding:10px;font-size:0.82rem;">… up to level ${maxLvl}</td></tr>`;
+    }
+    tbody.innerHTML = html;
   }
 
   async function saveAwards() {

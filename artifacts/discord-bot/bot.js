@@ -49,6 +49,10 @@ const settingsSchema = new mongoose.Schema({
   afkChannelId: { type: String, default: '155520058762723328' },
   rankNotifyChannelId: { type: String, default: '' },
   womGroupId: { type: String, default: '' },
+  levelA: { type: Number, default: 5 },
+  levelB: { type: Number, default: 50 },
+  levelC: { type: Number, default: 100 },
+  levelMax: { type: Number, default: 99 },
 });
 
 const Settings = mongoose.model('Settings', settingsSchema);
@@ -71,6 +75,7 @@ async function saveSettings(data) {
     'voiceJoinXp', 'voiceJoinCooldownSecs',
     'voiceIntervalXp', 'voiceIntervalMins',
     'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId',
+    'levelA', 'levelB', 'levelC', 'levelMax',
   ];
   const update = {};
   for (const k of allowed) {
@@ -98,17 +103,22 @@ async function getUser(userId, username, member = null) {
 }
 
 function xpForLevel(level) {
-  return 5 * level * level + 50 * level + 100;
+  const A = cachedSettings?.levelA ?? 5;
+  const B = cachedSettings?.levelB ?? 50;
+  const C = cachedSettings?.levelC ?? 100;
+  return Math.floor(A * level * level + B * level + C);
 }
 
 async function addXp(userId, username, amount) {
   const user = await getUser(userId, username);
+  const maxLvl = cachedSettings?.levelMax ?? 99;
   user.xp += amount;
   user.username = username;
-  while (user.xp >= xpForLevel(user.level)) {
+  while (user.level < maxLvl && user.xp >= xpForLevel(user.level)) {
     user.xp -= xpForLevel(user.level);
     user.level += 1;
   }
+  if (user.level >= maxLvl) user.xp = 0;
   await user.save();
   return user;
 }

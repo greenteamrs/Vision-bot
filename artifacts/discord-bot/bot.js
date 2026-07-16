@@ -1091,6 +1091,23 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /api/wom/search?name=...
+    if (pathname === '/api/wom/search' && req.method === 'GET') {
+      const name = (params.get('name') || '').trim();
+      if (!name) { sendJson(res, 400, { error: 'name is required' }); return; }
+      try {
+        const url = `https://api.wiseoldman.net/v2/groups/search?name=${encodeURIComponent(name)}&limit=10`;
+        const r = await fetch(url, { headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot/1.0' } });
+        if (!r.ok) { sendJson(res, 502, { error: `WOM API returned ${r.status}` }); return; }
+        const body = await r.json();
+        const groups = Array.isArray(body) ? body : (Array.isArray(body.groups) ? body.groups : []);
+        sendJson(res, 200, groups.map(g => ({ id: g.id, name: g.name, memberCount: g.memberCount })));
+      } catch (e) {
+        sendJson(res, 502, { error: e.message });
+      }
+      return;
+    }
+
     // POST /api/wom/sync
     if (pathname === '/api/wom/sync' && req.method === 'POST') {
       try {

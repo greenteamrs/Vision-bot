@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits, Events } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
 const cron = require('node-cron');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // --- MongoDB Setup ---
 const userSchema = new mongoose.Schema({
@@ -12,6 +13,7 @@ const userSchema = new mongoose.Schema({
   lootPoints: { type: Number, default: 0 },
   lastMessageXp: { type: Date, default: null },
   lastVoiceJoinXp: { type: Date, default: null },
+  rsName: { type: String, default: null },
 });
 
 const User = mongoose.model('User', userSchema);
@@ -41,6 +43,33 @@ async function addXp(userId, username, amount) {
 
   await user.save();
   return user;
+}
+
+// --- Gemini Vision Setup ---
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+async function extractLeaderboardFromImage(imageUrl) {
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+  const imageRes = await fetch(imageUrl);
+  const imageBuffer = await imageRes.arrayBuffer();
+  const base64Image = Buffer.from(imageBuffer).toString('base64');
+  const mimeType = imageRes.headers.get('content-type') || 'image/png';
+
+  const prompt = `This is a RuneScape clan loot leaderboard screenshot. 
+Extract ONLY the player names in rank order (1st place first).
+Return ONLY a JSON array of names, no explanation, no markdown, no code block.
+Example: ["PlayerOne","PlayerTwo","PlayerThree"]
+List up to 10 players. If fewer than 10 are visible, list only those shown.`;
+
+  const result = await model.generateContent([
+    prompt,
+    { inlineData: { data: base64Image, mimeType } },
+  ]);
+
+  const text = result.response.text().trim();
+  const cleaned = text.replace(/```json|```/g, '').trim();
+  return JSON.parse(cleaned);
 }
 
 // --- Discord Client ---
@@ -121,6 +150,42 @@ async function buildXpLeaderboard() {
 // --- Helper: Check if user is a mod ---
 function isMod(member) {
   return member.roles.cache.some(r => r.name.toLowerCase() === "mods" || r.name.toLowerCase() === "mod");
+}
+
+// --- DropTracker monthly XP awards ---
+const DROP_TOP_XP = [5000, 4000, 3000, 2000, 1000, 1000, 1000, 1000, 1000, 1000];
+
+async function awardDropTopXp(rankedNames, guild, channel) {
+  const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+  const lines = [];
+  const unmatched = [];
+
+  for (let i = 0; i < rankedNames.length && i < 10; i++) {
+    const rsName = rankedNames[i].toLowerCase();
+    const xpReward = DROP_TOP_XP[i];
+
+    const dbUser = await User.findOne({ rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } });
+
+    if (!dbUser) {
+      unmatched.push(`${medals[i]} **${rankedNames[i]}** — no Discord link found`);
+      continue;
+    }
+
+    const updated = await addXp(dbUser.userId, dbUser.username, xpReward);
+    const discordMember = await guild.members.fetch(dbUser.userId).catch(() => null);
+    const displayName = discordMember ? `<@${dbUser.userId}>` : dbUser.username;
+
+    lines.push(`${medals[i]} ${displayName} (**${rankedNames[i]}**) — +${xpReward.toLocaleString()} XP → Level ${updated.level}`);
+  }
+
+  let response = `🏆 **Monthly DropTracker Awards!**\n\n`;
+  if (lines.length > 0) response += lines.join('\n') + '\n';
+  if (unmatched.length > 0) {
+    response += `\n⚠️ **Unmatched RS names** (ask them to use \`!rslink <rsname>\`):\n`;
+    response += unmatched.join('\n');
+  }
+
+  channel.send(response);
 }
 
 // --- Ready ---
@@ -212,7 +277,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(`🏅 ${target.username} is **Level ${user.level}** — ${user.xp}/${needed} XP to next level`);
   }
 
-  // !leaderboard → XP leaderboard with username, level, xp
+  // !leaderboard → XP leaderboard
   if (command === "leaderboard") {
     const lb = await buildXpLeaderboard();
     message.channel.send(lb);
@@ -228,6 +293,89 @@ client.on(Events.MessageCreate, async (message) => {
   if (command === "total") {
     const leaderboard = await buildLeaderboard();
     message.channel.send(leaderboard);
+  }
+
+  // !rslink → link your RS name to your Discord account
+  // Usage: !rslink YourRsName
+  if (command === "rslink") {
+    const rsName = args.join(' ').trim();
+    if (!rsName) return message.reply("Usage: `!rslink YourRuneScapeName`");
+
+    const existing = await User.findOne({ rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } });
+    if (existing && existing.userId !== message.author.id) {
+      return message.reply(`❌ The RS name **${rsName}** is already linked to another Discord account.`);
+    }
+
+    await User.findOneAndUpdate(
+      { userId: message.author.id },
+      { $set: { rsName: rsName, username: message.author.username } },
+      { upsert: true, new: true }
+    );
+    message.reply(`✅ Your RS name **${rsName}** has been linked to your Discord account!`);
+  }
+
+  // !myrs → check your linked RS name
+  if (command === "myrs") {
+    const user = await getUser(message.author.id, message.author.username);
+    if (!user.rsName) return message.reply("You haven't linked an RS name yet. Use `!rslink YourRsName`");
+    message.reply(`Your linked RS name is: **${user.rsName}**`);
+  }
+
+  // !rsnames → list all linked RS names (admin only)
+  if (command === "rsnames") {
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
+    const users = await User.find({ rsName: { $ne: null } }).sort({ rsName: 1 });
+    if (users.length === 0) return message.channel.send("No RS names linked yet.");
+    const lines = users.map(u => `• **${u.rsName}** → ${u.username || u.userId}`);
+    message.channel.send(`📋 **Linked RS Names (${users.length}):**\n${lines.join('\n')}`);
+  }
+
+  // !rsset → admin sets RS name for any user
+  // Usage: !rsset @user RsName
+  if (command === "rsset") {
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
+    const target = message.mentions.users.first();
+    const rsName = args.slice(1).join(' ').trim();
+    if (!target || !rsName) return message.reply("Usage: `!rsset @user RsName`");
+
+    await User.findOneAndUpdate(
+      { userId: target.id },
+      { $set: { rsName, username: target.username } },
+      { upsert: true, new: true }
+    );
+    message.channel.send(`✅ Linked **${rsName}** to ${target.username}`);
+  }
+
+  // !droptop → read a screenshot of the monthly loot leaderboard and award XP
+  // Usage: !droptop (with an image attached)
+  if (command === "droptop") {
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
+    if (!process.env.GEMINI_API_KEY) return message.reply("❌ GEMINI_API_KEY is not set.");
+
+    const attachment = message.attachments.first();
+    if (!attachment) return message.reply("❌ Please attach a screenshot of the DropTracker leaderboard.\nUsage: `!droptop` with an image attached.");
+
+    const processingMsg = await message.channel.send("⏳ Reading leaderboard screenshot with AI, please wait...");
+
+    try {
+      const names = await extractLeaderboardFromImage(attachment.url);
+
+      if (!Array.isArray(names) || names.length === 0) {
+        await processingMsg.delete().catch(() => {});
+        return message.channel.send("❌ Couldn't extract any names from the image. Please try a clearer screenshot.");
+      }
+
+      await processingMsg.delete().catch(() => {});
+
+      const preview = names.map((n, i) => `${i + 1}. ${n}`).join('\n');
+      await message.channel.send(`📋 **Detected rankings:**\n${preview}\n\nAwarding XP now...`);
+
+      await awardDropTopXp(names, message.guild, message.channel);
+    } catch (err) {
+      console.error("!droptop error:", err);
+      await processingMsg.delete().catch(() => {});
+      message.channel.send(`❌ Failed to read the screenshot: ${err.message}`);
+    }
   }
 
   // !split → give each user full amount of LP
@@ -287,7 +435,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
-  // !addxp → add XP (mods only)
+  // !addxp → add XP (admin only)
   if (command === "addxp") {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
     const amount = parseInt(args[0]);
@@ -298,6 +446,23 @@ client.on(Events.MessageCreate, async (message) => {
     for (const user of users.values()) {
       const updated = await addXp(user.id, user.username, amount);
       lines.push(`✅ Added ${amount} XP to ${user.username}. They are now Level ${updated.level} (${updated.xp} XP).`);
+    }
+    message.channel.send(lines.join("\n"));
+  }
+
+  // !removexp → remove XP (admin only)
+  if (command === "removexp") {
+    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
+    const amount = parseInt(args[0]);
+    const users = message.mentions.users;
+    if (isNaN(amount) || users.size === 0) return message.reply("Usage: !removexp amount @user");
+
+    const lines = [];
+    for (const user of users.values()) {
+      const u = await getUser(user.id, user.username);
+      u.xp = Math.max(0, u.xp - amount);
+      await u.save();
+      lines.push(`❌ Removed ${amount} XP from ${user.username}. They are now Level ${u.level} (${u.xp} XP).`);
     }
     message.channel.send(lines.join("\n"));
   }
@@ -387,21 +552,33 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  // !removexp → remove XP (mods only)
-  if (command === "removexp") {
-    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Only admins can use this command.");
-    const amount = parseInt(args[0]);
-    const users = message.mentions.users;
-    if (isNaN(amount) || users.size === 0) return message.reply("Usage: !removexp amount @user");
+  // !help → list available commands
+  if (command === "help") {
+    message.channel.send(`📖 **Visionary Bot Commands**
 
-    const lines = [];
-    for (const user of users.values()) {
-      const u = await getUser(user.id, user.username);
-      u.xp = Math.max(0, u.xp - amount);
-      await u.save();
-      lines.push(`❌ Removed ${amount} XP from ${user.username}. They are now Level ${u.level} (${u.xp} XP).`);
-    }
-    message.channel.send(lines.join("\n"));
+**XP & Levels**
+\`!xp [@user]\` — Check XP and level
+\`!level [@user]\` — Check current level
+\`!leaderboard\` / \`!xptop\` — XP leaderboard
+
+**Loot Points**
+\`!lp [@user]\` — Check LP balance
+\`!total\` — LP leaderboard
+\`!split <amount> @users\` — Give each user LP
+\`!donate <amount> @users\` — Give each user half LP
+\`!add <amount> @user\` — Add LP
+\`!remove <amount> @user\` — Remove LP
+
+**RS Name Linking**
+\`!rslink <rsname>\` — Link your RS name to Discord
+\`!myrs\` — Check your linked RS name
+
+**Admin Only**
+\`!addxp <amount> @user\` — Add XP
+\`!removexp <amount> @user\` — Remove XP
+\`!rsnames\` — List all linked RS names
+\`!rsset @user <rsname>\` — Link RS name for any user
+\`!droptop\` — Award monthly XP from a screenshot (attach image)`);
   }
 });
 
@@ -453,7 +630,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       } catch (err) {
         console.error("Voice interval XP error:", err);
       }
-    }, 30 * 60 * 1000); // every 30 minutes
+    }, 30 * 60 * 1000);
   }
 
   // User left a voice channel or moved to AFK

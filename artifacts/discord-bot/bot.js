@@ -995,6 +995,7 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://localhost`);
   const pathname = url.pathname;
+  const params = url.searchParams;
 
   // Keep-alive
   if (pathname === '/' || pathname === '') {
@@ -1117,8 +1118,8 @@ const server = http.createServer(async (req, res) => {
       const name = (params.get('name') || '').trim();
       if (!name) { sendJson(res, 400, { error: 'name is required' }); return; }
       try {
-        const url = `https://api.wiseoldman.net/v2/groups/search?name=${encodeURIComponent(name)}&limit=10`;
-        const r = await fetch(url, { headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot/1.0' } });
+        const searchUrl = `https://api.wiseoldman.net/v2/groups/search?name=${encodeURIComponent(name)}&limit=10`;
+        const r = await fetch(searchUrl, { headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot/1.0' } });
         if (!r.ok) { sendJson(res, 502, { error: `WOM API returned ${r.status}` }); return; }
         const body = await r.json();
         const groups = Array.isArray(body) ? body : (Array.isArray(body.groups) ? body.groups : []);

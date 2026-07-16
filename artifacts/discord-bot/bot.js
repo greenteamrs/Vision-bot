@@ -45,6 +45,7 @@ const settingsSchema = new mongoose.Schema({
   voiceIntervalMins: { type: Number, default: 30 },
   dropTopXp: { type: [Number], default: [5000, 4000, 3000, 2000, 1000, 1000, 1000, 1000, 1000, 1000] },
   afkChannelId: { type: String, default: '155520058762723328' },
+  rankNotifyChannelId: { type: String, default: '' },
 });
 
 const Settings = mongoose.model('Settings', settingsSchema);
@@ -66,7 +67,7 @@ async function saveSettings(data) {
     'messageXpMin', 'messageXpMax', 'messageXpCooldownSecs',
     'voiceJoinXp', 'voiceJoinCooldownSecs',
     'voiceIntervalXp', 'voiceIntervalMins',
-    'dropTopXp', 'afkChannelId',
+    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId',
   ];
   const update = {};
   for (const k of allowed) {
@@ -80,10 +81,14 @@ async function saveSettings(data) {
 setInterval(() => { cachedSettings = null; }, 5 * 60 * 1000);
 
 // --- User helpers ---
-async function getUser(userId, username) {
+async function getUser(userId, username, member = null) {
   let user = await User.findOne({ userId });
   if (!user) {
     user = new User({ userId, username });
+    if (member?.joinedAt) user.joinedServerAt = member.joinedAt;
+    await user.save();
+  } else if (!user.joinedServerAt && member?.joinedAt) {
+    user.joinedServerAt = member.joinedAt;
     await user.save();
   }
   return user;
@@ -208,6 +213,51 @@ function isMod(member) {
   return member.roles.cache.some(r => r.name.toLowerCase() === "mods" || r.name.toLowerCase() === "mod");
 }
 
+function daysInClan(user) {
+  if (!user.joinedServerAt) return 0;
+  return Math.floor((Date.now() - new Date(user.joinedServerAt).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+async function checkRankUps(guild) {
+  const s = await getSettings();
+  const notifyChannelId = s.rankNotifyChannelId || XP_CHANNEL_ID;
+  const ranks = await Rank.find().sort({ order: 1, minLevel: 1, minLootPoints: 1 });
+  if (ranks.length === 0) return 0;
+
+  const users = await User.find({});
+  let notified = 0;
+
+  for (const user of users) {
+    const days = daysInClan(user);
+    let qualifiedRank = null;
+
+    for (const rank of ranks) {
+      if (days >= rank.minDays && user.lootPoints >= rank.minLootPoints && user.level >= rank.minLevel) {
+        qualifiedRank = rank;
+      }
+    }
+
+    if (!qualifiedRank) continue;
+    if (user.notifiedRankId === qualifiedRank._id.toString()) continue;
+
+    await User.updateOne({ userId: user.userId }, { notifiedRankId: qualifiedRank._id.toString() });
+
+    try {
+      const channel = await client.channels.fetch(notifyChannelId);
+      const discordMember = guild ? await guild.members.fetch(user.userId).catch(() => null) : null;
+      const mention = discordMember ? `<@${user.userId}>` : (user.username || user.userId);
+      channel.send(
+        `🎉 **Rank-up alert!** ${mention} now qualifies for **${qualifiedRank.name}**!\n` +
+        `📅 ${days} days | 🏆 ${user.lootPoints} LP | ⭐ Level ${user.level}`
+      );
+      notified++;
+    } catch (err) {
+      console.error(`Rank notify error for ${user.username}:`, err);
+    }
+  }
+  return notified;
+}
+
 // --- Drop Top XP Awards ---
 async function awardDropTopXp(rankedNames, guild, channel) {
   const s = await getSettings();
@@ -271,7 +321,18 @@ client.once('ready', async () => {
     }
   });
 
-  console.log("Daily leaderboard scheduled for 11:59 PM UTC.");
+  // Daily rank-up check at noon UTC
+  cron.schedule("0 12 * * *", async () => {
+    try {
+      const guild = client.guilds.cache.first();
+      const count = await checkRankUps(guild);
+      console.log(`[Ranks] Daily check complete. ${count} rank-up notification(s) sent.`);
+    } catch (err) {
+      console.error("Daily rank check error:", err);
+    }
+  });
+
+  console.log("Daily leaderboard + rank check scheduled.");
 });
 
 function hasVisionariesRole(member) {
@@ -301,7 +362,7 @@ client.on(Events.MessageCreate, async (message) => {
   try {
     if (hasVisionariesRole(message.member)) {
       const s = await getSettings();
-      const user = await getUser(message.author.id, message.author.username);
+      const user = await getUser(message.author.id, message.author.username, message.member);
       const now = new Date();
 
       if (!user.lastMessageXp || (now - user.lastMessageXp) > s.messageXpCooldownSecs * 1000) {
@@ -566,6 +627,18 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
+  if (command === "checkranks" && isMod(message.member)) {
+    message.channel.send("🔍 Checking rank-ups...");
+    try {
+      const guild = message.guild;
+      const count = await checkRankUps(guild);
+      message.channel.send(`✅ Rank check complete. **${count}** new rank-up notification(s) sent.`);
+    } catch (err) {
+      console.error("!checkranks error:", err);
+      message.channel.send("❌ Error during rank check.");
+    }
+  }
+
   if (command === "help") {
     const s = await getSettings();
     message.channel.send(`📖 **Visionary Bot Commands**
@@ -685,7 +758,7 @@ const PORT = process.env.PORT || 3000;
 
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
@@ -784,6 +857,74 @@ const server = http.createServer(async (req, res) => {
         userCount,
         uptime: process.uptime(),
       });
+      return;
+    }
+
+    // GET /api/ranks
+    if (pathname === '/api/ranks' && req.method === 'GET') {
+      const ranks = await Rank.find().sort({ order: 1, minLevel: 1 });
+      sendJson(res, 200, ranks);
+      return;
+    }
+
+    // POST /api/ranks
+    if (pathname === '/api/ranks' && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const rank = await Rank.create({
+          name: data.name,
+          minDays: Number(data.minDays) || 0,
+          minLootPoints: Number(data.minLootPoints) || 0,
+          minLevel: Number(data.minLevel) || 0,
+          order: Number(data.order) || 0,
+        });
+        sendJson(res, 201, rank);
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+      }
+      return;
+    }
+
+    // POST /api/ranks/check
+    if (pathname === '/api/ranks/check' && req.method === 'POST') {
+      try {
+        const guild = client.guilds.cache.first();
+        const count = await checkRankUps(guild);
+        sendJson(res, 200, { notified: count });
+      } catch (e) {
+        sendJson(res, 500, { error: e.message });
+      }
+      return;
+    }
+
+    // PATCH /api/ranks/:id
+    const rankMatchPatch = pathname.match(/^\/api\/ranks\/(.+)$/);
+    if (rankMatchPatch && req.method === 'PATCH') {
+      try {
+        const data = await readBody(req);
+        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order'];
+        const update = {};
+        for (const k of allowed) {
+          if (data[k] !== undefined) update[k] = data[k];
+        }
+        const rank = await Rank.findByIdAndUpdate(rankMatchPatch[1], { $set: update }, { new: true });
+        if (!rank) { sendJson(res, 404, { error: 'Not found' }); return; }
+        sendJson(res, 200, rank);
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+      }
+      return;
+    }
+
+    // DELETE /api/ranks/:id
+    const rankMatchDelete = pathname.match(/^\/api\/ranks\/(.+)$/);
+    if (rankMatchDelete && req.method === 'DELETE') {
+      try {
+        await Rank.findByIdAndDelete(rankMatchDelete[1]);
+        sendJson(res, 200, { success: true });
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+      }
       return;
     }
 

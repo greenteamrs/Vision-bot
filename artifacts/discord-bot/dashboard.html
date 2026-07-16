@@ -303,6 +303,7 @@
       <button class="active" onclick="showSection('overview', this)">📊 Overview</button>
       <button onclick="showSection('xp-settings', this)">⭐ XP Settings</button>
       <button onclick="showSection('awards', this)">🏆 Monthly Awards</button>
+      <button onclick="showSection('ranks', this)">🎖️ Ranks</button>
       <button onclick="showSection('users', this)">👥 Users</button>
     </nav>
 
@@ -368,6 +369,7 @@
           <h3>⚙️ Bot Config</h3>
           <div class="field-grid">
             <div class="field"><label>AFK Channel ID</label><input type="text" id="afkChannelId" /></div>
+            <div class="field"><label>Rank Notify Channel ID</label><input type="text" id="rankNotifyChannelId" placeholder="Leave blank to use XP channel" /></div>
           </div>
         </div>
 
@@ -397,6 +399,35 @@
           <div class="save-row">
             <button class="btn-save" onclick="saveAwards()">Save Awards</button>
             <span class="save-msg" id="awards-save-msg">✓ Saved!</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RANKS -->
+      <div class="section" id="section-ranks">
+        <div class="section-title">Ranks</div>
+        <div class="card">
+          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) and notifies when a member meets a rank's requirements. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!checkranks</code> in Discord (mods only) to trigger an immediate check.</p>
+          <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+            <button class="btn-save" onclick="openRankModal()">+ Add Rank</button>
+            <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow()" id="btn-check-ranks">🔍 Check Now</button>
+          </div>
+          <div class="card" style="padding:0;overflow:hidden;margin-bottom:0;" id="ranks-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank Name</th>
+                  <th>Min Days</th>
+                  <th>Min LP</th>
+                  <th>Min Level</th>
+                  <th>Order</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="ranks-table-body">
+                <tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -443,6 +474,23 @@
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
       <button class="btn-save" onclick="saveUser()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- RANK MODAL -->
+<div class="modal-overlay" id="rank-modal">
+  <div class="modal">
+    <h3 id="rank-modal-title">Add Rank</h3>
+    <input type="hidden" id="rank-modal-id" />
+    <div class="field"><label>Rank Name</label><input type="text" id="rank-name" placeholder="e.g. Sergeant" /></div>
+    <div class="field"><label>Min Days in Clan</label><input type="number" id="rank-minDays" value="0" min="0" /></div>
+    <div class="field"><label>Min Loot Points</label><input type="number" id="rank-minLootPoints" value="0" min="0" /></div>
+    <div class="field"><label>Min Community Level</label><input type="number" id="rank-minLevel" value="0" min="0" /></div>
+    <div class="field"><label>Order (lower = lower tier)</label><input type="number" id="rank-order" value="0" min="0" /></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeRankModal()">Cancel</button>
+      <button class="btn-save" onclick="saveRank()">Save Rank</button>
     </div>
   </div>
 </div>
@@ -528,9 +576,9 @@
     // XP Settings fields
     ['messageXpMin','messageXpMax','messageXpCooldownSecs',
      'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins',
-     'afkChannelId'].forEach(k => {
+     'afkChannelId','rankNotifyChannelId'].forEach(k => {
       const el = document.getElementById(k);
-      if (el) el.value = s[k];
+      if (el) el.value = s[k] ?? '';
     });
 
     // Awards
@@ -553,12 +601,13 @@
 
   async function saveXpSettings() {
     const keys = ['messageXpMin','messageXpMax','messageXpCooldownSecs',
-                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId'];
+                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId'];
+    const strKeys = new Set(['afkChannelId','rankNotifyChannelId']);
     const data = {};
     keys.forEach(k => {
       const el = document.getElementById(k);
       if (!el) return;
-      data[k] = k === 'afkChannelId' ? el.value.trim() : Number(el.value);
+      data[k] = strKeys.has(k) ? el.value.trim() : Number(el.value);
     });
     const res = await api('POST', '/api/settings', data);
     if (res.ok) {
@@ -671,6 +720,7 @@
     btn.classList.add('active');
     if (name === 'users') loadUsers(1);
     if (name === 'overview') loadStatus();
+    if (name === 'ranks') loadRanks();
   }
 
   function showMsg(id) {
@@ -695,6 +745,101 @@
   document.getElementById('edit-modal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
   });
+
+  document.getElementById('rank-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeRankModal();
+  });
+
+  // ---- RANKS ----
+  async function loadRanks() {
+    const res = await api('GET', '/api/ranks');
+    const ranks = await res.json();
+    const tbody = document.getElementById('ranks-table-body');
+    if (!ranks || ranks.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = ranks.map(r => `
+      <tr>
+        <td style="font-weight:600;color:#c4b5fd">${esc(r.name)}</td>
+        <td>${r.minDays} days</td>
+        <td>${r.minLootPoints.toLocaleString()} LP</td>
+        <td>Level ${r.minLevel}</td>
+        <td>${r.order}</td>
+        <td style="display:flex;gap:6px;">
+          <button class="btn-edit" onclick="openRankModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
+          <button class="btn-edit" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteRank('${r._id}', '${esc(r.name)}')">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  function openRankModal(rank) {
+    document.getElementById('rank-modal-title').textContent = rank ? `Edit Rank — ${rank.name}` : 'Add Rank';
+    document.getElementById('rank-modal-id').value = rank?._id || '';
+    document.getElementById('rank-name').value = rank?.name || '';
+    document.getElementById('rank-minDays').value = rank?.minDays ?? 0;
+    document.getElementById('rank-minLootPoints').value = rank?.minLootPoints ?? 0;
+    document.getElementById('rank-minLevel').value = rank?.minLevel ?? 0;
+    document.getElementById('rank-order').value = rank?.order ?? 0;
+    document.getElementById('rank-modal').classList.add('open');
+  }
+
+  function closeRankModal() {
+    document.getElementById('rank-modal').classList.remove('open');
+  }
+
+  async function saveRank() {
+    const id = document.getElementById('rank-modal-id').value;
+    const data = {
+      name: document.getElementById('rank-name').value.trim(),
+      minDays: Number(document.getElementById('rank-minDays').value) || 0,
+      minLootPoints: Number(document.getElementById('rank-minLootPoints').value) || 0,
+      minLevel: Number(document.getElementById('rank-minLevel').value) || 0,
+      order: Number(document.getElementById('rank-order').value) || 0,
+    };
+    if (!data.name) { showToast('Rank name is required.', true); return; }
+    const res = id
+      ? await api('PATCH', `/api/ranks/${id}`, data)
+      : await api('POST', '/api/ranks', data);
+    if (res.ok) {
+      closeRankModal();
+      showToast(id ? 'Rank updated!' : 'Rank created!');
+      loadRanks();
+    } else {
+      showToast('Failed to save rank.', true);
+    }
+  }
+
+  async function deleteRank(id, name) {
+    if (!confirm(`Delete rank "${name}"? This cannot be undone.`)) return;
+    const res = await api('DELETE', `/api/ranks/${id}`);
+    if (res.ok) {
+      showToast('Rank deleted.');
+      loadRanks();
+    } else {
+      showToast('Failed to delete rank.', true);
+    }
+  }
+
+  async function checkRankUpsNow() {
+    const btn = document.getElementById('btn-check-ranks');
+    btn.disabled = true;
+    btn.textContent = '⏳ Checking...';
+    try {
+      const res = await api('POST', '/api/ranks/check');
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Check complete — ${data.notified} notification(s) sent.`);
+      } else {
+        showToast('Check failed.', true);
+      }
+    } catch (e) {
+      showToast('Error running check.', true);
+    }
+    btn.disabled = false;
+    btn.textContent = '🔍 Check Now';
+  }
 </script>
 </body>
 </html>

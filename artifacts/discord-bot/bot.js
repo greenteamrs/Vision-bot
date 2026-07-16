@@ -298,16 +298,31 @@ function daysInClan(user) {
 
 async function syncWomMembers() {
   const s = await getSettings();
-  if (!s.womGroupId) return { updated: 0, total: 0, error: 'No WOM Group ID set' };
+  const groupId = String(s.womGroupId || '').trim();
+  if (!groupId) return { updated: 0, total: 0, error: 'No WOM Group ID set. Add it in XP Settings.' };
 
-  const url = `https://api.wiseoldman.net/v2/groups/${s.womGroupId}/memberships`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot' }
-  });
-  if (!res.ok) throw new Error(`WOM API returned ${res.status}`);
+  // Fetch all memberships with a high limit to avoid pagination truncation
+  const url = `https://api.wiseoldman.net/v2/groups/${groupId}/memberships?limit=3000`;
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot/1.0' }
+    });
+  } catch (e) {
+    return { updated: 0, total: 0, error: `Network error reaching WOM API: ${e.message}` };
+  }
 
-  const memberships = await res.json();
-  if (!Array.isArray(memberships)) throw new Error('Unexpected WOM API response format');
+  if (res.status === 404) {
+    return { updated: 0, total: 0, error: `WOM group "${groupId}" not found. Check the Group ID in XP Settings (should be a number, e.g. 1234).` };
+  }
+  if (!res.ok) {
+    return { updated: 0, total: 0, error: `WOM API error ${res.status} for group "${groupId}".` };
+  }
+
+  const body = await res.json();
+  // WOM v2 returns either a plain array or { memberships: [...] }
+  const memberships = Array.isArray(body) ? body : (Array.isArray(body.memberships) ? body.memberships : null);
+  if (!memberships) return { updated: 0, total: 0, error: 'Unexpected WOM API response format.' };
 
   let updated = 0;
   for (const m of memberships) {

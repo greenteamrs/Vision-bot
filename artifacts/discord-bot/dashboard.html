@@ -542,11 +542,12 @@
                 <th class="sortable" onclick="setUserSort('level')">Level <span class="sort-arrow" id="sarr-level">▼</span></th>
                 <th class="sortable" onclick="setUserSort('xp')">XP <span class="sort-arrow" id="sarr-xp"></span></th>
                 <th class="sortable" onclick="setUserSort('lootPoints')">LP <span class="sort-arrow" id="sarr-lootPoints"></span></th>
+                <th class="sortable" onclick="setUserSort('daysInClan')">Days in Clan <span class="sort-arrow" id="sarr-daysInClan"></span></th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="users-table-body">
-              <tr><td colspan="6" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
+              <tr><td colspan="7" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -858,7 +859,7 @@
   }
 
   function updateSortArrows() {
-    ['username','rsName','level','xp','lootPoints'].forEach(f => {
+    ['username','rsName','level','xp','lootPoints','daysInClan'].forEach(f => {
       const el = document.getElementById(`sarr-${f}`);
       const th = el?.closest('th');
       if (!el) return;
@@ -881,21 +882,28 @@
 
     const tbody = document.getElementById('users-table-body');
     if (!data.users || data.users.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
     } else {
-      tbody.innerHTML = data.users.map(u => `
-        <tr>
+      tbody.innerHTML = data.users.map(u => {
+        const names = (u.rsNames && u.rsNames.length ? u.rsNames : (u.rsName ? [u.rsName] : []));
+        const joinDate = u.joinedClanAt || u.joinedServerAt;
+        const days = joinDate ? Math.floor((Date.now() - new Date(joinDate).getTime()) / 86400000) : null;
+        const daysCell = days !== null
+          ? `<span style="color:#c4b5fd;font-weight:600">${days}</span><span style="color:#555;font-size:0.78rem"> d</span>`
+          : `<span style="color:#444">—</span>`;
+        return `<tr>
           <td>${esc(u.username || u.userId)}</td>
-          <td style="color:#888">${esc((u.rsNames && u.rsNames.length ? u.rsNames : (u.rsName ? [u.rsName] : [])).join(', ') || '—')}</td>
+          <td style="color:#888">${esc(names.join(', ') || '—')}</td>
           <td>${u.level}</td>
           <td>${u.xp}</td>
           <td>${u.lootPoints}</td>
+          <td>${daysCell}</td>
           <td style="display:flex;gap:6px;">
             <button class="btn-edit" onclick="openEditModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>
             <button class="btn-edit" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteUser('${esc(u.userId)}', '${esc(u.username || u.userId)}')">Delete</button>
           </td>
-        </tr>
-      `).join('');
+        </tr>`;
+      }).join('');
     }
 
     renderPagination(data.pages, page);

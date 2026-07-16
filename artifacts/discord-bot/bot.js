@@ -589,11 +589,18 @@ client.on(Events.MessageCreate, async (message) => {
       ],
     });
     if (existing) return message.reply(`❌ The RS name **${rsName}** is already linked to another account.`);
-    await User.findOneAndUpdate(
-      { userId: message.author.id },
-      { $addToSet: { rsNames: rsName }, $set: { rsName, username: message.author.username } },
-      { upsert: true, new: true }
-    );
+    const currentUser = await User.findOne({ userId: message.author.id });
+    const hasNames = currentUser?.rsNames?.length > 0 || !!currentUser?.rsName;
+    const alreadyHas = currentUser?.rsNames?.some(n => n.toLowerCase() === rsName.toLowerCase());
+    const setFields = { username: message.author.username };
+    if (!hasNames) {
+      // First RS name: set as primary and record join date
+      setFields.rsName = rsName;
+      if (!currentUser?.joinedClanAt) setFields.joinedClanAt = new Date();
+    }
+    const update = { $set: setFields };
+    if (!alreadyHas) update.$push = { rsNames: rsName }; // always appends to back
+    await User.findOneAndUpdate({ userId: message.author.id }, update, { upsert: true, new: true });
     message.reply(`✅ RS name **${rsName}** linked! Use \`!myrs\` to see all your linked names.`);
   }
 
@@ -635,11 +642,17 @@ client.on(Events.MessageCreate, async (message) => {
     const target = message.mentions.users.first();
     const rsName = args.slice(1).join(' ').trim();
     if (!target || !rsName) return message.reply("Usage: `!rsset @user RsName`");
-    await User.findOneAndUpdate(
-      { userId: target.id },
-      { $addToSet: { rsNames: rsName }, $set: { rsName, username: target.username } },
-      { upsert: true, new: true }
-    );
+    const targetUser = await User.findOne({ userId: target.id });
+    const targetHasNames = targetUser?.rsNames?.length > 0 || !!targetUser?.rsName;
+    const targetAlreadyHas = targetUser?.rsNames?.some(n => n.toLowerCase() === rsName.toLowerCase());
+    const setFields2 = { username: target.username };
+    if (!targetHasNames) {
+      setFields2.rsName = rsName;
+      if (!targetUser?.joinedClanAt) setFields2.joinedClanAt = new Date();
+    }
+    const update2 = { $set: setFields2 };
+    if (!targetAlreadyHas) update2.$push = { rsNames: rsName };
+    await User.findOneAndUpdate({ userId: target.id }, update2, { upsert: true, new: true });
     message.channel.send(`✅ Linked **${rsName}** to ${target.username}`);
   }
 
@@ -1002,11 +1015,19 @@ const server = http.createServer(async (req, res) => {
         ? { $or: [{ username: { $regex: search, $options: 'i' } }, { rsName: { $regex: search, $options: 'i' } }, { rsNames: new RegExp(search, 'i') }] }
         : {};
       const validSorts = { username: 1, rsName: 1, level: 1, xp: 1, lootPoints: 1 };
-      const sortField = validSorts.hasOwnProperty(url.searchParams.get('sort')) ? url.searchParams.get('sort') : 'level';
+      const rawSort = url.searchParams.get('sort');
       const sortDir = url.searchParams.get('dir') === 'asc' ? 1 : -1;
-      const sortObj = { [sortField]: sortDir };
-      if (sortField !== 'level') sortObj.level = -1;
-      if (sortField !== 'xp') sortObj.xp = -1;
+      let sortObj;
+      if (rawSort === 'daysInClan') {
+        // Oldest joinedClanAt = most days in clan; nulls last
+        const clanDir = sortDir === -1 ? 1 : -1; // invert: "desc days" = earliest date first
+        sortObj = { joinedClanAt: clanDir };
+      } else {
+        const sortField = validSorts.hasOwnProperty(rawSort) ? rawSort : 'level';
+        sortObj = { [sortField]: sortDir };
+        if (sortField !== 'level') sortObj.level = -1;
+        if (sortField !== 'xp') sortObj.xp = -1;
+      }
       const total = await User.countDocuments(query);
       const users = await User.find(query).sort(sortObj).skip((page - 1) * limit).limit(limit);
       sendJson(res, 200, { users, total, page, pages: Math.ceil(total / limit) });

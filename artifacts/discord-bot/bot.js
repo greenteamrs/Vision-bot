@@ -361,6 +361,17 @@ client.once('ready', async () => {
     } catch (err) {
       console.error("Failed to post daily leaderboard:", err);
     }
+
+    try {
+      const result = await syncWomMembers();
+      if (result.error) {
+        console.log(`[WOM] Sync skipped: ${result.error}`);
+      } else {
+        console.log(`[WOM] Daily sync complete. ${result.updated} updated / ${result.total} clan members.`);
+      }
+    } catch (err) {
+      console.error("WOM daily sync error:", err.message);
+    }
   });
 
   // Daily rank-up check at noon UTC
@@ -374,19 +385,6 @@ client.once('ready', async () => {
     }
   });
 
-  // Daily WOM sync at 6am UTC
-  cron.schedule("0 6 * * *", async () => {
-    try {
-      const result = await syncWomMembers();
-      if (result.error) {
-        console.log(`[WOM] Sync skipped: ${result.error}`);
-      } else {
-        console.log(`[WOM] Daily sync complete. ${result.updated} updated / ${result.total} clan members.`);
-      }
-    } catch (err) {
-      console.error("WOM daily sync error:", err.message);
-    }
-  });
 
   // Monthly !droptop reminder on 1st of each month at 9am UTC
   cron.schedule("0 9 1 * *", async () => {

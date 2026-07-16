@@ -57,6 +57,70 @@ const settingsSchema = new mongoose.Schema({
 
 const Settings = mongoose.model('Settings', settingsSchema);
 
+const commandConfigSchema = new mongoose.Schema({
+  key:         { type: String, unique: true, required: true },
+  name:        { type: String, required: true },
+  description: { type: String, default: '' },
+  usage:       { type: String, default: '' },
+  isMod:       { type: Boolean, default: false },
+  category:    { type: String, default: 'General' },
+});
+const CommandConfig = mongoose.model('CommandConfig', commandConfigSchema);
+
+const DEFAULT_COMMANDS = [
+  { key: 'lp',              name: 'lp',              category: 'Loot Points', description: 'Check your LP balance',                  usage: '!lp [@user]',              isMod: false },
+  { key: 'total',           name: 'total',            category: 'Loot Points', description: 'Show the top LP leaderboard',            usage: '!total',                   isMod: false },
+  { key: 'lplist',          name: 'lplist',           category: 'Loot Points', description: 'Show full LP list A–Z',                  usage: '!lplist',                  isMod: false },
+  { key: 'split',           name: 'split',            category: 'Loot Points', description: 'Give each mentioned user LP',            usage: '!split <amount> @users',   isMod: false },
+  { key: 'donate',          name: 'donate',           category: 'Loot Points', description: 'Give each user half the LP amount',      usage: '!donate <amount> @users',  isMod: false },
+  { key: 'add',             name: 'add',              category: 'Loot Points', description: 'Add LP to a user (mod)',                 usage: '!add <amount> @user',      isMod: true  },
+  { key: 'remove',          name: 'remove',           category: 'Loot Points', description: 'Remove LP from a user (mod)',            usage: '!remove <amount> @user',   isMod: true  },
+  { key: 'xp',              name: 'xp',               category: 'XP & Levels', description: 'Check XP and level progress',            usage: '!xp [@user]',              isMod: false },
+  { key: 'level',           name: 'level',            category: 'XP & Levels', description: 'Check current level',                    usage: '!level [@user]',           isMod: false },
+  { key: 'leaderboard',     name: 'leaderboard',      category: 'XP & Levels', description: 'Show the XP leaderboard',                usage: '!leaderboard',             isMod: false },
+  { key: 'xptop',           name: 'xptop',            category: 'XP & Levels', description: 'Alias for leaderboard',                  usage: '!xptop',                   isMod: false },
+  { key: 'xplist',          name: 'xplist',           category: 'XP & Levels', description: 'Show full XP list A–Z',                  usage: '!xplist',                  isMod: false },
+  { key: 'addxp',           name: 'addxp',            category: 'XP & Levels', description: 'Add XP to a user (mod)',                 usage: '!addxp <amount> @user',    isMod: true  },
+  { key: 'removexp',        name: 'removexp',         category: 'XP & Levels', description: 'Remove XP from a user (mod)',            usage: '!removexp <amount> @user', isMod: true  },
+  { key: 'rslink',          name: 'rslink',           category: 'RS Names',    description: 'Link a RuneScape name to your account',  usage: '!rslink <rsname>',         isMod: false },
+  { key: 'rsunlink',        name: 'rsunlink',         category: 'RS Names',    description: 'Unlink a linked RS name',                usage: '!rsunlink <rsname>',       isMod: false },
+  { key: 'myrs',            name: 'myrs',             category: 'RS Names',    description: 'See all your linked RS names',           usage: '!myrs',                    isMod: false },
+  { key: 'rsnames',         name: 'rsnames',          category: 'RS Names',    description: 'List all linked RS names (mod)',         usage: '!rsnames',                 isMod: true  },
+  { key: 'rsset',           name: 'rsset',            category: 'RS Names',    description: 'Set RS name for any user (mod)',         usage: '!rsset @user <rsname>',    isMod: true  },
+  { key: 'droptop',         name: 'droptop',          category: 'Admin',       description: 'Award monthly XP from screenshot',       usage: '!droptop',                 isMod: true  },
+  { key: 'syncwom',         name: 'syncwom',          category: 'Admin',       description: 'Sync clan join dates from WiseOldMan',   usage: '!syncwom',                 isMod: true  },
+  { key: 'checkranks',      name: 'checkranks',       category: 'Admin',       description: 'Trigger rank-up check immediately',      usage: '!checkranks',              isMod: true  },
+  { key: 'importmee6',      name: 'importmee6',       category: 'Admin',       description: 'Import levels from MEE6',                usage: '!importmee6',              isMod: true  },
+  { key: 'cleanduplicates', name: 'cleanduplicates',  category: 'Admin',       description: 'Remove duplicate RS name entries',       usage: '!cleanduplicates',         isMod: true  },
+  { key: 'fixlp',           name: 'fixlp',            category: 'Admin',       description: 'Restore hardcoded LP values',            usage: '!fixlp',                   isMod: true  },
+  { key: 'help',            name: 'help',             category: 'General',     description: 'Show all available commands',            usage: '!help',                    isMod: false },
+];
+
+// Command name cache — key → current name. Updated on startup and via PATCH /api/commands/:key
+let commandNames = {};
+
+function cmd(key) {
+  return commandNames[key] || key;
+}
+
+async function refreshCommandNames() {
+  const cmds = await CommandConfig.find({});
+  const map = {};
+  for (const c of cmds) map[c.key] = c.name;
+  commandNames = map;
+}
+
+async function seedCommands() {
+  for (const def of DEFAULT_COMMANDS) {
+    await CommandConfig.findOneAndUpdate(
+      { key: def.key },
+      { $setOnInsert: { name: def.name, description: def.description, usage: def.usage, isMod: def.isMod, category: def.category } },
+      { upsert: true }
+    );
+  }
+  await refreshCommandNames();
+}
+
 let cachedSettings = null;
 
 async function getSettings() {
@@ -346,6 +410,8 @@ async function awardDropTopXp(rankedNames, guild, channel) {
 client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
   await getSettings();
+  await seedCommands();
+  setInterval(() => refreshCommandNames().catch(() => {}), 60000);
 
   const channelId = process.env.DAILY_CHANNEL_ID;
   if (!channelId) {
@@ -470,34 +536,34 @@ client.on(Events.MessageCreate, async (message) => {
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  if (command === "lp") {
+  if (command === cmd('lp')) {
     const user = message.mentions.users.first() || message.author;
     const balance = await getLootPoints(user.id, user.username);
     message.channel.send(`${user.username} has ${balance} LP`);
   }
 
-  if (command === "xp") {
+  if (command === cmd('xp')) {
     const target = message.mentions.users.first() || message.author;
     const user = await getUser(target.id, target.username);
     message.channel.send(`⭐ ${target.username} — **Level ${user.level}** | ${user.xp}/${xpForLevel(user.level)} XP`);
   }
 
-  if (command === "level") {
+  if (command === cmd('level')) {
     const target = message.mentions.users.first() || message.author;
     const user = await getUser(target.id, target.username);
     message.channel.send(`🏅 ${target.username} is **Level ${user.level}** — ${user.xp}/${xpForLevel(user.level)} XP to next level`);
   }
 
-  if (command === "leaderboard" || command === "xptop") {
+  if (command === cmd('leaderboard') || command === cmd('xptop')) {
     message.channel.send(await buildXpLeaderboard());
   }
 
-  if (command === "total") {
+  if (command === cmd('total')) {
     message.channel.send(await buildLeaderboard());
   }
 
   // !lplist → full LP list A-Z
-  if (command === "lplist") {
+  if (command === cmd('lplist')) {
     const users = await User.find({ lootPoints: { $gt: 0 } }).sort({ username: 1 });
     if (users.length === 0) return message.channel.send("No loot points recorded yet!");
     const lines = users.map(u => `• ${u.username || u.userId} — ${u.lootPoints} LP`);
@@ -505,14 +571,14 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   // !xplist → full XP/level list A-Z
-  if (command === "xplist") {
+  if (command === cmd('xplist')) {
     const users = await User.find({ $or: [{ level: { $gt: 0 } }, { xp: { $gt: 0 } }] }).sort({ username: 1 });
     if (users.length === 0) return message.channel.send("No XP recorded yet!");
     const lines = users.map(u => `• ${u.username || u.userId} — Level ${u.level} | ${u.xp}/${xpForLevel(u.level)} XP`);
     await sendLongMessage(message.channel, `⭐ **XP List (A–Z) — ${users.length} members**`, lines);
   }
 
-  if (command === "rslink") {
+  if (command === cmd('rslink')) {
     const rsName = args.join(' ').trim();
     if (!rsName) return message.reply("Usage: `!rslink YourRuneScapeName`");
     const existing = await User.findOne({
@@ -531,7 +597,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.reply(`✅ RS name **${rsName}** linked! Use \`!myrs\` to see all your linked names.`);
   }
 
-  if (command === "rsunlink") {
+  if (command === cmd('rsunlink')) {
     const rsName = args.join(' ').trim();
     if (!rsName) return message.reply("Usage: `!rsunlink YourRuneScapeName`");
     const user = await User.findOne({ userId: message.author.id });
@@ -544,14 +610,14 @@ client.on(Events.MessageCreate, async (message) => {
     message.reply(`✅ RS name **${rsName}** unlinked.`);
   }
 
-  if (command === "myrs") {
+  if (command === cmd('myrs')) {
     const user = await getUser(message.author.id, message.author.username);
     const names = user.rsNames?.length ? user.rsNames : (user.rsName ? [user.rsName] : []);
     if (!names.length) return message.reply("You haven't linked any RS names yet. Use `!rslink YourRsName`");
     message.reply(`Your linked RS name(s): ${names.map(n => `**${n}**`).join(', ')}`);
   }
 
-  if (command === "rsnames") {
+  if (command === cmd('rsnames')) {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
     const users = await User.find({
       $or: [{ rsNames: { $exists: true, $not: { $size: 0 } } }, { rsName: { $ne: null } }]
@@ -564,7 +630,7 @@ client.on(Events.MessageCreate, async (message) => {
     await sendLongMessage(message.channel, `📋 **Linked RS Names (${users.length} members):**`, lines);
   }
 
-  if (command === "rsset") {
+  if (command === cmd('rsset')) {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
     const target = message.mentions.users.first();
     const rsName = args.slice(1).join(' ').trim();
@@ -577,7 +643,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(`✅ Linked **${rsName}** to ${target.username}`);
   }
 
-  if (command === "droptop") {
+  if (command === cmd('droptop')) {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
     if (!process.env.GEMINI_API_KEY) return message.reply("❌ GEMINI_API_KEY is not set.");
     const attachment = message.attachments.first();
@@ -601,7 +667,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  if (command === "split") {
+  if (command === cmd('split')) {
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
     if (isNaN(amount) || users.size === 0) return message.reply("Usage: !split amount @users");
@@ -613,7 +679,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(`💰 **Split:**\n${lines.join("\n")}`);
   }
 
-  if (command === "donate") {
+  if (command === cmd('donate')) {
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
     if (isNaN(amount) || users.size === 0) return message.reply("Usage: !donate amount @users");
@@ -626,7 +692,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(`💖 **Donate:**\n${lines.join("\n")}`);
   }
 
-  if (command === "add") {
+  if (command === cmd('add')) {
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
     if (isNaN(amount) || users.size === 0) return message.reply("Usage: !add amount @user");
@@ -638,7 +704,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
-  if (command === "remove") {
+  if (command === cmd('remove')) {
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
     if (isNaN(amount) || users.size === 0) return message.reply("Usage: !remove amount @user");
@@ -650,7 +716,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
-  if (command === "addxp") {
+  if (command === cmd('addxp')) {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
@@ -663,7 +729,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
-  if (command === "removexp") {
+  if (command === cmd('removexp')) {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
     const amount = parseInt(args[0]);
     const users = message.mentions.users;
@@ -678,7 +744,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.channel.send(lines.join("\n"));
   }
 
-  if (command === "fixlp") {
+  if (command === cmd('fixlp')) {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
     const lpData = [
       { username: '_valkan',     lootPoints: 893 },
@@ -701,13 +767,13 @@ client.on(Events.MessageCreate, async (message) => {
     return message.channel.send(`**LP Restore Complete:**\n${lines.join('\n')}`);
   }
 
-  if (command === "cleanduplicates") {
+  if (command === cmd('cleanduplicates')) {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
     const result = await User.deleteMany({ userId: { $regex: /^migrated_/ } });
     return message.channel.send(`✅ Removed **${result.deletedCount}** duplicate entries.`);
   }
 
-  if (command === "importmee6") {
+  if (command === cmd('importmee6')) {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
     await message.channel.send("⏳ Fetching MEE6 leaderboard...");
     try {
@@ -738,7 +804,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  if (command === "syncwom" && isMod(message.member)) {
+  if (command === cmd('syncwom') && isMod(message.member)) {
     message.channel.send("⏳ Syncing clan join dates from WiseOldMan...");
     try {
       const result = await syncWomMembers();
@@ -753,7 +819,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  if (command === "checkranks" && isMod(message.member)) {
+  if (command === cmd('checkranks') && isMod(message.member)) {
     message.channel.send("🔍 Checking rank-ups...");
     try {
       const guild = message.guild;
@@ -765,42 +831,24 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
-  if (command === "help") {
+  if (command === cmd('help')) {
     const s = await getSettings();
-    message.channel.send(`📖 **Visionary Bot Commands**
-
-**XP & Levels** *(Visionaries role only earns XP)*
-\`!xp [@user]\` — Check XP and level
-\`!level [@user]\` — Check current level
-\`!leaderboard\` / \`!xptop\` — Top 20 XP leaderboard
-\`!xplist\` — Full XP list A–Z
-
-**Loot Points**
-\`!lp [@user]\` — Check LP balance
-\`!total\` — Top 20 LP leaderboard
-\`!lplist\` — Full LP list A–Z
-\`!split <amount> @users\` — Give each user LP
-\`!donate <amount> @users\` — Give each user half LP
-\`!add <amount> @user\` — Add LP
-\`!remove <amount> @user\` — Remove LP
-
-**RS Name Linking**
-\`!rslink <rsname>\` — Add an RS name to your account
-\`!rsunlink <rsname>\` — Remove a linked RS name
-\`!myrs\` — See all your linked RS names
-
-**Admin Only**
-\`!addxp <amount> @user\` — Add XP
-\`!removexp <amount> @user\` — Remove XP
-\`!rsnames\` — List all linked RS names
-\`!rsset @user <rsname>\` — Link RS name for any user
-\`!droptop\` — Award monthly XP from screenshot
-\`!syncwom\` — Sync clan join dates from WiseOldMan
-\`!checkranks\` — Trigger rank-up notifications now
-
-📊 **Current XP Rates** (from dashboard)
-Message XP: ${s.messageXpMin}–${s.messageXpMax} XP (${s.messageXpCooldownSecs}s cooldown)
-Voice Join: ${s.voiceJoinXp} XP | Voice Activity: ${s.voiceIntervalXp} XP / ${s.voiceIntervalMins} mins`);
+    const allCmds = await CommandConfig.find({}).sort({ category: 1, key: 1 });
+    const groups = {};
+    for (const c of allCmds) {
+      if (!groups[c.category]) groups[c.category] = [];
+      groups[c.category].push(c);
+    }
+    const catEmoji = { 'XP & Levels': '⭐', 'Loot Points': '💰', 'RS Names': '⚔️', 'Admin': '🔧', 'General': '📖' };
+    let helpText = `📖 **Visionary Bot Commands**\n`;
+    for (const [cat, list] of Object.entries(groups)) {
+      helpText += `\n**${catEmoji[cat] || '•'} ${cat}**\n`;
+      for (const c of list) {
+        helpText += `\`!${c.name}\` — ${c.description}\n`;
+      }
+    }
+    helpText += `\n📊 **Current XP Rates**\nMessage XP: ${s.messageXpMin}–${s.messageXpMax} XP (${s.messageXpCooldownSecs}s cooldown)\nVoice Join: ${s.voiceJoinXp} XP | Voice Activity: ${s.voiceIntervalXp} XP / ${s.voiceIntervalMins} mins`;
+    message.channel.send(helpText);
   }
 });
 
@@ -1080,6 +1128,37 @@ const server = http.createServer(async (req, res) => {
       try {
         await Rank.findByIdAndDelete(rankMatchDelete[1]);
         sendJson(res, 200, { success: true });
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+      }
+      return;
+    }
+
+    // GET /api/commands
+    if (pathname === '/api/commands' && req.method === 'GET') {
+      const cmds = await CommandConfig.find({}).sort({ category: 1, key: 1 });
+      sendJson(res, 200, cmds);
+      return;
+    }
+
+    // PATCH /api/commands/:key
+    const cmdMatch = pathname.match(/^\/api\/commands\/(.+)$/);
+    if (cmdMatch && req.method === 'PATCH') {
+      try {
+        const data = await readBody(req);
+        const { name } = data;
+        if (!name || !/^[a-z0-9_-]+$/i.test(name.trim())) {
+          sendJson(res, 400, { error: 'Invalid command name. Use only letters, numbers, hyphens, underscores.' });
+          return;
+        }
+        const updated = await CommandConfig.findOneAndUpdate(
+          { key: cmdMatch[1] },
+          { name: name.trim().toLowerCase() },
+          { new: true }
+        );
+        if (!updated) { sendJson(res, 404, { error: 'Command not found' }); return; }
+        commandNames[cmdMatch[1]] = updated.name; // hot-reload immediately
+        sendJson(res, 200, updated);
       } catch (e) {
         sendJson(res, 400, { error: e.message });
       }

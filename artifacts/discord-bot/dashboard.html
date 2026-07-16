@@ -323,6 +323,7 @@
       <button onclick="showSection('xp-settings', this)">⭐ XP Settings</button>
       <button onclick="showSection('levels', this)">📈 Levels</button>
       <button onclick="showSection('awards', this)">🏆 Monthly Awards</button>
+      <button onclick="showSection('commands', this)">🤖 Commands</button>
       <button onclick="showSection('ranks', this)">🎖️ Ranks</button>
       <button onclick="showSection('users', this)">👥 Users</button>
     </nav>
@@ -483,6 +484,18 @@
             <span class="save-msg" id="awards-save-msg">✓ Saved!</span>
           </div>
         </div>
+      </div>
+
+      <!-- COMMANDS -->
+      <div class="section" id="section-commands">
+        <div class="section-title">Commands</div>
+        <div class="card" style="margin-bottom:16px;">
+          <p style="color:#888; font-size:0.88rem; margin:0;">
+            Rename any command below — the bot picks up the new name instantly with no reboot required.
+            Only use letters, numbers, hyphens, and underscores. The <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!</code> prefix is always added automatically.
+          </p>
+        </div>
+        <div id="commands-sections"></div>
       </div>
 
       <!-- RANKS -->
@@ -711,6 +724,66 @@
     }
   }
 
+  // ---- COMMANDS ----
+  async function loadCommands() {
+    const res = await api('GET', '/api/commands');
+    const cmds = await res.json();
+    const container = document.getElementById('commands-sections');
+    if (!cmds || cmds.length === 0) {
+      container.innerHTML = '<p style="color:#888;padding:16px;">No commands found.</p>';
+      return;
+    }
+    const groups = {};
+    for (const c of cmds) {
+      if (!groups[c.category]) groups[c.category] = [];
+      groups[c.category].push(c);
+    }
+    const catEmoji = { 'XP & Levels': '⭐', 'Loot Points': '💰', 'RS Names': '⚔️', 'Admin': '🔧', 'General': '📖' };
+    let html = '';
+    for (const [cat, list] of Object.entries(groups)) {
+      html += `<div class="card" style="margin-bottom:16px;">
+        <h3>${catEmoji[cat] || '•'} ${cat}</h3>
+        <table style="margin-top:8px;">
+          <thead><tr>
+            <th style="width:160px">Current Name</th>
+            <th>Description</th>
+            <th>Usage</th>
+            <th style="width:160px">Rename</th>
+          </tr></thead>
+          <tbody>`;
+      for (const c of list) {
+        html += `<tr id="cmdrow-${c.key}">
+          <td><code style="background:#0f0f1a;padding:3px 8px;border-radius:4px;color:#a78bfa;font-size:0.9rem">!${esc(c.name)}</code>${c.isMod ? ' <span style="color:#f59e0b;font-size:0.7rem;background:#2a1f00;padding:1px 5px;border-radius:3px;border:1px solid #78350f">mod</span>' : ''}</td>
+          <td style="color:#aaa;font-size:0.88rem">${esc(c.description)}</td>
+          <td style="color:#666;font-size:0.82rem;font-family:monospace">${esc(c.usage)}</td>
+          <td>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input type="text" id="cmdinput-${c.key}" value="${esc(c.name)}" style="width:90px;padding:4px 8px;font-size:0.85rem;" maxlength="32" />
+              <button class="btn-edit" style="padding:4px 10px;" onclick="saveCommandName('${c.key}')">Save</button>
+            </div>
+          </td>
+        </tr>`;
+      }
+      html += `</tbody></table></div>`;
+    }
+    container.innerHTML = html;
+  }
+
+  async function saveCommandName(key) {
+    const input = document.getElementById(`cmdinput-${key}`);
+    const name = input?.value?.trim().toLowerCase();
+    if (!name) return showToast('Command name cannot be empty.', true);
+    if (!/^[a-z0-9_-]+$/.test(name)) return showToast('Only letters, numbers, hyphens, underscores allowed.', true);
+    const res = await api('PATCH', `/api/commands/${key}`, { name });
+    if (res.ok) {
+      showToast(`✅ !${name} is live — no reboot needed!`);
+      await loadCommands();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to save.', true);
+    }
+  }
+
   async function saveLevelSettings() {
     const data = {
       levelA: parseFloat(document.getElementById('levelA').value) || 5,
@@ -897,6 +970,7 @@
     document.getElementById(`section-${name}`).classList.add('active');
     btn.classList.add('active');
     if (name === 'users') loadUsers(1);
+    if (name === 'commands') loadCommands();
     if (name === 'overview') loadStatus();
     if (name === 'ranks') loadRanks();
   }

@@ -16,6 +16,7 @@ const userSchema = new mongoose.Schema({
   lastMessageXp: { type: Date, default: null },
   lastVoiceJoinXp: { type: Date, default: null },
   rsName: { type: String, default: null },
+  rsNames: { type: [String], default: [] },
   joinedServerAt: { type: Date, default: null },
   notifiedRankId: { type: String, default: null },
 });
@@ -268,7 +269,10 @@ async function awardDropTopXp(rankedNames, guild, channel) {
   for (let i = 0; i < rankedNames.length && i < 10; i++) {
     const rsName = rankedNames[i].toLowerCase();
     const xpReward = s.dropTopXp[i] || 1000;
-    const dbUser = await User.findOne({ rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } });
+    const dbUser = await User.findOne({ $or: [
+      { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
+      { rsNames: new RegExp(`^${rsName}$`, 'i') },
+    ] });
 
     if (!dbUser) {
       unmatched.push(`${medals[i]} **${rankedNames[i]}** — no Discord link found`);
@@ -329,6 +333,29 @@ client.once('ready', async () => {
       console.log(`[Ranks] Daily check complete. ${count} rank-up notification(s) sent.`);
     } catch (err) {
       console.error("Daily rank check error:", err);
+    }
+  });
+
+  // Monthly !droptop reminder on 1st of each month at 9am UTC
+  cron.schedule("0 9 1 * *", async () => {
+    try {
+      const reminderChannel = await client.channels.fetch('864145511166771211');
+      const guild = client.guilds.cache.first();
+      let xflyMention = '@xfly';
+      let modsMention = '@Mods';
+      if (guild) {
+        const modsRole = guild.roles.cache.find(r => ['mods','mod'].includes(r.name.toLowerCase()));
+        if (modsRole) modsMention = `<@&${modsRole.id}>`;
+        await guild.members.fetch().catch(() => {});
+        const xflyMember = guild.members.cache.find(m => m.user.username.toLowerCase() === 'xfly');
+        if (xflyMember) xflyMention = `<@${xflyMember.id}>`;
+      }
+      reminderChannel.send(
+        `📸 **Monthly Drop Top Reminder** — ${xflyMention} ${modsMention}\n` +
+        `Don't forget to post the DropTracker leaderboard screenshot and run \`!droptop\` to award XP for last month!`
+      );
+    } catch (err) {
+      console.error("Monthly reminder error:", err);
     }
   });
 
@@ -428,29 +455,53 @@ client.on(Events.MessageCreate, async (message) => {
   if (command === "rslink") {
     const rsName = args.join(' ').trim();
     if (!rsName) return message.reply("Usage: `!rslink YourRuneScapeName`");
-    const existing = await User.findOne({ rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } });
-    if (existing && existing.userId !== message.author.id)
-      return message.reply(`❌ The RS name **${rsName}** is already linked to another account.`);
+    const existing = await User.findOne({
+      userId: { $ne: message.author.id },
+      $or: [
+        { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
+        { rsNames: new RegExp(`^${rsName}$`, 'i') },
+      ],
+    });
+    if (existing) return message.reply(`❌ The RS name **${rsName}** is already linked to another account.`);
     await User.findOneAndUpdate(
       { userId: message.author.id },
-      { $set: { rsName, username: message.author.username } },
+      { $addToSet: { rsNames: rsName }, $set: { rsName, username: message.author.username } },
       { upsert: true, new: true }
     );
-    message.reply(`✅ Your RS name **${rsName}** has been linked!`);
+    message.reply(`✅ RS name **${rsName}** linked! Use \`!myrs\` to see all your linked names.`);
+  }
+
+  if (command === "rsunlink") {
+    const rsName = args.join(' ').trim();
+    if (!rsName) return message.reply("Usage: `!rsunlink YourRuneScapeName`");
+    const user = await User.findOne({ userId: message.author.id });
+    if (!user || !user.rsNames?.length) return message.reply("You have no linked RS names.");
+    const idx = user.rsNames.findIndex(n => n.toLowerCase() === rsName.toLowerCase());
+    if (idx === -1) return message.reply(`❌ **${rsName}** is not linked to your account.`);
+    user.rsNames.splice(idx, 1);
+    user.rsName = user.rsNames[user.rsNames.length - 1] || null;
+    await user.save();
+    message.reply(`✅ RS name **${rsName}** unlinked.`);
   }
 
   if (command === "myrs") {
     const user = await getUser(message.author.id, message.author.username);
-    if (!user.rsName) return message.reply("You haven't linked an RS name yet. Use `!rslink YourRsName`");
-    message.reply(`Your linked RS name is: **${user.rsName}**`);
+    const names = user.rsNames?.length ? user.rsNames : (user.rsName ? [user.rsName] : []);
+    if (!names.length) return message.reply("You haven't linked any RS names yet. Use `!rslink YourRsName`");
+    message.reply(`Your linked RS name(s): ${names.map(n => `**${n}**`).join(', ')}`);
   }
 
   if (command === "rsnames") {
     if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
-    const users = await User.find({ rsName: { $ne: null } }).sort({ rsName: 1 });
+    const users = await User.find({
+      $or: [{ rsNames: { $exists: true, $not: { $size: 0 } } }, { rsName: { $ne: null } }]
+    }).sort({ username: 1 });
     if (users.length === 0) return message.channel.send("No RS names linked yet.");
-    const lines = users.map(u => `• **${u.rsName}** → ${u.username || u.userId}`);
-    message.channel.send(`📋 **Linked RS Names (${users.length}):**\n${lines.join('\n')}`);
+    const lines = users.map(u => {
+      const names = u.rsNames?.length ? u.rsNames : (u.rsName ? [u.rsName] : []);
+      return `• ${names.map(n => `**${n}**`).join(', ')} → ${u.username || u.userId}`;
+    });
+    await sendLongMessage(message.channel, `📋 **Linked RS Names (${users.length} members):**`, lines);
   }
 
   if (command === "rsset") {
@@ -460,7 +511,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (!target || !rsName) return message.reply("Usage: `!rsset @user RsName`");
     await User.findOneAndUpdate(
       { userId: target.id },
-      { $set: { rsName, username: target.username } },
+      { $addToSet: { rsNames: rsName }, $set: { rsName, username: target.username } },
       { upsert: true, new: true }
     );
     message.channel.send(`✅ Linked **${rsName}** to ${target.username}`);
@@ -659,8 +710,9 @@ client.on(Events.MessageCreate, async (message) => {
 \`!remove <amount> @user\` — Remove LP
 
 **RS Name Linking**
-\`!rslink <rsname>\` — Link your RS name
-\`!myrs\` — Check your linked RS name
+\`!rslink <rsname>\` — Add an RS name to your account
+\`!rsunlink <rsname>\` — Remove a linked RS name
+\`!myrs\` — See all your linked RS names
 
 **Admin Only**
 \`!addxp <amount> @user\` — Add XP
@@ -830,12 +882,24 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // DELETE /api/users/:id
+    const userMatchDel = pathname.match(/^\/api\/users\/(.+)$/);
+    if (userMatchDel && req.method === 'DELETE') {
+      try {
+        await User.deleteOne({ userId: userMatchDel[1] });
+        sendJson(res, 200, { success: true });
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+      }
+      return;
+    }
+
     // PATCH /api/users/:id
     const userMatch = pathname.match(/^\/api\/users\/(.+)$/);
     if (userMatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
-        const allowed = ['xp', 'level', 'lootPoints', 'rsName', 'username'];
+        const allowed = ['xp', 'level', 'lootPoints', 'rsName', 'rsNames', 'username'];
         const update = {};
         for (const k of allowed) {
           if (data[k] !== undefined) update[k] = data[k];

@@ -467,7 +467,7 @@
     <h3>Edit User — <span id="modal-username"></span></h3>
     <input type="hidden" id="modal-userid" />
     <div class="field"><label>Username</label><input type="text" id="modal-name" /></div>
-    <div class="field"><label>RS Name</label><input type="text" id="modal-rsname" /></div>
+    <div class="field"><label>RS Names (comma-separated)</label><input type="text" id="modal-rsname" placeholder="Name1, Name2" /></div>
     <div class="field"><label>Level</label><input type="number" id="modal-level" /></div>
     <div class="field"><label>XP (current level progress)</label><input type="number" id="modal-xp" /></div>
     <div class="field"><label>Loot Points</label><input type="number" id="modal-lp" /></div>
@@ -653,11 +653,14 @@
       tbody.innerHTML = data.users.map(u => `
         <tr>
           <td>${esc(u.username || u.userId)}</td>
-          <td style="color:#888">${esc(u.rsName || '—')}</td>
+          <td style="color:#888">${esc((u.rsNames && u.rsNames.length ? u.rsNames : (u.rsName ? [u.rsName] : [])).join(', ') || '—')}</td>
           <td>${u.level}</td>
           <td>${u.xp}</td>
           <td>${u.lootPoints}</td>
-          <td><button class="btn-edit" onclick="openEditModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button></td>
+          <td style="display:flex;gap:6px;">
+            <button class="btn-edit" onclick="openEditModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>
+            <button class="btn-edit" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteUser('${esc(u.userId)}', '${esc(u.username || u.userId)}')">Delete</button>
+          </td>
         </tr>
       `).join('');
     }
@@ -682,7 +685,8 @@
     document.getElementById('modal-userid').value = user.userId;
     document.getElementById('modal-username').textContent = user.username || user.userId;
     document.getElementById('modal-name').value = user.username || '';
-    document.getElementById('modal-rsname').value = user.rsName || '';
+    const rsNamesArr = user.rsNames && user.rsNames.length ? user.rsNames : (user.rsName ? [user.rsName] : []);
+    document.getElementById('modal-rsname').value = rsNamesArr.join(', ');
     document.getElementById('modal-level').value = user.level;
     document.getElementById('modal-xp').value = user.xp;
     document.getElementById('modal-lp').value = user.lootPoints;
@@ -695,9 +699,12 @@
 
   async function saveUser() {
     const userId = document.getElementById('modal-userid').value;
+    const rsNamesRaw = document.getElementById('modal-rsname').value.trim();
+    const rsNames = rsNamesRaw ? rsNamesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
     const data = {
       username: document.getElementById('modal-name').value.trim(),
-      rsName: document.getElementById('modal-rsname').value.trim() || null,
+      rsName: rsNames[rsNames.length - 1] || null,
+      rsNames,
       level: Number(document.getElementById('modal-level').value),
       xp: Number(document.getElementById('modal-xp').value),
       lootPoints: Number(document.getElementById('modal-lp').value),
@@ -709,6 +716,17 @@
       loadUsers(currentPage);
     } else {
       showToast('Failed to update user.', true);
+    }
+  }
+
+  async function deleteUser(userId, username) {
+    if (!confirm(`Delete all data for "${username}"? This cannot be undone.`)) return;
+    const res = await api('DELETE', `/api/users/${userId}`);
+    if (res.ok) {
+      showToast('User deleted.');
+      loadUsers(currentPage);
+    } else {
+      showToast('Failed to delete user.', true);
     }
   }
 

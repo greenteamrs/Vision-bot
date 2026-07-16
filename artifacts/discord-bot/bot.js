@@ -301,28 +301,49 @@ async function syncWomMembers() {
   const groupId = String(s.womGroupId || '').trim();
   if (!groupId) return { updated: 0, total: 0, error: 'No WOM Group ID set. Add it in XP Settings.' };
 
-  // Fetch all memberships with a high limit to avoid pagination truncation
-  const url = `https://api.wiseoldman.net/v2/groups/${groupId}/memberships?limit=3000`;
-  let res;
-  try {
-    res = await fetch(url, {
-      headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot/1.0' }
-    });
-  } catch (e) {
-    return { updated: 0, total: 0, error: `Network error reaching WOM API: ${e.message}` };
+  const headers = { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot/1.0' };
+
+  // Helper to fetch with error handling
+  async function womFetch(url) {
+    try {
+      const r = await fetch(url, { headers });
+      return r;
+    } catch (e) {
+      return null;
+    }
   }
 
-  if (res.status === 404) {
-    return { updated: 0, total: 0, error: `WOM group "${groupId}" not found. Check the Group ID in XP Settings (should be a number, e.g. 1234).` };
-  }
-  if (!res.ok) {
-    return { updated: 0, total: 0, error: `WOM API error ${res.status} for group "${groupId}".` };
+  // Try the dedicated memberships endpoint first, then fall back to group details
+  let memberships = null;
+
+  // Attempt 1: /groups/{id}/memberships (paginate if needed)
+  const mUrl = `https://api.wiseoldman.net/v2/groups/${groupId}/memberships?limit=500`;
+  const mRes = await womFetch(mUrl);
+  if (mRes && mRes.ok) {
+    const body = await mRes.json();
+    memberships = Array.isArray(body) ? body
+      : Array.isArray(body.memberships) ? body.memberships
+      : Array.isArray(body.data) ? body.data
+      : null;
   }
 
-  const body = await res.json();
-  // WOM v2 returns either a plain array or { memberships: [...] }
-  const memberships = Array.isArray(body) ? body : (Array.isArray(body.memberships) ? body.memberships : null);
-  if (!memberships) return { updated: 0, total: 0, error: 'Unexpected WOM API response format.' };
+  // Attempt 2: /groups/{id} — WOM embeds memberships in the group detail response
+  if (!memberships) {
+    const gRes = await womFetch(`https://api.wiseoldman.net/v2/groups/${groupId}`);
+    if (!gRes) return { updated: 0, total: 0, error: 'Network error reaching WOM API.' };
+    if (gRes.status === 404) {
+      return { updated: 0, total: 0, error: `WOM group "${groupId}" not found. Check the Group ID in XP Settings (should be a number, e.g. 1234).` };
+    }
+    if (!gRes.ok) {
+      return { updated: 0, total: 0, error: `WOM API error ${gRes.status} for group "${groupId}".` };
+    }
+    const gBody = await gRes.json();
+    memberships = Array.isArray(gBody.memberships) ? gBody.memberships
+      : Array.isArray(gBody.members) ? gBody.members
+      : null;
+  }
+
+  if (!memberships) return { updated: 0, total: 0, error: 'Could not read memberships from WOM API. The API response format may have changed.' };
 
   let updated = 0;
   for (const m of memberships) {

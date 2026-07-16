@@ -197,6 +197,25 @@
     color: #888;
     border-bottom: 1px solid #2a2a4a;
   }
+  thead th.sortable {
+    cursor: pointer;
+    user-select: none;
+  }
+  thead th.sortable:hover { color: #c4b5fd; }
+  thead th.sort-active { color: #a78bfa; }
+  .sort-arrow { margin-left: 4px; font-size: 0.7rem; opacity: 0.7; }
+  .btn-tier {
+    padding: 2px 7px;
+    background: #1f1f35;
+    border: 1px solid #2a2a4a;
+    border-radius: 4px;
+    color: #aaa;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: background 0.15s;
+  }
+  .btn-tier:hover { background: #2d2d50; color: #fff; }
+  .btn-tier:disabled { opacity: 0.25; cursor: default; }
   tbody tr { border-bottom: 1px solid #1e1e30; transition: background 0.1s; }
   tbody tr:hover { background: #1a1a2e; }
   tbody td { padding: 10px 12px; font-size: 0.9rem; }
@@ -422,12 +441,11 @@
                   <th>Min Days</th>
                   <th>Min LP</th>
                   <th>Min Level</th>
-                  <th>Order</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="ranks-table-body">
-                <tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
+                <tr><td colspan="5" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -442,13 +460,13 @@
         </div>
         <div class="card" style="padding: 0; overflow: hidden;">
           <table>
-            <thead>
+            <thead id="users-thead">
               <tr>
-                <th>Username</th>
-                <th>RS Name</th>
-                <th>Level</th>
-                <th>XP</th>
-                <th>LP</th>
+                <th class="sortable" onclick="setUserSort('username')">Username <span class="sort-arrow" id="sarr-username"></span></th>
+                <th class="sortable" onclick="setUserSort('rsName')">RS Name <span class="sort-arrow" id="sarr-rsName"></span></th>
+                <th class="sortable" onclick="setUserSort('level')">Level <span class="sort-arrow" id="sarr-level">▼</span></th>
+                <th class="sortable" onclick="setUserSort('xp')">XP <span class="sort-arrow" id="sarr-xp"></span></th>
+                <th class="sortable" onclick="setUserSort('lootPoints')">LP <span class="sort-arrow" id="sarr-lootPoints"></span></th>
                 <th></th>
               </tr>
             </thead>
@@ -503,6 +521,9 @@
   let AUTH_TOKEN = '';
   let currentPage = 1;
   let searchTimer = null;
+  let userSort = 'level';
+  let userSortDir = 'desc';
+  let currentRanks = [];
 
   // ---- AUTH ----
   async function login() {
@@ -642,11 +663,37 @@
     searchTimer = setTimeout(() => loadUsers(1), 350);
   }
 
+  function setUserSort(field) {
+    if (userSort === field) {
+      userSortDir = userSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      userSort = field;
+      userSortDir = 'desc';
+    }
+    loadUsers(1);
+  }
+
+  function updateSortArrows() {
+    ['username','rsName','level','xp','lootPoints'].forEach(f => {
+      const el = document.getElementById(`sarr-${f}`);
+      const th = el?.closest('th');
+      if (!el) return;
+      if (f === userSort) {
+        el.textContent = userSortDir === 'asc' ? '▲' : '▼';
+        th?.classList.add('sort-active');
+      } else {
+        el.textContent = '';
+        th?.classList.remove('sort-active');
+      }
+    });
+  }
+
   async function loadUsers(page) {
     currentPage = page;
     const search = document.getElementById('user-search').value;
-    const res = await api('GET', `/api/users?page=${page}&search=${encodeURIComponent(search)}`);
+    const res = await api('GET', `/api/users?page=${page}&search=${encodeURIComponent(search)}&sort=${userSort}&dir=${userSortDir}`);
     const data = await res.json();
+    updateSortArrows();
 
     const tbody = document.getElementById('users-table-body');
     if (!data.users || data.users.length === 0) {
@@ -773,25 +820,34 @@
   // ---- RANKS ----
   async function loadRanks() {
     const res = await api('GET', '/api/ranks');
-    const ranks = await res.json();
+    currentRanks = await res.json();
     const tbody = document.getElementById('ranks-table-body');
-    if (!ranks || ranks.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
+    if (!currentRanks || currentRanks.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
       return;
     }
-    tbody.innerHTML = ranks.map(r => `
+    tbody.innerHTML = currentRanks.map((r, i) => `
       <tr>
         <td style="font-weight:600;color:#c4b5fd">${esc(r.name)}</td>
         <td>${r.minDays} days</td>
         <td>${r.minLootPoints.toLocaleString()} LP</td>
         <td>Level ${r.minLevel}</td>
-        <td>${r.order}</td>
-        <td style="display:flex;gap:6px;">
-          <button class="btn-edit" onclick="openRankModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
+        <td style="display:flex;gap:4px;align-items:center;">
+          <button class="btn-tier" onclick="moveRank(${i},-1)" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="btn-tier" onclick="moveRank(${i},1)" ${i === currentRanks.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="btn-edit" style="margin-left:4px;" onclick="openRankModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
           <button class="btn-edit" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteRank('${r._id}', '${esc(r.name)}')">Delete</button>
         </td>
       </tr>
     `).join('');
+  }
+
+  async function moveRank(index, dir) {
+    const swapIndex = index + dir;
+    if (swapIndex < 0 || swapIndex >= currentRanks.length) return;
+    await api('PATCH', `/api/ranks/${currentRanks[index]._id}`, { order: swapIndex });
+    await api('PATCH', `/api/ranks/${currentRanks[swapIndex]._id}`, { order: index });
+    await loadRanks();
   }
 
   function openRankModal(rank) {

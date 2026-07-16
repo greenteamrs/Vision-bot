@@ -941,10 +941,16 @@ const server = http.createServer(async (req, res) => {
       const page = parseInt(url.searchParams.get('page') || '1');
       const limit = 25;
       const query = search
-        ? { $or: [{ username: { $regex: search, $options: 'i' } }, { rsName: { $regex: search, $options: 'i' } }] }
+        ? { $or: [{ username: { $regex: search, $options: 'i' } }, { rsName: { $regex: search, $options: 'i' } }, { rsNames: new RegExp(search, 'i') }] }
         : {};
+      const validSorts = { username: 1, rsName: 1, level: 1, xp: 1, lootPoints: 1 };
+      const sortField = validSorts.hasOwnProperty(url.searchParams.get('sort')) ? url.searchParams.get('sort') : 'level';
+      const sortDir = url.searchParams.get('dir') === 'asc' ? 1 : -1;
+      const sortObj = { [sortField]: sortDir };
+      if (sortField !== 'level') sortObj.level = -1;
+      if (sortField !== 'xp') sortObj.xp = -1;
       const total = await User.countDocuments(query);
-      const users = await User.find(query).sort({ level: -1, xp: -1 }).skip((page - 1) * limit).limit(limit);
+      const users = await User.find(query).sort(sortObj).skip((page - 1) * limit).limit(limit);
       sendJson(res, 200, { users, total, page, pages: Math.ceil(total / limit) });
       return;
     }

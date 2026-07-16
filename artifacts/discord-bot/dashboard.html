@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Visionary Bot Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #0f0f1a;
+    color: #e0e0f0;
+    min-height: 100vh;
+  }
+
+  /* LOGIN */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  .login-box {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 12px;
+    padding: 40px;
+    width: 360px;
+    text-align: center;
+  }
+  .login-box h1 { font-size: 1.5rem; margin-bottom: 6px; color: #a78bfa; }
+  .login-box p { color: #888; font-size: 0.9rem; margin-bottom: 24px; }
+  .login-box input {
+    width: 100%;
+    padding: 10px 14px;
+    background: #0f0f1a;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    color: #e0e0f0;
+    font-size: 1rem;
+    margin-bottom: 14px;
+  }
+  .login-box input:focus { outline: none; border-color: #7c3aed; }
+  .btn-primary {
+    width: 100%;
+    padding: 11px;
+    background: #7c3aed;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .btn-primary:hover { background: #6d28d9; }
+  #login-error { color: #f87171; font-size: 0.85rem; margin-top: 10px; }
+
+  /* MAIN */
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+
+  header {
+    background: #1a1a2e;
+    border-bottom: 1px solid #2a2a4a;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 1.2rem; color: #a78bfa; }
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.85rem;
+    color: #888;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #888; }
+  .dot.online { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+
+  .layout { display: flex; flex: 1; }
+
+  nav {
+    width: 200px;
+    background: #13131f;
+    border-right: 1px solid #2a2a4a;
+    padding: 20px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  nav button {
+    text-align: left;
+    padding: 10px 14px;
+    border: none;
+    background: transparent;
+    color: #aaa;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: all 0.15s;
+  }
+  nav button:hover { background: #1f1f35; color: #e0e0f0; }
+  nav button.active { background: #2d1b69; color: #a78bfa; font-weight: 600; }
+
+  main { flex: 1; padding: 28px; overflow-y: auto; max-width: 900px; }
+
+  .section { display: none; }
+  .section.active { display: block; }
+
+  .section-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 20px; color: #c4b5fd; }
+
+  /* STATS ROW */
+  .stats-row { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .stat-card {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 10px;
+    padding: 18px 22px;
+    flex: 1;
+    min-width: 130px;
+  }
+  .stat-card .label { font-size: 0.78rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .stat-card .value { font-size: 1.5rem; font-weight: 700; color: #a78bfa; }
+
+  /* CARDS */
+  .card {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 10px;
+    padding: 22px;
+    margin-bottom: 20px;
+  }
+  .card h3 { font-size: 0.95rem; font-weight: 600; color: #c4b5fd; margin-bottom: 16px; }
+
+  .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .field label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 5px; }
+  .field input {
+    width: 100%;
+    padding: 8px 12px;
+    background: #0f0f1a;
+    border: 1px solid #2a2a4a;
+    border-radius: 7px;
+    color: #e0e0f0;
+    font-size: 0.95rem;
+  }
+  .field input:focus { outline: none; border-color: #7c3aed; }
+
+  .awards-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .award-field label { display: block; font-size: 0.75rem; color: #888; margin-bottom: 4px; text-align: center; }
+  .award-field input {
+    width: 100%;
+    padding: 7px 6px;
+    background: #0f0f1a;
+    border: 1px solid #2a2a4a;
+    border-radius: 7px;
+    color: #e0e0f0;
+    font-size: 0.9rem;
+    text-align: center;
+  }
+  .award-field input:focus { outline: none; border-color: #7c3aed; }
+
+  .save-row { margin-top: 16px; display: flex; align-items: center; gap: 12px; }
+  .btn-save {
+    padding: 9px 22px;
+    background: #7c3aed;
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.2s;
+  }
+  .btn-save:hover { background: #6d28d9; }
+  .save-msg { font-size: 0.85rem; color: #4ade80; display: none; }
+
+  /* USERS */
+  .search-row { display: flex; gap: 10px; margin-bottom: 16px; }
+  .search-row input {
+    flex: 1;
+    padding: 9px 14px;
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    color: #e0e0f0;
+    font-size: 0.95rem;
+  }
+  .search-row input:focus { outline: none; border-color: #7c3aed; }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #888;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  tbody tr { border-bottom: 1px solid #1e1e30; transition: background 0.1s; }
+  tbody tr:hover { background: #1a1a2e; }
+  tbody td { padding: 10px 12px; font-size: 0.9rem; }
+  .btn-edit {
+    padding: 4px 12px;
+    background: #2d1b69;
+    color: #a78bfa;
+    border: 1px solid #4c1d95;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    transition: background 0.15s;
+  }
+  .btn-edit:hover { background: #3b1f7a; }
+
+  .pagination { display: flex; gap: 8px; margin-top: 16px; align-items: center; justify-content: center; }
+  .pagination button {
+    padding: 6px 12px;
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .pagination button:hover { background: #2a2a4a; }
+  .pagination button.active { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+  .pagination span { color: #888; font-size: 0.85rem; }
+
+  /* MODAL */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 12px;
+    padding: 28px;
+    width: 420px;
+    max-width: 95vw;
+  }
+  .modal h3 { color: #c4b5fd; margin-bottom: 18px; font-size: 1rem; }
+  .modal .field { margin-bottom: 12px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
+  .btn-cancel {
+    padding: 9px 18px;
+    background: transparent;
+    border: 1px solid #2a2a4a;
+    border-radius: 7px;
+    color: #aaa;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .btn-cancel:hover { background: #1f1f35; }
+
+  .toast {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    background: #1a1a2e;
+    border: 1px solid #4ade80;
+    border-radius: 8px;
+    padding: 12px 18px;
+    color: #4ade80;
+    font-size: 0.9rem;
+    z-index: 200;
+    display: none;
+    animation: fadeIn 0.2s;
+  }
+  .toast.error { border-color: #f87171; color: #f87171; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <h1>⚔️ Visionary Bot</h1>
+    <p>Enter your dashboard password</p>
+    <input type="password" id="password-input" placeholder="Password" />
+    <button class="btn-primary" onclick="login()">Sign In</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <header>
+    <h1>⚔️ Visionary Bot Dashboard</h1>
+    <div class="status-badge">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">Loading...</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav>
+      <button class="active" onclick="showSection('overview', this)">📊 Overview</button>
+      <button onclick="showSection('xp-settings', this)">⭐ XP Settings</button>
+      <button onclick="showSection('awards', this)">🏆 Monthly Awards</button>
+      <button onclick="showSection('users', this)">👥 Users</button>
+    </nav>
+
+    <main>
+      <!-- OVERVIEW -->
+      <div class="section active" id="section-overview">
+        <div class="section-title">Overview</div>
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="label">Bot Status</div>
+            <div class="value" id="ov-status">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Total Users</div>
+            <div class="value" id="ov-users">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Uptime</div>
+            <div class="value" id="ov-uptime">—</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Quick Reference — Current XP Rates</h3>
+          <div class="field-grid" id="ov-rates">
+            <div class="field"><label>Message XP</label><input readonly id="ov-msg-xp" /></div>
+            <div class="field"><label>Msg Cooldown</label><input readonly id="ov-msg-cd" /></div>
+            <div class="field"><label>Voice Join XP</label><input readonly id="ov-voice-join" /></div>
+            <div class="field"><label>Voice Interval XP</label><input readonly id="ov-voice-int" /></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Monthly Drop Top Awards</h3>
+          <div id="ov-awards" style="color:#888; font-size:0.9rem;"></div>
+        </div>
+      </div>
+
+      <!-- XP SETTINGS -->
+      <div class="section" id="section-xp-settings">
+        <div class="section-title">XP Settings</div>
+
+        <div class="card">
+          <h3>💬 Message XP</h3>
+          <div class="field-grid">
+            <div class="field"><label>Min XP per message</label><input type="number" id="messageXpMin" /></div>
+            <div class="field"><label>Max XP per message</label><input type="number" id="messageXpMax" /></div>
+            <div class="field"><label>Cooldown (seconds)</label><input type="number" id="messageXpCooldownSecs" /></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>🎙️ Voice XP</h3>
+          <div class="field-grid">
+            <div class="field"><label>Join XP</label><input type="number" id="voiceJoinXp" /></div>
+            <div class="field"><label>Join Cooldown (seconds)</label><input type="number" id="voiceJoinCooldownSecs" /></div>
+            <div class="field"><label>Activity XP (per interval)</label><input type="number" id="voiceIntervalXp" /></div>
+            <div class="field"><label>Interval (minutes)</label><input type="number" id="voiceIntervalMins" /></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>⚙️ Bot Config</h3>
+          <div class="field-grid">
+            <div class="field"><label>AFK Channel ID</label><input type="text" id="afkChannelId" /></div>
+          </div>
+        </div>
+
+        <div class="save-row">
+          <button class="btn-save" onclick="saveXpSettings()">Save XP Settings</button>
+          <span class="save-msg" id="xp-save-msg">✓ Saved!</span>
+        </div>
+      </div>
+
+      <!-- AWARDS -->
+      <div class="section" id="section-awards">
+        <div class="section-title">Monthly Drop Top Awards</div>
+        <div class="card">
+          <h3>XP awarded to each placement when you run !droptop</h3>
+          <div class="awards-grid">
+            <div class="award-field"><label>🥇 1st</label><input type="number" id="award-0" /></div>
+            <div class="award-field"><label>🥈 2nd</label><input type="number" id="award-1" /></div>
+            <div class="award-field"><label>🥉 3rd</label><input type="number" id="award-2" /></div>
+            <div class="award-field"><label>4th</label><input type="number" id="award-3" /></div>
+            <div class="award-field"><label>5th</label><input type="number" id="award-4" /></div>
+            <div class="award-field"><label>6th</label><input type="number" id="award-5" /></div>
+            <div class="award-field"><label>7th</label><input type="number" id="award-6" /></div>
+            <div class="award-field"><label>8th</label><input type="number" id="award-7" /></div>
+            <div class="award-field"><label>9th</label><input type="number" id="award-8" /></div>
+            <div class="award-field"><label>10th</label><input type="number" id="award-9" /></div>
+          </div>
+          <div class="save-row">
+            <button class="btn-save" onclick="saveAwards()">Save Awards</button>
+            <span class="save-msg" id="awards-save-msg">✓ Saved!</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- USERS -->
+      <div class="section" id="section-users">
+        <div class="section-title">Users</div>
+        <div class="search-row">
+          <input type="text" id="user-search" placeholder="Search by username or RS name..." oninput="debounceSearch()" />
+        </div>
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table>
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>RS Name</th>
+                <th>Level</th>
+                <th>XP</th>
+                <th>LP</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body">
+              <tr><td colspan="6" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <h3>Edit User — <span id="modal-username"></span></h3>
+    <input type="hidden" id="modal-userid" />
+    <div class="field"><label>Username</label><input type="text" id="modal-name" /></div>
+    <div class="field"><label>RS Name</label><input type="text" id="modal-rsname" /></div>
+    <div class="field"><label>Level</label><input type="number" id="modal-level" /></div>
+    <div class="field"><label>XP (current level progress)</label><input type="number" id="modal-xp" /></div>
+    <div class="field"><label>Loot Points</label><input type="number" id="modal-lp" /></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-save" onclick="saveUser()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let AUTH_TOKEN = '';
+  let currentPage = 1;
+  let searchTimer = null;
+
+  // ---- AUTH ----
+  async function login() {
+    const pwd = document.getElementById('password-input').value;
+    AUTH_TOKEN = pwd;
+    try {
+      const res = await api('GET', '/api/status');
+      if (res.ok) {
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('app').style.display = 'flex';
+        init();
+      } else {
+        document.getElementById('login-error').textContent = 'Incorrect password.';
+        AUTH_TOKEN = '';
+      }
+    } catch (e) {
+      document.getElementById('login-error').textContent = 'Could not connect to bot.';
+    }
+  }
+
+  document.getElementById('password-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') login();
+  });
+
+  // ---- API ----
+  function api(method, path, body) {
+    return fetch(path, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${AUTH_TOKEN}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  // ---- INIT ----
+  async function init() {
+    await loadStatus();
+    await loadSettings();
+    loadUsers(1);
+  }
+
+  // ---- STATUS ----
+  async function loadStatus() {
+    try {
+      const res = await api('GET', '/api/status');
+      const data = await res.json();
+      const dot = document.getElementById('status-dot');
+      const txt = document.getElementById('status-text');
+      if (data.botOnline) {
+        dot.classList.add('online');
+        txt.textContent = data.botTag || 'Online';
+      } else {
+        txt.textContent = 'Offline';
+      }
+      document.getElementById('ov-status').textContent = data.botOnline ? 'Online' : 'Offline';
+      document.getElementById('ov-users').textContent = data.userCount ?? '—';
+      const up = data.uptime;
+      const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60);
+      document.getElementById('ov-uptime').textContent = `${h}h ${m}m`;
+    } catch (e) {}
+  }
+
+  // ---- SETTINGS ----
+  let currentSettings = {};
+
+  async function loadSettings() {
+    const res = await api('GET', '/api/settings');
+    const s = await res.json();
+    currentSettings = s;
+
+    // XP Settings fields
+    ['messageXpMin','messageXpMax','messageXpCooldownSecs',
+     'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins',
+     'afkChannelId'].forEach(k => {
+      const el = document.getElementById(k);
+      if (el) el.value = s[k];
+    });
+
+    // Awards
+    (s.dropTopXp || []).forEach((v, i) => {
+      const el = document.getElementById(`award-${i}`);
+      if (el) el.value = v;
+    });
+
+    // Overview
+    document.getElementById('ov-msg-xp').value = `${s.messageXpMin}–${s.messageXpMax} XP`;
+    document.getElementById('ov-msg-cd').value = `${s.messageXpCooldownSecs}s`;
+    document.getElementById('ov-voice-join').value = `${s.voiceJoinXp} XP`;
+    document.getElementById('ov-voice-int').value = `${s.voiceIntervalXp} XP / ${s.voiceIntervalMins} min`;
+
+    const medals = ['🥇','🥈','🥉','4th','5th','6th','7th','8th','9th','10th'];
+    document.getElementById('ov-awards').innerHTML = (s.dropTopXp || [])
+      .map((v, i) => `<span style="margin-right:14px">${medals[i]} <strong style="color:#a78bfa">${v.toLocaleString()} XP</strong></span>`)
+      .join('');
+  }
+
+  async function saveXpSettings() {
+    const keys = ['messageXpMin','messageXpMax','messageXpCooldownSecs',
+                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId'];
+    const data = {};
+    keys.forEach(k => {
+      const el = document.getElementById(k);
+      if (!el) return;
+      data[k] = k === 'afkChannelId' ? el.value.trim() : Number(el.value);
+    });
+    const res = await api('POST', '/api/settings', data);
+    if (res.ok) {
+      showMsg('xp-save-msg');
+      showToast('XP settings saved!');
+      await loadSettings();
+    } else {
+      showToast('Failed to save.', true);
+    }
+  }
+
+  async function saveAwards() {
+    const dropTopXp = [];
+    for (let i = 0; i < 10; i++) {
+      dropTopXp.push(Number(document.getElementById(`award-${i}`).value) || 0);
+    }
+    const res = await api('POST', '/api/settings', { dropTopXp });
+    if (res.ok) {
+      showMsg('awards-save-msg');
+      showToast('Monthly awards saved!');
+      await loadSettings();
+    } else {
+      showToast('Failed to save.', true);
+    }
+  }
+
+  // ---- USERS ----
+  function debounceSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadUsers(1), 350);
+  }
+
+  async function loadUsers(page) {
+    currentPage = page;
+    const search = document.getElementById('user-search').value;
+    const res = await api('GET', `/api/users?page=${page}&search=${encodeURIComponent(search)}`);
+    const data = await res.json();
+
+    const tbody = document.getElementById('users-table-body');
+    if (!data.users || data.users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
+    } else {
+      tbody.innerHTML = data.users.map(u => `
+        <tr>
+          <td>${esc(u.username || u.userId)}</td>
+          <td style="color:#888">${esc(u.rsName || '—')}</td>
+          <td>${u.level}</td>
+          <td>${u.xp}</td>
+          <td>${u.lootPoints}</td>
+          <td><button class="btn-edit" onclick="openEditModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button></td>
+        </tr>
+      `).join('');
+    }
+
+    renderPagination(data.pages, page);
+  }
+
+  function renderPagination(pages, current) {
+    const el = document.getElementById('pagination');
+    if (pages <= 1) { el.innerHTML = ''; return; }
+    let html = `<span>Page ${current} of ${pages}</span>`;
+    if (current > 1) html += `<button onclick="loadUsers(${current - 1})">← Prev</button>`;
+    for (let i = Math.max(1, current-2); i <= Math.min(pages, current+2); i++) {
+      html += `<button class="${i === current ? 'active' : ''}" onclick="loadUsers(${i})">${i}</button>`;
+    }
+    if (current < pages) html += `<button onclick="loadUsers(${current + 1})">Next →</button>`;
+    el.innerHTML = html;
+  }
+
+  // ---- EDIT MODAL ----
+  function openEditModal(user) {
+    document.getElementById('modal-userid').value = user.userId;
+    document.getElementById('modal-username').textContent = user.username || user.userId;
+    document.getElementById('modal-name').value = user.username || '';
+    document.getElementById('modal-rsname').value = user.rsName || '';
+    document.getElementById('modal-level').value = user.level;
+    document.getElementById('modal-xp').value = user.xp;
+    document.getElementById('modal-lp').value = user.lootPoints;
+    document.getElementById('edit-modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('edit-modal').classList.remove('open');
+  }
+
+  async function saveUser() {
+    const userId = document.getElementById('modal-userid').value;
+    const data = {
+      username: document.getElementById('modal-name').value.trim(),
+      rsName: document.getElementById('modal-rsname').value.trim() || null,
+      level: Number(document.getElementById('modal-level').value),
+      xp: Number(document.getElementById('modal-xp').value),
+      lootPoints: Number(document.getElementById('modal-lp').value),
+    };
+    const res = await api('PATCH', `/api/users/${userId}`, data);
+    if (res.ok) {
+      closeModal();
+      showToast('User updated!');
+      loadUsers(currentPage);
+    } else {
+      showToast('Failed to update user.', true);
+    }
+  }
+
+  // ---- UI HELPERS ----
+  function showSection(name, btn) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById(`section-${name}`).classList.add('active');
+    btn.classList.add('active');
+    if (name === 'users') loadUsers(1);
+    if (name === 'overview') loadStatus();
+  }
+
+  function showMsg(id) {
+    const el = document.getElementById(id);
+    el.style.display = 'inline';
+    setTimeout(() => { el.style.display = 'none'; }, 2500);
+  }
+
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (isError ? ' error' : '');
+    t.style.display = 'block';
+    setTimeout(() => { t.style.display = 'none'; }, 2800);
+  }
+
+  function esc(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Close modal on overlay click
+  document.getElementById('edit-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+</script>
+</body>
+</html>

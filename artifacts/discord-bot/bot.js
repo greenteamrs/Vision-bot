@@ -565,26 +565,33 @@ client.once('ready', async () => {
   });
 
 
-  // Monthly !droptop reminder on 1st of each month at 9am UTC
-  cron.schedule("0 9 1 * *", async () => {
+  // Auto-award Droptracker top 10 XP at midnight on 1st of each month
+  cron.schedule("0 0 1 * *", async () => {
     try {
-      const reminderChannel = await client.channels.fetch('864145511166771211');
+      const s = await getSettings();
+      const notifyChannelId = s.rankNotifyChannelId || XP_CHANNEL_ID;
+      const channel = await client.channels.fetch(notifyChannelId);
       const guild = client.guilds.cache.first();
-      let xflyMention = '@xfly';
-      let modsMention = '@Mods';
-      if (guild) {
-        const modsRole = guild.roles.cache.find(r => ['mods','mod'].includes(r.name.toLowerCase()));
-        if (modsRole) modsMention = `<@&${modsRole.id}>`;
-        await guild.members.fetch().catch(() => {});
-        const xflyMember = guild.members.cache.find(m => m.user.username.toLowerCase() === 'xfly');
-        if (xflyMember) xflyMention = `<@${xflyMember.id}>`;
+
+      channel.send("⏳ **Monthly Droptracker Awards** — fetching last month's top 10...");
+
+      const result = await getDroptrackerTopPlayers(null, 10);
+      if (result.error) {
+        channel.send(`❌ Monthly auto-award failed: ${result.error}`);
+        return;
       }
-      reminderChannel.send(
-        `📸 **Monthly Drop Top Reminder** — ${xflyMention} ${modsMention}\n` +
-        `Don't forget to post the DropTracker leaderboard screenshot and run \`!droptop\` to award XP for last month!`
-      );
+
+      const players = Array.isArray(result.data) ? result.data
+        : (result.data.players || result.data.members || []);
+      if (!players.length) {
+        channel.send("❌ Monthly auto-award: no Droptracker data returned.");
+        return;
+      }
+
+      const rankedNames = players.map(p => p.player_name || p.name || p.username).filter(Boolean);
+      await awardDropTopXp(rankedNames, guild, channel);
     } catch (err) {
-      console.error("Monthly reminder error:", err);
+      console.error("Monthly auto-award error:", err);
     }
   });
 

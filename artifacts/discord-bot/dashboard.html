@@ -326,6 +326,7 @@
       <button onclick="showSection('commands', this)">🤖 Commands</button>
       <button onclick="showSection('ranks', this)">🎖️ Ranks</button>
       <button onclick="showSection('users', this)">👥 Users</button>
+      <button onclick="showSection('droptracker', this)">💰 Droptracker</button>
     </nav>
 
     <main>
@@ -391,6 +392,7 @@
           <div class="field-grid">
             <div class="field"><label>AFK Channel ID</label><input type="text" id="afkChannelId" /></div>
             <div class="field"><label>Rank Notify Channel ID</label><input type="text" id="rankNotifyChannelId" placeholder="Leave blank to use XP channel" /></div>
+            <div class="field"><label>Droptracker Group ID</label><input type="text" id="droptrackerGroupId" placeholder="e.g. 42" /></div>
             <div class="field">
               <label>WiseOldMan Group ID</label>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
@@ -536,6 +538,22 @@
       </div>
 
       <!-- USERS -->
+      <!-- DROPTRACKER -->
+      <div class="section" id="section-droptracker">
+        <div class="section-title">Droptracker</div>
+        <div class="card" style="margin-bottom:16px;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="loadDtTopPlayers()" id="btn-dt-top">🏆 Top Looters</button>
+            <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="loadDtDrops()" id="btn-dt-drops">💰 Recent Drops</button>
+            <button class="btn-save" style="background:#14532d;border:1px solid #16a34a;" onclick="syncDtDashboard()" id="btn-dt-sync">🔄 Sync Members</button>
+            <input type="text" id="dt-npc-filter" placeholder="Filter by NPC (e.g. Zulrah)…" style="flex:1;min-width:160px;" onkeydown="if(event.key==='Enter'){if(document.getElementById('dt-view')==='drops')loadDtDrops();else loadDtTopPlayers();}" />
+          </div>
+        </div>
+        <div id="dt-content">
+          <div class="card" style="color:#888;text-align:center;padding:30px;">Click a button above to load Droptracker data.</div>
+        </div>
+      </div>
+
       <div class="section" id="section-users">
         <div class="section-title">Users</div>
         <div class="search-row">
@@ -683,7 +701,7 @@
     // XP Settings fields
     ['messageXpMin','messageXpMax','messageXpCooldownSecs',
      'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins',
-     'afkChannelId','rankNotifyChannelId','womGroupId'].forEach(k => {
+     'afkChannelId','rankNotifyChannelId','womGroupId','droptrackerGroupId'].forEach(k => {
       const el = document.getElementById(k);
       if (el) el.value = s[k] ?? '';
     });
@@ -715,8 +733,8 @@
 
   async function saveXpSettings() {
     const keys = ['messageXpMin','messageXpMax','messageXpCooldownSecs',
-                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId','womGroupId'];
-    const strKeys = new Set(['afkChannelId','rankNotifyChannelId','womGroupId']);
+                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId','womGroupId','droptrackerGroupId'];
+    const strKeys = new Set(['afkChannelId','rankNotifyChannelId','womGroupId','droptrackerGroupId']);
     const data = {};
     keys.forEach(k => {
       const el = document.getElementById(k);
@@ -1151,6 +1169,116 @@
     }
     btn.disabled = false;
     btn.textContent = '🌐 Sync from WiseOldMan';
+  }
+
+  // ---- DROPTRACKER ----
+  let dtCurrentView = 'top';
+
+  function fmtGp(n) {
+    if (!n && n !== 0) return '?';
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'b';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'm';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+    return String(n);
+  }
+
+  async function loadDtTopPlayers() {
+    dtCurrentView = 'top';
+    const npc = document.getElementById('dt-npc-filter').value.trim();
+    const content = document.getElementById('dt-content');
+    content.innerHTML = '<div class="card" style="color:#888;text-align:center;padding:30px;">⏳ Loading...</div>';
+    let url = '/api/droptracker/top-players?limit=25';
+    if (npc) url += `&npc_name=${encodeURIComponent(npc)}`;
+    try {
+      const res = await api('GET', url);
+      const data = await res.json();
+      if (!res.ok) { content.innerHTML = `<div class="card" style="color:#f87171;padding:20px;">❌ ${esc(data.error || 'Error loading data.')}</div>`; return; }
+      const players = Array.isArray(data) ? data : (data.players || data.members || []);
+      const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+      const title = npc ? `Top ${npc} Looters` : 'Top Looters — Last 30 Days';
+      const rows = players.map((p, i) => {
+        const name = esc(p.player_name || p.name || p.username || '?');
+        const gp = fmtGp(p.total_value || p.total_gp || p.gp_gained || 0);
+        const drops = p.drop_count || p.total_drops || '—';
+        return `<tr>
+          <td style="width:36px;text-align:center">${medals[i] || (i+1)}</td>
+          <td style="color:#e2e8f0;font-weight:600">${name}</td>
+          <td style="color:#a78bfa;font-weight:600">${gp} GP</td>
+          <td style="color:#888">${drops} drops</td>
+        </tr>`;
+      }).join('');
+      content.innerHTML = `
+        <div class="card" style="padding:0;overflow:hidden;">
+          <div style="padding:14px 16px;border-bottom:1px solid #222;font-weight:600;color:#c4b5fd;">🏆 ${esc(title)}</div>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:#0f0f1a;">
+              <th style="padding:8px;text-align:center">#</th>
+              <th style="padding:8px;text-align:left">Player</th>
+              <th style="padding:8px;text-align:left">GP Gained</th>
+              <th style="padding:8px;text-align:left">Drops</th>
+            </tr></thead>
+            <tbody>${rows || '<tr><td colspan="4" style="padding:20px;text-align:center;color:#888">No data.</td></tr>'}</tbody>
+          </table>
+        </div>`;
+    } catch(e) { content.innerHTML = `<div class="card" style="color:#f87171;padding:20px;">❌ Error contacting bot server.</div>`; }
+  }
+
+  async function loadDtDrops() {
+    dtCurrentView = 'drops';
+    const npc = document.getElementById('dt-npc-filter').value.trim();
+    const content = document.getElementById('dt-content');
+    content.innerHTML = '<div class="card" style="color:#888;text-align:center;padding:30px;">⏳ Loading...</div>';
+    let url = '/api/droptracker/drops?limit=25';
+    if (npc) url += `&npc_name=${encodeURIComponent(npc)}`;
+    try {
+      const res = await api('GET', url);
+      const data = await res.json();
+      if (!res.ok) { content.innerHTML = `<div class="card" style="color:#f87171;padding:20px;">❌ ${esc(data.error || 'Error loading data.')}</div>`; return; }
+      const drops = Array.isArray(data) ? data : (data.drops || data.items || []);
+      const title = npc ? `Recent ${npc} Drops` : 'Recent Drops';
+      const rows = drops.map(d => {
+        const player = esc(d.player_name || d.player || d.username || '?');
+        const item = esc(d.item_name || d.name || '?');
+        const qty = d.quantity > 1 ? ` ×${d.quantity}` : '';
+        const gp = fmtGp(d.value || d.item_value || 0);
+        const npcName = d.npc_name ? esc(d.npc_name) : '—';
+        const ts = d.created_at || d.timestamp || d.time;
+        const time = ts ? new Date(ts).toLocaleString() : '—';
+        return `<tr>
+          <td style="color:#e2e8f0;font-weight:600">${player}</td>
+          <td style="color:#a78bfa">${item}${qty}</td>
+          <td style="color:#888">${npcName}</td>
+          <td style="color:#34d399;font-weight:600">${gp} GP</td>
+          <td style="color:#555;font-size:0.8rem">${time}</td>
+        </tr>`;
+      }).join('');
+      content.innerHTML = `
+        <div class="card" style="padding:0;overflow:hidden;">
+          <div style="padding:14px 16px;border-bottom:1px solid #222;font-weight:600;color:#c4b5fd;">💰 ${esc(title)}</div>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:#0f0f1a;">
+              <th style="padding:8px;text-align:left">Player</th>
+              <th style="padding:8px;text-align:left">Item</th>
+              <th style="padding:8px;text-align:left">NPC</th>
+              <th style="padding:8px;text-align:left">Value</th>
+              <th style="padding:8px;text-align:left">Time</th>
+            </tr></thead>
+            <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#888">No drops found.</td></tr>'}</tbody>
+          </table>
+        </div>`;
+    } catch(e) { content.innerHTML = `<div class="card" style="color:#f87171;padding:20px;">❌ Error contacting bot server.</div>`; }
+  }
+
+  async function syncDtDashboard() {
+    const btn = document.getElementById('btn-dt-sync');
+    btn.disabled = true; btn.textContent = '⏳ Syncing...';
+    try {
+      const res = await api('POST', '/api/droptracker/sync');
+      const data = await res.json();
+      if (data.error) showToast(data.error, true);
+      else showToast(`Droptracker sync — ${data.updated} user(s) updated out of ${data.total} members.`);
+    } catch(e) { showToast('Error contacting bot server.', true); }
+    btn.disabled = false; btn.textContent = '🔄 Sync Members';
   }
 
   async function checkRankUpsNow() {

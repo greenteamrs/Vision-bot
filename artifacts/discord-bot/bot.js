@@ -49,6 +49,7 @@ const settingsSchema = new mongoose.Schema({
   afkChannelId: { type: String, default: '155520058762723328' },
   rankNotifyChannelId: { type: String, default: '' },
   womGroupId: { type: String, default: '' },
+  droptrackerGroupId: { type: String, default: '' },
   levelA: { type: Number, default: 5 },
   levelB: { type: Number, default: 50 },
   levelC: { type: Number, default: 100 },
@@ -87,7 +88,10 @@ const DEFAULT_COMMANDS = [
   { key: 'myrs',            name: 'myrs',             category: 'RS Names',    description: 'See all your linked RS names',           usage: '!myrs',                    isMod: false },
   { key: 'rsnames',         name: 'rsnames',          category: 'RS Names',    description: 'List all linked RS names (mod)',         usage: '!rsnames',                 isMod: true  },
   { key: 'rsset',           name: 'rsset',            category: 'RS Names',    description: 'Set RS name for any user (mod)',         usage: '!rsset @user <rsname>',    isMod: true  },
-  { key: 'droptop',         name: 'droptop',          category: 'Admin',       description: 'Award monthly XP from screenshot',       usage: '!droptop',                 isMod: true  },
+  { key: 'droptop',         name: 'droptop',          category: 'Droptracker', description: 'Award monthly XP from Droptracker API',  usage: '!droptop',                 isMod: true  },
+  { key: 'toploot',         name: 'toploot',          category: 'Droptracker', description: 'Show loot leaderboard from Droptracker',  usage: '!toploot [npc_name]',       isMod: false },
+  { key: 'drops',           name: 'drops',            category: 'Droptracker', description: 'Show recent drops from Droptracker',      usage: '!drops [npc_name]',         isMod: false },
+  { key: 'syncdroptracker', name: 'syncdroptracker',  category: 'Admin',       description: 'Sync members from Droptracker',           usage: '!syncdroptracker',          isMod: true  },
   { key: 'syncwom',         name: 'syncwom',          category: 'Admin',       description: 'Sync clan join dates from WiseOldMan',   usage: '!syncwom',                 isMod: true  },
   { key: 'checkranks',      name: 'checkranks',       category: 'Admin',       description: 'Trigger rank-up check immediately',      usage: '!checkranks',              isMod: true  },
   { key: 'importmee6',      name: 'importmee6',       category: 'Admin',       description: 'Import levels from MEE6',                usage: '!importmee6',              isMod: true  },
@@ -365,6 +369,69 @@ async function syncWomMembers() {
     }
   }
   return { updated, total: memberships.length };
+}
+
+// --- Droptracker API ---
+async function dtFetch(path) {
+  const apiKey = process.env.DROPTRACKER_API_KEY;
+  if (!apiKey) return { error: 'DROPTRACKER_API_KEY not set.' };
+  const s = await getSettings();
+  const groupId = String(s.droptrackerGroupId || '').trim();
+  if (!groupId) return { error: 'No Droptracker Group ID set. Add it in XP Settings.' };
+  try {
+    const res = await fetch(`https://api.droptracker.io/groups/${groupId}${path}`, {
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'User-Agent': 'VisionaryBot/1.0' }
+    });
+    if (!res.ok) return { error: `Droptracker API error ${res.status}` };
+    return { data: await res.json() };
+  } catch (e) {
+    return { error: `Network error: ${e.message}` };
+  }
+}
+
+async function syncDroptrackerMembers() {
+  const result = await dtFetch('/export/members');
+  if (result.error) return { updated: 0, total: 0, error: result.error };
+  const members = Array.isArray(result.data) ? result.data : (result.data.members || []);
+  let updated = 0;
+  for (const m of members) {
+    const rsName = m.player_name || m.name || m.username;
+    if (!rsName) continue;
+    const user = await User.findOne({ $or: [
+      { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
+      { rsNames: new RegExp(`^${rsName}$`, 'i') },
+    ]});
+    if (!user) continue;
+    // Store WOM ID if provided
+    const womId = m.wom_id || m.wom_player_id;
+    const changes = {};
+    if (womId && !user.womPlayerId) changes.womPlayerId = womId;
+    if (Object.keys(changes).length) {
+      await User.updateOne({ _id: user._id }, changes);
+      updated++;
+    }
+  }
+  return { updated, total: members.length };
+}
+
+async function getDroptrackerTopPlayers(npcName, limit = 10) {
+  let path = `/export/top-players?limit=${limit}`;
+  if (npcName) path += `&npc_name=${encodeURIComponent(npcName)}`;
+  return dtFetch(path);
+}
+
+async function getDroptrackerDrops(npcName, limit = 10) {
+  let path = `/export/drops?limit=${limit}`;
+  if (npcName) path += `&npc_name=${encodeURIComponent(npcName)}`;
+  return dtFetch(path);
+}
+
+function formatGp(n) {
+  if (!n && n !== 0) return '?';
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}b`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
 async function checkRankUps(guild) {
@@ -693,27 +760,67 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   if (command === cmd('droptop')) {
-    if (!message.member.permissions.has('Administrator')) return message.reply("❌ Admins only.");
-    if (!process.env.GEMINI_API_KEY) return message.reply("❌ GEMINI_API_KEY is not set.");
-    const attachment = message.attachments.first();
-    if (!attachment) return message.reply("❌ Attach a screenshot of the DropTracker leaderboard.");
+    if (!message.member.permissions.has('Administrator') && !isMod(message.member))
+      return message.reply("❌ Mods only.");
+    const processingMsg = await message.channel.send("⏳ Fetching DropTracker leaderboard...");
+    const npcName = args.join(' ').trim() || null;
+    const result = await getDroptrackerTopPlayers(npcName, 10);
+    await processingMsg.delete().catch(() => {});
+    if (result.error) return message.channel.send(`❌ ${result.error}`);
+    const players = Array.isArray(result.data) ? result.data : (result.data.players || result.data.members || []);
+    if (!players.length) return message.channel.send("❌ No players found in Droptracker.");
+    const rankedNames = players.map(p => p.player_name || p.name || p.username).filter(Boolean);
+    const preview = rankedNames.map((n, i) => `${i + 1}. ${n}`).join('\n');
+    await message.channel.send(`📋 **DropTracker Rankings:**\n${preview}\n\nAwarding XP now...`);
+    await awardDropTopXp(rankedNames, message.guild, message.channel);
+  }
 
-    const processingMsg = await message.channel.send("⏳ Reading leaderboard screenshot with AI...");
-    try {
-      const names = await extractLeaderboardFromImage(attachment.url);
-      if (!Array.isArray(names) || names.length === 0) {
-        await processingMsg.delete().catch(() => {});
-        return message.channel.send("❌ Couldn't extract names. Try a clearer screenshot.");
-      }
-      await processingMsg.delete().catch(() => {});
-      const preview = names.map((n, i) => `${i + 1}. ${n}`).join('\n');
-      await message.channel.send(`📋 **Detected rankings:**\n${preview}\n\nAwarding XP now...`);
-      await awardDropTopXp(names, message.guild, message.channel);
-    } catch (err) {
-      console.error("!droptop error:", err);
-      await processingMsg.delete().catch(() => {});
-      message.channel.send(`❌ Failed to read screenshot: ${err.message}`);
-    }
+  if (command === cmd('toploot')) {
+    const npcName = args.join(' ').trim() || null;
+    const processingMsg = await message.channel.send("⏳ Fetching loot leaderboard...");
+    const result = await getDroptrackerTopPlayers(npcName, 10);
+    await processingMsg.delete().catch(() => {});
+    if (result.error) return message.channel.send(`❌ ${result.error}`);
+    const players = Array.isArray(result.data) ? result.data : (result.data.players || result.data.members || []);
+    if (!players.length) return message.channel.send("No loot data found.");
+    const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+    const title = npcName ? `🏆 **Top ${npcName} Looters**` : `🏆 **Top Looters (Last 30 Days)**`;
+    const lines = players.slice(0, 10).map((p, i) => {
+      const name = p.player_name || p.name || p.username || '?';
+      const gp = formatGp(p.total_value || p.total_gp || p.gp_gained || 0);
+      const drops = p.drop_count || p.total_drops || '';
+      return `${medals[i] || `${i+1}.`} **${name}** — ${gp} GP${drops ? ` (${drops} drops)` : ''}`;
+    });
+    message.channel.send(`${title}\n${lines.join('\n')}`);
+  }
+
+  if (command === cmd('drops')) {
+    const npcName = args.join(' ').trim() || null;
+    const processingMsg = await message.channel.send("⏳ Fetching recent drops...");
+    const result = await getDroptrackerDrops(npcName, 10);
+    await processingMsg.delete().catch(() => {});
+    if (result.error) return message.channel.send(`❌ ${result.error}`);
+    const drops = Array.isArray(result.data) ? result.data : (result.data.drops || result.data.items || []);
+    if (!drops.length) return message.channel.send("No recent drops found.");
+    const title = npcName ? `💰 **Recent ${npcName} Drops**` : `💰 **Recent Drops**`;
+    const lines = drops.slice(0, 10).map(d => {
+      const player = d.player_name || d.player || d.username || '?';
+      const item = d.item_name || d.name || '?';
+      const qty = d.quantity > 1 ? ` x${d.quantity}` : '';
+      const gp = formatGp(d.value || d.item_value || 0);
+      const npc = d.npc_name ? ` from ${d.npc_name}` : '';
+      return `• **${player}** — ${item}${qty}${npc} (${gp} GP)`;
+    });
+    message.channel.send(`${title}\n${lines.join('\n')}`);
+  }
+
+  if (command === cmd('syncdroptracker')) {
+    if (!message.member.permissions.has('Administrator') && !isMod(message.member))
+      return message.reply("❌ Mods only.");
+    const msg = await message.channel.send("⏳ Syncing Droptracker members...");
+    const result = await syncDroptrackerMembers();
+    if (result.error) { await msg.delete().catch(() => {}); return message.channel.send(`❌ ${result.error}`); }
+    msg.edit(`✅ Droptracker sync complete — ${result.updated} user(s) updated out of ${result.total} members.`);
   }
 
   if (command === cmd('split')) {
@@ -1138,6 +1245,33 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         sendJson(res, 500, { error: e.message });
       }
+      return;
+    }
+
+    // GET /api/droptracker/top-players
+    if (pathname === '/api/droptracker/top-players' && req.method === 'GET') {
+      const npcName = params.get('npc_name') || null;
+      const limit = Math.min(parseInt(params.get('limit') || '25'), 100);
+      const result = await getDroptrackerTopPlayers(npcName, limit);
+      if (result.error) { sendJson(res, 502, result); return; }
+      sendJson(res, 200, result.data);
+      return;
+    }
+
+    // GET /api/droptracker/drops
+    if (pathname === '/api/droptracker/drops' && req.method === 'GET') {
+      const npcName = params.get('npc_name') || null;
+      const limit = Math.min(parseInt(params.get('limit') || '25'), 100);
+      const result = await getDroptrackerDrops(npcName, limit);
+      if (result.error) { sendJson(res, 502, result); return; }
+      sendJson(res, 200, result.data);
+      return;
+    }
+
+    // POST /api/droptracker/sync
+    if (pathname === '/api/droptracker/sync' && req.method === 'POST') {
+      const result = await syncDroptrackerMembers();
+      sendJson(res, result.error ? 502 : 200, result);
       return;
     }
 

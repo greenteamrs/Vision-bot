@@ -92,6 +92,7 @@ const DEFAULT_COMMANDS = [
   { key: 'toploot',         name: 'toploot',          category: 'Droptracker', description: 'Show loot leaderboard from Droptracker',  usage: '!toploot [npc_name]',       isMod: false },
   { key: 'drops',           name: 'drops',            category: 'Droptracker', description: 'Show recent drops from Droptracker',      usage: '!drops [npc_name]',         isMod: false },
   { key: 'syncdroptracker', name: 'syncdroptracker',  category: 'Admin',       description: 'Sync members from Droptracker',           usage: '!syncdroptracker',          isMod: true  },
+  { key: 'testaward',       name: 'testaward',        category: 'Admin',       description: 'Test monthly auto-award without waiting',  usage: '!testaward',                isMod: true  },
   { key: 'syncwom',         name: 'syncwom',          category: 'Admin',       description: 'Sync clan join dates from WiseOldMan',   usage: '!syncwom',                 isMod: true  },
   { key: 'checkranks',      name: 'checkranks',       category: 'Admin',       description: 'Trigger rank-up check immediately',      usage: '!checkranks',              isMod: true  },
   { key: 'importmee6',      name: 'importmee6',       category: 'Admin',       description: 'Import levels from MEE6',                usage: '!importmee6',              isMod: true  },
@@ -828,6 +829,19 @@ client.on(Events.MessageCreate, async (message) => {
     const result = await syncDroptrackerMembers();
     if (result.error) { await msg.delete().catch(() => {}); return message.channel.send(`❌ ${result.error}`); }
     msg.edit(`✅ Droptracker sync complete — ${result.updated} user(s) updated out of ${result.total} members.`);
+  }
+
+  if (command === cmd('testaward')) {
+    if (!message.member.permissions.has('Administrator') && !isMod(message.member))
+      return message.reply("❌ Mods only.");
+    await message.channel.send("⏳ **Test Monthly Award** — fetching Droptracker top 10...");
+    const result = await getDroptrackerTopPlayers(null, 10);
+    if (result.error) return message.channel.send(`❌ ${result.error}`);
+    const players = Array.isArray(result.data) ? result.data
+      : (result.data.players || result.data.members || []);
+    if (!players.length) return message.channel.send("❌ No Droptracker data returned.");
+    const rankedNames = players.map(p => p.player_name || p.name || p.username).filter(Boolean);
+    await awardDropTopXp(rankedNames, message.guild, message.channel);
   }
 
   if (command === cmd('split')) {

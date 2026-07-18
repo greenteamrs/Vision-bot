@@ -142,7 +142,7 @@ async function saveSettings(data) {
     'messageXpMin', 'messageXpMax', 'messageXpCooldownSecs',
     'voiceJoinXp', 'voiceJoinCooldownSecs',
     'voiceIntervalXp', 'voiceIntervalMins',
-    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId',
+    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId', 'droptrackerGroupId',
     'levelA', 'levelB', 'levelC', 'levelMax',
   ];
   const update = {};

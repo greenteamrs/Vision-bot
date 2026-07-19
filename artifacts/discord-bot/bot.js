@@ -49,6 +49,8 @@ const settingsSchema = new mongoose.Schema({
   afkChannelId: { type: String, default: '155520058762723328' },
   rankNotifyChannelId: { type: String, default: '' },
   womGroupId: { type: String, default: '' },
+  womActivityChannelId: { type: String, default: '' },
+  womLastActivityAt: { type: Date, default: null },
   droptrackerGroupId: { type: String, default: '' },
   levelA: { type: Number, default: 5 },
   levelB: { type: Number, default: 50 },
@@ -143,7 +145,7 @@ async function saveSettings(data) {
     'messageXpMin', 'messageXpMax', 'messageXpCooldownSecs',
     'voiceJoinXp', 'voiceJoinCooldownSecs',
     'voiceIntervalXp', 'voiceIntervalMins',
-    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId', 'droptrackerGroupId',
+    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId', 'womActivityChannelId', 'droptrackerGroupId',
     'levelA', 'levelB', 'levelC', 'levelMax',
   ];
   const update = {};
@@ -372,6 +374,61 @@ async function syncWomMembers() {
   return { updated, total: memberships.length };
 }
 
+// --- WOM Activity Feed ---
+async function checkWomActivity(discordClient) {
+  const s = await getSettings();
+  const groupId = String(s.womGroupId || '').trim();
+  const channelId = String(s.womActivityChannelId || '').trim();
+  if (!groupId || !channelId) return;
+
+  try {
+    const r = await fetch(`https://api.wiseoldman.net/v2/groups/${groupId}/activity?limit=20`, {
+      headers: { 'User-Agent': 'VisionaryBot/1.0', 'x-user-agent': 'VisionaryBot/1.0' }
+    });
+    if (!r.ok) return;
+    const body = await r.json();
+    const events = Array.isArray(body) ? body : (body.activities || body.activity || []);
+    if (!events.length) return;
+
+    // Only post events newer than the last seen timestamp
+    const lastSeen = s.womLastActivityAt ? new Date(s.womLastActivityAt) : null;
+    const newEvents = lastSeen
+      ? events.filter(e => new Date(e.createdAt) > lastSeen)
+      : events.slice(0, 1); // first run — just seed the timestamp, post nothing
+
+    if (!newEvents.length) return;
+
+    // Save new high-water mark
+    const latest = new Date(Math.max(...newEvents.map(e => new Date(e.createdAt).getTime())));
+    await Settings.findOneAndUpdate({ key: 'main' }, { $set: { womLastActivityAt: latest } });
+    cachedSettings = null;
+
+    const channel = await discordClient.channels.fetch(channelId).catch(() => null);
+    if (!channel) return;
+
+    // Post newest-first so they read top-down in Discord
+    for (const e of [...newEvents].reverse()) {
+      const name = e.player?.displayName || e.player?.username || 'Unknown';
+      const type = (e.type || '').toUpperCase();
+      let emoji, text;
+      if (type === 'LEFT') {
+        emoji = '📤'; text = `**${name}** left the clan.`;
+      } else if (type === 'JOINED') {
+        emoji = '📥'; text = `**${name}** joined the clan!`;
+      } else if (type === 'CHANGED_ROLE') {
+        const role = e.role || 'unknown';
+        emoji = '🔰'; text = `**${name}** was promoted to **${role}**.`;
+      } else {
+        emoji = '📋'; text = `**${name}** — ${type.toLowerCase()}`;
+      }
+      const ts = e.createdAt ? `<t:${Math.floor(new Date(e.createdAt).getTime() / 1000)}:R>` : '';
+      await channel.send(`${emoji} ${text} ${ts}`).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[WOM Activity] Error:', err.message);
+  }
+}
+
 // --- Droptracker API ---
 async function dtFetch(path) {
   const apiKey = process.env.DROPTRACKER_API_KEY;
@@ -553,6 +610,10 @@ client.once('ready', async () => {
       console.error("WOM daily sync error:", err.message);
     }
   });
+
+  // WOM activity feed — poll every 10 minutes
+  setInterval(() => checkWomActivity(client).catch(() => {}), 10 * 60 * 1000);
+  checkWomActivity(client).catch(() => {}); // seed the timestamp on startup
 
   // Daily rank-up check at noon UTC
   cron.schedule("0 12 * * *", async () => {

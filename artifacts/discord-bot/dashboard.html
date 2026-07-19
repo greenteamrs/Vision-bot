@@ -393,6 +393,7 @@
             <div class="field"><label>AFK Channel ID</label><input type="text" id="afkChannelId" /></div>
             <div class="field"><label>Rank Notify Channel ID</label><input type="text" id="rankNotifyChannelId" placeholder="Leave blank to use XP channel" /></div>
             <div class="field"><label>Droptracker Group ID</label><input type="text" id="droptrackerGroupId" placeholder="e.g. 42" /></div>
+            <div class="field"><label>WOM Activity Channel ID</label><input type="text" id="womActivityChannelId" placeholder="Channel ID for join/leave/role posts" /></div>
             <div class="field">
               <label>WiseOldMan Group ID</label>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
@@ -701,7 +702,7 @@
     // XP Settings fields
     ['messageXpMin','messageXpMax','messageXpCooldownSecs',
      'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins',
-     'afkChannelId','rankNotifyChannelId','womGroupId','droptrackerGroupId'].forEach(k => {
+     'afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId'].forEach(k => {
       const el = document.getElementById(k);
       if (el) el.value = s[k] ?? '';
     });
@@ -733,8 +734,8 @@
 
   async function saveXpSettings() {
     const keys = ['messageXpMin','messageXpMax','messageXpCooldownSecs',
-                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId','womGroupId','droptrackerGroupId'];
-    const strKeys = new Set(['afkChannelId','rankNotifyChannelId','womGroupId','droptrackerGroupId']);
+                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId'];
+    const strKeys = new Set(['afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId']);
     const data = {};
     keys.forEach(k => {
       const el = document.getElementById(k);

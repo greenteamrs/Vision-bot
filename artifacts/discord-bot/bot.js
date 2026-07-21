@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
 const fs = require('fs');
@@ -174,8 +174,6 @@ const SLASH_COMMANDS = [
       opt.setName('tile').setDescription('Bingo tile this drop counts for').setRequired(true).setAutocomplete(true))
     .addStringOption(opt =>
       opt.setName('team').setDescription('Team to assign the tile to').setRequired(true).setAutocomplete(true))
-    .addStringOption(opt =>
-      opt.setName('step').setDescription('For multi-step tiles: which step this completes (leave blank to complete the whole tile)').setRequired(false).setAutocomplete(true)),
 
   new SlashCommandBuilder()
     .setName('bingo-reject')
@@ -1283,6 +1281,16 @@ client.on(Events.MessageCreate, async (message) => {
     );
     if (!tile) return message.reply(`❌ Tile not found: "${tilePart}". Check the tile name.`);
 
+    // For multi-step tiles: complete all remaining steps + tile
+    const tileConfig = await BingoTileConfig.findOne({ tileId: tile.id }).lean();
+    if (tileConfig && tileConfig.steps.length > 0) {
+      await BingoProgress.findOneAndUpdate(
+        { tileId: tile.id, teamId: team._id },
+        { $set: { completedSteps: tileConfig.steps } },
+        { upsert: true, new: true }
+      );
+    }
+
     // Mark tile complete
     const alreadyDone = await BingoCompletion.findOne({ tileId: tile.id, teamId: team._id });
     if (!alreadyDone) {
@@ -1297,7 +1305,8 @@ client.on(Events.MessageCreate, async (message) => {
       reviewedBy: message.author.tag,
     });
 
-    await message.reply(`✅ Approved! **${tile.name}** assigned to **${team.name}** — submitted by ${sub.submittedBy}.`);
+    const stepNote = tileConfig && tileConfig.steps.length > 0 ? ` (all ${tileConfig.steps.length} steps marked complete)` : '';
+    await message.reply(`✅ Approved! **${tile.name}** assigned to **${team.name}**${stepNote} — submitted by ${sub.submittedBy}.\n💡 Use \`/bingo-approve\` to approve individual steps instead of the full tile.`);
 
     // DM the submitter
     const submitter = await client.users.fetch(sub.submittedById).catch(() => null);
@@ -1588,19 +1597,71 @@ client.on(Events.InteractionCreate, async interaction => {
           .map(t => ({ name: t.name, value: t._id.toString() }));
         return interaction.respond(choices);
       }
-      if (focused.name === 'step' && commandName === 'bingo-approve') {
-        const tileId = options.getString('tile');
-        if (!tileId) return interaction.respond([]);
-        const tileConfig = await BingoTileConfig.findOne({ tileId }).lean();
-        if (!tileConfig || !tileConfig.steps.length) return interaction.respond([{ name: 'This tile has no steps — leave blank to complete it fully', value: '__none__' }]);
-        const choices = tileConfig.steps
-          .filter(s => s.toLowerCase().includes(focused.value.toLowerCase()))
-          .slice(0, 25)
-          .map(s => ({ name: s, value: s }));
-        return interaction.respond(choices);
-      }
     }
     return interaction.respond([]);
+  }
+
+  // --- Step select menu (multi-step bingo approve) ---
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('bingo_steps:')) {
+    const parts = interaction.customId.split(':');
+    const subId = parts[1];
+    const tileId = parts[2];
+    const teamId = parts[3];
+    const selectedSteps = interaction.values;
+
+    await interaction.deferUpdate();
+
+    const tileConfig = await BingoTileConfig.findOne({ tileId }).lean();
+    const tile = BINGO_TILES.find(t => t.id === tileId);
+    const team = await BingoTeam.findById(teamId).catch(() => null);
+
+    // Merge selected steps with existing progress
+    let prog = await BingoProgress.findOne({ tileId, teamId }).lean();
+    const existing = prog?.completedSteps || [];
+    const merged = [...new Set([...existing, ...selectedSteps])];
+
+    await BingoProgress.findOneAndUpdate(
+      { tileId, teamId },
+      { $set: { completedSteps: merged } },
+      { upsert: true, new: true }
+    );
+
+    // Auto-complete tile if all steps done
+    const allDone = tileConfig && tileConfig.steps.every(s => merged.includes(s));
+    if (allDone) {
+      const sub = await BingoSubmission.findById(subId).catch(() => null);
+      const already = await BingoCompletion.findOne({ tileId, teamId });
+      if (!already) await BingoCompletion.create({ tileId, teamId, completedBy: sub?.submittedBy || '' });
+    }
+
+    // Mark submission approved
+    const sub = await BingoSubmission.findById(subId).catch(() => null);
+    if (sub && sub.status === 'pending') {
+      await BingoSubmission.findByIdAndUpdate(subId, {
+        tileId, teamId, status: 'approved', reviewedBy: interaction.user.tag,
+      });
+      const submitter = await client.users.fetch(sub.submittedById).catch(() => null);
+      if (submitter) {
+        const msg = allDone
+          ? `✅ Your bingo submission was approved! **${tile?.name}** is now fully complete for **${team?.name}**.`
+          : `✅ Your bingo submission was approved! ${selectedSteps.length} step(s) marked on **${tile?.name}** for **${team?.name}**.`;
+        submitter.send(msg).catch(() => {});
+      }
+    }
+
+    const totalSteps = tileConfig?.steps.length || 0;
+    await interaction.editReply({
+      content: [
+        `✅ Marked **${selectedSteps.length}** step(s) on **${tile?.name}** for **${team?.name}**:`,
+        selectedSteps.map(s => `• ${s}`).join('\n'),
+        '',
+        allDone
+          ? `🎉 All ${totalSteps} steps done — tile fully completed!`
+          : `📊 ${merged.length}/${totalSteps} steps done.`,
+      ].join('\n'),
+      components: [],
+    });
+    return;
   }
 
   if (!interaction.isChatInputCommand()) return;
@@ -1667,6 +1728,39 @@ client.on(Events.InteractionCreate, async interaction => {
     const team = await BingoTeam.findById(teamId);
     if (!tile || !team) return interaction.editReply('❌ Invalid tile or team.');
 
+    // Check if tile has steps configured
+    const tileConfig = await BingoTileConfig.findOne({ tileId }).lean();
+    if (tileConfig && tileConfig.steps.length > 0) {
+      // Get existing progress so already-done steps show as default
+      const prog = await BingoProgress.findOne({ tileId, teamId }).lean();
+      const completedSteps = prog?.completedSteps || [];
+
+      const menuOptions = tileConfig.steps.map(step => ({
+        label: step.slice(0, 100),
+        value: step,
+        description: completedSteps.includes(step) ? '✓ Already done' : 'Not done yet',
+        default: completedSteps.includes(step),
+      }));
+
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId(`bingo_steps:${subId}:${tileId}:${teamId}`)
+        .setPlaceholder('Pick the step(s) this submission completes...')
+        .setMinValues(1)
+        .setMaxValues(menuOptions.length)
+        .addOptions(menuOptions);
+
+      const row = new ActionRowBuilder().addComponents(menu);
+
+      return interaction.editReply({
+        content: [
+          `**${tile.name}** has ${tileConfig.steps.length} step(s) — ${completedSteps.length} already done.`,
+          `Select which step(s) **${sub.submittedBy}**'s submission completes:`,
+        ].join('\n'),
+        components: [row],
+      });
+    }
+
+    // No steps — complete tile directly
     const already = await BingoCompletion.findOne({ tileId, teamId });
     if (!already) await BingoCompletion.create({ tileId, teamId, completedBy: sub.submittedBy });
     await BingoSubmission.findByIdAndUpdate(sub._id, { tileId, teamId, status: 'approved', reviewedBy: user.tag });

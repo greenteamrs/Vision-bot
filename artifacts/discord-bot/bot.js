@@ -53,6 +53,7 @@ const settingsSchema = new mongoose.Schema({
   womLastActivityAt: { type: Date, default: null },
   droptrackerGroupId: { type: String, default: '' },
   bingoChannelId: { type: String, default: '' },
+  bingoReviewChannelId: { type: String, default: '' },
   levelA: { type: Number, default: 5 },
   levelB: { type: Number, default: 50 },
   levelC: { type: Number, default: 100 },
@@ -85,6 +86,19 @@ const bingoProgressSchema = new mongoose.Schema({
 });
 bingoProgressSchema.index({ tileId: 1, teamId: 1 }, { unique: true });
 const BingoProgress = mongoose.model('BingoProgress', bingoProgressSchema);
+
+const bingoSubmissionSchema = new mongoose.Schema({
+  tileId:        { type: String, required: true },
+  teamId:        { type: mongoose.Schema.Types.ObjectId, ref: 'BingoTeam', required: true },
+  submittedBy:   { type: String, required: true },   // Discord user tag
+  submittedById: { type: String, required: true },   // Discord user ID
+  imageUrl:      { type: String, default: '' },
+  note:          { type: String, default: '' },
+  status:        { type: String, enum: ['pending','approved','rejected'], default: 'pending' },
+  reviewMessageId: { type: String, default: '' },    // message ID in review channel
+  reviewedBy:    { type: String, default: '' },
+}, { timestamps: true });
+const BingoSubmission = mongoose.model('BingoSubmission', bingoSubmissionSchema);
 
 const bingoTeamSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -177,7 +191,7 @@ async function saveSettings(data) {
     'messageXpMin', 'messageXpMax', 'messageXpCooldownSecs',
     'voiceJoinXp', 'voiceJoinCooldownSecs',
     'voiceIntervalXp', 'voiceIntervalMins',
-    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId', 'womActivityChannelId', 'droptrackerGroupId', 'bingoChannelId',
+    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId', 'womActivityChannelId', 'droptrackerGroupId', 'bingoChannelId', 'bingoReviewChannelId',
     'levelA', 'levelB', 'levelC', 'levelMax',
   ];
   const update = {};

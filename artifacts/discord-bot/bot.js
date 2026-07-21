@@ -173,7 +173,7 @@ const SLASH_COMMANDS = [
     .addStringOption(opt =>
       opt.setName('tile').setDescription('Bingo tile this drop counts for').setRequired(true).setAutocomplete(true))
     .addStringOption(opt =>
-      opt.setName('team').setDescription('Team to assign the tile to').setRequired(true).setAutocomplete(true))
+      opt.setName('team').setDescription('Team to assign the tile to').setRequired(true).setAutocomplete(true)),
 
   new SlashCommandBuilder()
     .setName('bingo-reject')

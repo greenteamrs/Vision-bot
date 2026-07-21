@@ -72,6 +72,20 @@ const commandConfigSchema = new mongoose.Schema({
 const CommandConfig = mongoose.model('CommandConfig', commandConfigSchema);
 
 // --- Bingo Models ---
+const bingoTileConfigSchema = new mongoose.Schema({
+  tileId: { type: String, required: true, unique: true },
+  steps: { type: [String], default: [] },
+});
+const BingoTileConfig = mongoose.model('BingoTileConfig', bingoTileConfigSchema);
+
+const bingoProgressSchema = new mongoose.Schema({
+  tileId: { type: String, required: true },
+  teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'BingoTeam', required: true },
+  completedSteps: { type: [String], default: [] },
+});
+bingoProgressSchema.index({ tileId: 1, teamId: 1 }, { unique: true });
+const BingoProgress = mongoose.model('BingoProgress', bingoProgressSchema);
+
 const bingoTeamSchema = new mongoose.Schema({
   name: { type: String, required: true },
   color: { type: String, default: '#e74c3c' },
@@ -1646,9 +1660,65 @@ const server = http.createServer(async (req, res) => {
 
     // GET /api/bingo/state
     if (pathname === '/api/bingo/state' && req.method === 'GET') {
-      const teams = await BingoTeam.find().sort({ order: 1, createdAt: 1 });
-      const completions = await BingoCompletion.find().populate('teamId', 'name color');
-      sendJson(res, 200, { teams, completions, tiles: BINGO_TILES, lines: BINGO_LINES });
+      const [teams, completions, tileConfigs, progress] = await Promise.all([
+        BingoTeam.find().sort({ order: 1, createdAt: 1 }),
+        BingoCompletion.find().populate('teamId', 'name color'),
+        BingoTileConfig.find(),
+        BingoProgress.find().populate('teamId', 'name color'),
+      ]);
+      sendJson(res, 200, { teams, completions, tiles: BINGO_TILES, lines: BINGO_LINES, tileConfigs, progress });
+      return;
+    }
+
+    // PUT /api/bingo/tile-config/:tileId — set step definitions for a tile
+    const tileConfigMatch = pathname.match(/^\/api\/bingo\/tile-config\/(.+)$/);
+    if (tileConfigMatch && req.method === 'PUT') {
+      try {
+        const data = await readBody(req);
+        const steps = Array.isArray(data.steps) ? data.steps.map(s => String(s).trim()).filter(Boolean) : [];
+        const config = await BingoTileConfig.findOneAndUpdate(
+          { tileId: tileConfigMatch[1] },
+          { $set: { steps } },
+          { upsert: true, new: true }
+        );
+        sendJson(res, 200, config);
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    // PATCH /api/bingo/progress — toggle a step for a tile+team
+    if (pathname === '/api/bingo/progress' && req.method === 'PATCH') {
+      try {
+        const data = await readBody(req);
+        const { tileId, teamId, step } = data;
+        if (!tileId || !teamId || !step) { sendJson(res, 400, { error: 'tileId, teamId, step required' }); return; }
+
+        const existing = await BingoProgress.findOne({ tileId, teamId });
+        let completedSteps;
+        if (!existing) {
+          await BingoProgress.create({ tileId, teamId, completedSteps: [step] });
+          completedSteps = [step];
+        } else {
+          if (existing.completedSteps.includes(step)) {
+            completedSteps = existing.completedSteps.filter(s => s !== step);
+          } else {
+            completedSteps = [...existing.completedSteps, step];
+          }
+          await BingoProgress.findOneAndUpdate({ tileId, teamId }, { $set: { completedSteps } });
+        }
+
+        // Auto-complete the tile if all steps are done
+        const config = await BingoTileConfig.findOne({ tileId });
+        if (config && config.steps.length > 0 && config.steps.every(s => completedSteps.includes(s))) {
+          const already = await BingoCompletion.findOne({ tileId, teamId });
+          if (!already) await BingoCompletion.create({ tileId, teamId, completedBy: 'auto (all steps done)' });
+        } else if (config && config.steps.length > 0) {
+          // Uncomplete tile if a step was removed
+          await BingoCompletion.deleteOne({ tileId, teamId });
+        }
+
+        sendJson(res, 200, { completedSteps });
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
       return;
     }
 

@@ -596,6 +596,15 @@
         </div>
 
         <div class="card">
+          <h3>Configure Tile Steps</h3>
+          <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">
+            For tiles that require multiple drops or objectives, define the individual steps here.
+            Teams will track each step separately, and the tile auto-completes when all steps are ticked.
+          </p>
+          <div id="bingo-step-config"></div>
+        </div>
+
+        <div class="card">
           <h3>Score</h3>
           <div id="bingo-score-table"></div>
           <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
@@ -1349,6 +1358,7 @@
     renderBingoBoard();
     renderBingoScore();
     renderBingoSelectors();
+    renderBingoStepConfig();
   }
 
   function hexToRgba(hex, alpha) {
@@ -1398,17 +1408,21 @@
     const cw = 100 / COLS;
     const rh = 100 / ROWS;
 
+    const activeTeamId = document.getElementById('bingo-active-team')?.value;
+
     for (const tile of (bingoState.tiles || [])) {
       const left = (tile.col - 1) * cw;
       const top  = (tile.row - 1) * rh;
       const h    = rh * tile.rowSpan;
       const comps = (bingoState.completions || []).filter(c => c.tileId === tile.id);
+      const tileConfig = (bingoState.tileConfigs || []).find(tc => tc.tileId === tile.id);
+      const hasSteps = tileConfig && tileConfig.steps.length > 0;
 
       const div = document.createElement('div');
       div.style.cssText = `position:absolute;left:${left}%;top:${top}%;width:${cw}%;height:${h}%;
         box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;
         align-items:center;justify-content:center;gap:2px;overflow:hidden;transition:outline 0.1s;`;
-      div.title = tile.name + (tile.value > 1 ? ` (×${tile.value})` : '');
+      div.title = tile.name + (tile.value > 1 ? ` (×${tile.value})` : '') + (hasSteps ? ` — ${tileConfig.steps.length} steps` : '');
       div.dataset.tileId = tile.id;
 
       if (comps.length > 0) {
@@ -1425,25 +1439,136 @@
           badge.textContent = c.teamId?.name || '?';
           div.appendChild(badge);
         });
+      } else if (hasSteps && activeTeamId) {
+        // Show step progress for active team on incomplete tiles
+        const prog = (bingoState.progress || []).find(p => p.tileId === tile.id && p.teamId?._id === activeTeamId);
+        const done = prog ? prog.completedSteps.length : 0;
+        const total = tileConfig.steps.length;
+        if (done > 0) {
+          const pct = Math.round(done / total * 100);
+          div.style.background = `rgba(100,100,100,0.35)`;
+          const badge = document.createElement('div');
+          badge.style.cssText = `background:rgba(0,0,0,0.7);color:#fff;font-size:clamp(8px,1.5vw,13px);
+            font-weight:700;padding:2px 6px;border-radius:4px;`;
+          badge.textContent = `${done}/${total}`;
+          div.appendChild(badge);
+          // Mini progress bar
+          const bar = document.createElement('div');
+          bar.style.cssText = `width:80%;height:3px;background:rgba(255,255,255,0.2);border-radius:2px;margin-top:1px;`;
+          const fill = document.createElement('div');
+          const teamColor = bingoState.teams.find(t => t._id === activeTeamId)?.color || '#888';
+          fill.style.cssText = `height:100%;border-radius:2px;background:${teamColor};width:${pct}%;`;
+          bar.appendChild(fill);
+          div.appendChild(bar);
+        }
+      }
+
+      // Step indicator icon (top-right corner) for tiles with steps configured
+      if (hasSteps) {
+        const icon = document.createElement('div');
+        icon.style.cssText = `position:absolute;top:2px;right:3px;font-size:clamp(7px,1vw,10px);
+          opacity:0.7;pointer-events:none;`;
+        icon.textContent = '⚙';
+        div.appendChild(icon);
       }
 
       div.addEventListener('mouseenter', () => { div.style.outline = '2px solid rgba(255,255,255,0.7)'; });
       div.addEventListener('mouseleave', () => { div.style.outline = ''; });
-      div.addEventListener('click', () => toggleBingoTile(tile));
+      div.addEventListener('click', () => openBingoTileModal(tile));
       overlay.appendChild(div);
     }
   }
 
-  async function toggleBingoTile(tile) {
-    const teamId = document.getElementById('bingo-active-team').value;
-    if (!teamId) return showToast('Select a team first.', true);
-    const existing = (bingoState.completions || []).find(c => c.tileId === tile.id && c.teamId?._id === teamId);
-    if (existing) {
-      if (!confirm(`Remove "${tile.name}" from this team?`)) return;
-      await api('DELETE', '/api/bingo/complete', { tileId: tile.id, teamId });
-    } else {
-      await api('POST', '/api/bingo/complete', { tileId: tile.id, teamId });
+  // --- Tile modal (steps + complete toggle) ---
+  function openBingoTileModal(tile) {
+    const teamId = document.getElementById('bingo-active-team')?.value;
+    const team = bingoState.teams.find(t => t._id === teamId);
+    const tileConfig = (bingoState.tileConfigs || []).find(tc => tc.tileId === tile.id);
+    const hasSteps = tileConfig && tileConfig.steps.length > 0;
+    const isComplete = (bingoState.completions || []).some(c => c.tileId === tile.id && c.teamId?._id === teamId);
+    const prog = (bingoState.progress || []).find(p => p.tileId === tile.id && p.teamId?._id === teamId);
+    const completedSteps = prog ? prog.completedSteps : [];
+
+    let modal = document.getElementById('bingo-tile-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'bingo-tile-modal';
+      modal.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;
+        display:flex;align-items:center;justify-content:center;`;
+      modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+      document.body.appendChild(modal);
     }
+    modal.style.display = 'flex';
+
+    const teamColor = team?.color || '#888';
+    const stepsHtml = hasSteps ? `
+      <div style="margin:14px 0 8px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
+          Steps ${teamId ? `— ${team?.name}` : '(select a team to track progress)'}
+        </div>
+        ${tileConfig.steps.map((step, i) => {
+          const checked = completedSteps.includes(step);
+          return `<label style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:${teamId?'pointer':'default'};">
+            <input type="checkbox" ${checked?'checked':''} ${!teamId?'disabled':''}
+              style="width:16px;height:16px;accent-color:${teamColor};cursor:${teamId?'pointer':'default'};"
+              onchange="toggleBingoStep('${tile.id}','${step.replace(/'/g,"\\'")}',this.checked)" />
+            <span style="${checked?`color:${teamColor};font-weight:600;`:''}">${step}</span>
+            ${checked ? `<span style="margin-left:auto;color:${teamColor};font-size:13px;">✓</span>` : ''}
+          </label>`;
+        }).join('')}
+        <div style="margin-top:10px;font-size:12px;color:var(--muted);">
+          ${completedSteps.length}/${tileConfig.steps.length} steps done
+          ${completedSteps.length === tileConfig.steps.length ? ' — tile auto-completes when all done ✓' : ''}
+        </div>
+      </div>` : '';
+
+    const completeBtn = teamId && !hasSteps ? `
+      <div style="margin-top:14px;display:flex;gap:8px;">
+        ${isComplete
+          ? `<button class="btn-danger" onclick="toggleBingoTileSimple('${tile.id}',true)">✕ Remove completion</button>`
+          : `<button class="btn-primary" onclick="toggleBingoTileSimple('${tile.id}',false)" style="background:${teamColor};">✓ Mark complete</button>`}
+      </div>` : '';
+
+    const noTeamNote = !teamId ? `<p style="color:var(--muted);font-size:13px;margin-top:8px;">Select a team from the dropdown above to track progress.</p>` : '';
+
+    modal.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+        padding:24px;max-width:420px;width:90%;max-height:80vh;overflow-y:auto;position:relative;">
+        <button onclick="document.getElementById('bingo-tile-modal').remove()"
+          style="position:absolute;top:12px;right:14px;background:none;border:none;color:var(--muted);
+          font-size:18px;cursor:pointer;line-height:1;">✕</button>
+        <div style="font-size:18px;font-weight:700;margin-bottom:4px;">${tile.name}</div>
+        <div style="font-size:13px;color:var(--muted);">
+          Value: ${tile.value > 1 ? `<strong style="color:#fbbf24;">×${tile.value} pts</strong>` : '1 pt'}
+          ${hasSteps ? ` · ${tileConfig.steps.length} steps` : ''}
+        </div>
+        ${stepsHtml}
+        ${completeBtn}
+        ${noTeamNote}
+      </div>`;
+  }
+
+  async function toggleBingoStep(tileId, step, checked) {
+    const teamId = document.getElementById('bingo-active-team')?.value;
+    if (!teamId) return;
+    await api('PATCH', '/api/bingo/progress', { tileId, teamId, step });
+    await loadBingoState();
+    // Re-open modal so checkboxes reflect new state
+    const tile = (bingoState.tiles || []).find(t => t.id === tileId);
+    if (tile) openBingoTileModal(tile);
+  }
+
+  async function toggleBingoTileSimple(tileId, isComplete) {
+    const teamId = document.getElementById('bingo-active-team')?.value;
+    if (!teamId) return;
+    const tile = (bingoState.tiles || []).find(t => t.id === tileId);
+    if (isComplete) {
+      if (!confirm(`Remove "${tile?.name}" from this team?`)) return;
+      await api('DELETE', '/api/bingo/complete', { tileId, teamId });
+    } else {
+      await api('POST', '/api/bingo/complete', { tileId, teamId });
+    }
+    document.getElementById('bingo-tile-modal')?.remove();
     await loadBingoState();
   }
 
@@ -1469,7 +1594,17 @@
     const scores = bingoState.teams.map(team => {
       const comps = (bingoState.completions || []).filter(c => c.teamId?._id === team._id);
       const { tilePoints, lineBonus, total, doneLines } = calcBingoScoreClient(comps.map(c => c.tileId));
-      return { team, tilePoints, lineBonus, total, tileCount: comps.length, doneLines };
+      // In-progress tiles: have step progress but not yet complete
+      const inProgress = (bingoState.tileConfigs || [])
+        .filter(tc => tc.steps.length > 0 && !comps.find(c => c.tileId === tc.tileId))
+        .map(tc => {
+          const prog = (bingoState.progress || []).find(p => p.tileId === tc.tileId && p.teamId?._id === team._id);
+          const done = prog ? prog.completedSteps.length : 0;
+          if (!done) return null;
+          const tile = (bingoState.tiles || []).find(t => t.id === tc.tileId);
+          return { tile, done, total: tc.steps.length };
+        }).filter(Boolean);
+      return { team, tilePoints, lineBonus, total, tileCount: comps.length, doneLines, inProgress };
     }).sort((a, b) => b.total - a.total);
 
     const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣'];
@@ -1492,10 +1627,17 @@
         <tbody>${scores.map((s, i) => `
           <tr style="border-bottom:1px solid var(--border);">
             <td style="padding:6px 8px;">${medals[i]||i+1}</td>
-            <td style="padding:6px 8px;">
-              <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${s.team.color};margin-right:6px;vertical-align:middle;"></span>
-              <strong>${s.team.name}</strong>
-              ${s.doneLines.length ? `<div style="font-size:11px;color:#a78bfa;margin-top:2px;">${s.doneLines.map(l=>`${lineEmoji[l.type]||''}${l.label}`).join(' · ')}</div>` : ''}
+            <td style="padding:8px 8px;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${s.team.color};flex-shrink:0;"></span>
+                <strong>${s.team.name}</strong>
+              </div>
+              ${s.doneLines.length ? `<div style="font-size:11px;color:#a78bfa;margin-top:3px;padding-left:18px;">${s.doneLines.map(l=>`${lineEmoji[l.type]||''}${l.label}`).join(' · ')}</div>` : ''}
+              ${s.inProgress.length ? `<div style="margin-top:4px;padding-left:18px;display:flex;flex-wrap:wrap;gap:4px;">
+                ${s.inProgress.map(p => `<span title="${p.tile?.name||''}" style="font-size:11px;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);padding:1px 6px;border-radius:10px;white-space:nowrap;">
+                  ${p.tile?.name||p.tile?.id} ${p.done}/${p.total}
+                </span>`).join('')}
+              </div>` : ''}
             </td>
             <td style="text-align:center;padding:6px 8px;">${s.tileCount}</td>
             <td style="text-align:center;padding:6px 8px;">${s.tilePoints}</td>
@@ -1509,6 +1651,58 @@
           </tr>`).join('')}
         </tbody>
       </table>`;
+  }
+
+  function renderBingoStepConfig() {
+    const el = document.getElementById('bingo-step-config');
+    if (!el) return;
+    const tiles = bingoState.tiles || [];
+    const tileConfigs = bingoState.tileConfigs || [];
+
+    el.innerHTML = tiles.map(tile => {
+      const config = tileConfigs.find(tc => tc.tileId === tile.id);
+      const steps = config ? config.steps : [];
+      const stepsJson = JSON.stringify(steps);
+      return `
+        <details style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+          <summary style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;list-style:none;user-select:none;">
+            <span style="flex:1;font-weight:${steps.length>0?'700':'400'};">${tile.name}
+              ${tile.value>1?`<span style="color:#fbbf24;font-size:12px;margin-left:4px;">×${tile.value}</span>`:''}
+            </span>
+            ${steps.length > 0
+              ? `<span style="font-size:12px;background:#3b3b60;color:#a78bfa;padding:2px 8px;border-radius:10px;">${steps.length} steps</span>`
+              : `<span style="font-size:12px;color:var(--muted);">single-step</span>`}
+            <span style="color:var(--muted);font-size:12px;">▼</span>
+          </summary>
+          <div style="padding:12px 14px;border-top:1px solid var(--border);" id="step-config-${tile.id}">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
+              One step per line. Leave empty to treat this tile as a single-click completion.
+            </div>
+            <textarea id="steps-input-${tile.id}" rows="4" style="width:100%;font-family:monospace;font-size:13px;resize:vertical;"
+              placeholder="Step 1&#10;Step 2&#10;Step 3">${steps.join('\n')}</textarea>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+              <button class="btn-save" onclick="saveBingoTileSteps('${tile.id}')">💾 Save Steps</button>
+              ${steps.length > 0 ? `<button class="btn-danger" onclick="clearBingoTileSteps('${tile.id}')">✕ Clear</button>` : ''}
+            </div>
+          </div>
+        </details>`;
+    }).join('');
+  }
+
+  async function saveBingoTileSteps(tileId) {
+    const textarea = document.getElementById(`steps-input-${tileId}`);
+    if (!textarea) return;
+    const steps = textarea.value.split('\n').map(s => s.trim()).filter(Boolean);
+    await api('PUT', `/api/bingo/tile-config/${tileId}`, { steps });
+    await loadBingoState();
+    showToast(steps.length > 0 ? `${steps.length} steps saved.` : 'Steps cleared.');
+  }
+
+  async function clearBingoTileSteps(tileId) {
+    if (!confirm('Remove all steps for this tile?')) return;
+    await api('PUT', `/api/bingo/tile-config/${tileId}`, { steps: [] });
+    await loadBingoState();
+    showToast('Steps cleared.');
   }
 
   async function addBingoTeam() {

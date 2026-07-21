@@ -145,7 +145,10 @@ const DEFAULT_COMMANDS = [
   { key: 'importmee6',      name: 'importmee6',       category: 'Admin',       description: 'Import levels from MEE6',                usage: '!importmee6',              isMod: true  },
   { key: 'cleanduplicates', name: 'cleanduplicates',  category: 'Admin',       description: 'Remove duplicate RS name entries',       usage: '!cleanduplicates',         isMod: true  },
   { key: 'fixlp',           name: 'fixlp',            category: 'Admin',       description: 'Restore hardcoded LP values',            usage: '!fixlp',                   isMod: true  },
-  { key: 'bingoscore',      name: 'bingoscore',       category: 'Bingo',       description: 'Post bingo scoreboard to Discord',       usage: '!bingoscore [team]',       isMod: false },
+  { key: 'bingoscore',      name: 'bingoscore',       category: 'Bingo',       description: 'Post bingo scoreboard to Discord',                  usage: '!bingoscore [team]',              isMod: false },
+  { key: 'bingosubmit',    name: 'bingo-submit',     category: 'Bingo',       description: 'Submit a drop screenshot for bingo review',         usage: '!bingo-submit [note]',            isMod: false },
+  { key: 'bingoapprove',   name: 'bingo-approve',    category: 'Bingo',       description: 'Approve a submission — reply to it: !bingo-approve <team> | <tile>', usage: '!bingo-approve <team> | <tile>', isMod: true  },
+  { key: 'bingoreject',    name: 'bingo-reject',     category: 'Bingo',       description: 'Reject a submission — reply to it with optional reason', usage: '!bingo-reject [reason]',         isMod: true  },
   { key: 'help',            name: 'help',             category: 'General',     description: 'Show all available commands',            usage: '!help',                    isMod: false },
 ];
 
@@ -1067,6 +1070,123 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 
+  // !bingo-submit [note] — player attaches image, bot posts to review channel
+  if (command === cmd('bingosubmit')) {
+    const s = await getSettings();
+    const reviewChannelId = String(s.bingoReviewChannelId || '').trim();
+    if (!reviewChannelId) return message.reply('❌ No bingo review channel set. Ask an admin to configure it in the dashboard.');
+
+    const attachment = message.attachments.first();
+    if (!attachment || !attachment.contentType?.startsWith('image/')) {
+      return message.reply('❌ Please attach an image to your submission.');
+    }
+
+    const note = args.join(' ').trim();
+    const sub = await BingoSubmission.create({
+      tileId: 'pending',
+      teamId: new mongoose.Types.ObjectId('000000000000000000000001'), // placeholder — assigned on approve
+      submittedBy: message.author.tag,
+      submittedById: message.author.id,
+      imageUrl: attachment.url,
+      note,
+      status: 'pending',
+    });
+
+    const reviewChannel = await client.channels.fetch(reviewChannelId).catch(() => null);
+    if (!reviewChannel) return message.reply('❌ Could not find review channel. Ask an admin to check the channel ID.');
+
+    const reviewMsg = await reviewChannel.send({
+      content: [
+        `📥 **Bingo Submission** — ID: \`${sub._id}\``,
+        `**From:** ${message.author} (${message.author.tag})`,
+        note ? `**Note:** ${note}` : null,
+        ``,
+        `Mods: reply to this with \`!bingo-approve <team> | <tile>\` or \`!bingo-reject [reason]\``,
+      ].filter(Boolean).join('\n'),
+      files: [attachment.url],
+    });
+
+    await BingoSubmission.findByIdAndUpdate(sub._id, { reviewMessageId: reviewMsg.id });
+    await message.react('✅');
+    await message.reply(`📥 Your submission has been posted for mod review!`);
+    return;
+  }
+
+  // !bingo-approve <team> | <tile> — mod replies to a review message
+  if (command === cmd('bingoapprove')) {
+    if (!message.member.permissions.has('Administrator') && !isMod(message.member))
+      return message.reply('❌ Mods only.');
+
+    const full = args.join(' ');
+    const [teamPart, tilePart] = full.split('|').map(s => s.trim());
+    if (!teamPart || !tilePart) return message.reply('❌ Usage: `!bingo-approve <team> | <tile>` (reply to the submission message)');
+
+    // Find the submission from the replied-to message
+    const ref = message.reference;
+    let sub = null;
+    if (ref?.messageId) {
+      sub = await BingoSubmission.findOne({ reviewMessageId: ref.messageId, status: 'pending' });
+    }
+    if (!sub) return message.reply('❌ Reply directly to the submission message in the review channel, and make sure it\'s still pending.');
+
+    // Match team
+    const teams = await BingoTeam.find();
+    const team = teams.find(t => t.name.toLowerCase().includes(teamPart.toLowerCase()));
+    if (!team) return message.reply(`❌ Team not found. Teams: ${teams.map(t => t.name).join(', ')}`);
+
+    // Match tile
+    const tile = BINGO_TILES.find(t =>
+      t.name.toLowerCase().includes(tilePart.toLowerCase()) || t.id === tilePart.toLowerCase()
+    );
+    if (!tile) return message.reply(`❌ Tile not found: "${tilePart}". Check the tile name.`);
+
+    // Mark tile complete
+    const alreadyDone = await BingoCompletion.findOne({ tileId: tile.id, teamId: team._id });
+    if (!alreadyDone) {
+      await BingoCompletion.create({ tileId: tile.id, teamId: team._id, completedBy: sub.submittedBy });
+    }
+
+    // Update submission
+    await BingoSubmission.findByIdAndUpdate(sub._id, {
+      tileId: tile.id,
+      teamId: team._id,
+      status: 'approved',
+      reviewedBy: message.author.tag,
+    });
+
+    await message.reply(`✅ Approved! **${tile.name}** assigned to **${team.name}** — submitted by ${sub.submittedBy}.`);
+
+    // DM the submitter
+    const submitter = await client.users.fetch(sub.submittedById).catch(() => null);
+    if (submitter) {
+      submitter.send(`✅ Your bingo submission was approved! **${tile.name}** has been marked complete for **${team.name}**.`).catch(() => {});
+    }
+    return;
+  }
+
+  // !bingo-reject [reason] — mod replies to a review message
+  if (command === cmd('bingoreject')) {
+    if (!message.member.permissions.has('Administrator') && !isMod(message.member))
+      return message.reply('❌ Mods only.');
+
+    const ref = message.reference;
+    let sub = null;
+    if (ref?.messageId) {
+      sub = await BingoSubmission.findOne({ reviewMessageId: ref.messageId, status: 'pending' });
+    }
+    if (!sub) return message.reply('❌ Reply directly to the submission message in the review channel, and make sure it\'s still pending.');
+
+    const reason = args.join(' ').trim() || 'No reason given.';
+    await BingoSubmission.findByIdAndUpdate(sub._id, { status: 'rejected', reviewedBy: message.author.tag });
+    await message.reply(`❌ Submission rejected. Reason: ${reason}`);
+
+    const submitter = await client.users.fetch(sub.submittedById).catch(() => null);
+    if (submitter) {
+      submitter.send(`❌ Your bingo submission was rejected. Reason: **${reason}**`).catch(() => {});
+    }
+    return;
+  }
+
   if (command === cmd('drops')) {
     const npcName = args.join(' ').trim() || null;
     const processingMsg = await message.channel.send("⏳ Fetching recent drops...");
@@ -1669,6 +1789,54 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         sendJson(res, 400, { error: e.message });
       }
+      return;
+    }
+
+    // GET /api/bingo/submissions
+    if (pathname === '/api/bingo/submissions' && req.method === 'GET') {
+      const status = new URL('http://x' + req.url).searchParams.get('status') || 'pending';
+      const subs = await BingoSubmission.find(status === 'all' ? {} : { status })
+        .populate('teamId', 'name color')
+        .sort({ createdAt: -1 })
+        .limit(50);
+      sendJson(res, 200, subs);
+      return;
+    }
+
+    // POST /api/bingo/submissions/:id/approve
+    const approveMatch = pathname.match(/^\/api\/bingo\/submissions\/(.+)\/approve$/);
+    if (approveMatch && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const { tileId, teamId } = data;
+        if (!tileId || !teamId) { sendJson(res, 400, { error: 'tileId and teamId required' }); return; }
+        const sub = await BingoSubmission.findById(approveMatch[1]);
+        if (!sub) { sendJson(res, 404, { error: 'Submission not found' }); return; }
+        const already = await BingoCompletion.findOne({ tileId, teamId });
+        if (!already) await BingoCompletion.create({ tileId, teamId, completedBy: sub.submittedBy });
+        await BingoSubmission.findByIdAndUpdate(sub._id, { tileId, teamId, status: 'approved', reviewedBy: 'dashboard' });
+        // DM the submitter
+        const submitter = await client.users.fetch(sub.submittedById).catch(() => null);
+        const tile = BINGO_TILES.find(t => t.id === tileId);
+        const team = await BingoTeam.findById(teamId);
+        if (submitter) submitter.send(`✅ Your bingo submission was approved! **${tile?.name || tileId}** has been marked complete for **${team?.name || ''}**.`).catch(() => {});
+        sendJson(res, 200, { success: true });
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    // POST /api/bingo/submissions/:id/reject
+    const rejectMatch = pathname.match(/^\/api\/bingo\/submissions\/(.+)\/reject$/);
+    if (rejectMatch && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const sub = await BingoSubmission.findById(rejectMatch[1]);
+        if (!sub) { sendJson(res, 404, { error: 'Submission not found' }); return; }
+        await BingoSubmission.findByIdAndUpdate(sub._id, { status: 'rejected', reviewedBy: 'dashboard' });
+        const submitter = await client.users.fetch(sub.submittedById).catch(() => null);
+        if (submitter) submitter.send(`❌ Your bingo submission was rejected.${data.reason ? ' Reason: **' + data.reason + '**' : ''}`).catch(() => {});
+        sendJson(res, 200, { success: true });
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
       return;
     }
 

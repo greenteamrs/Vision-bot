@@ -407,6 +407,7 @@
             <div class="field"><label>Rank Notify Channel ID</label><input type="text" id="rankNotifyChannelId" placeholder="Leave blank to use XP channel" /></div>
             <div class="field"><label>Droptracker Group ID</label><input type="text" id="droptrackerGroupId" placeholder="e.g. 42" /></div>
             <div class="field"><label>WOM Activity Channel ID</label><input type="text" id="womActivityChannelId" placeholder="Channel ID for join/leave/role posts" /></div>
+            <div class="field"><label>Bingo Review Channel ID</label><input type="text" id="bingoReviewChannelId" placeholder="Channel where submissions are posted for mod review" /></div>
             <div class="field">
               <label>WiseOldMan Group ID</label>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
@@ -596,6 +597,22 @@
         </div>
 
         <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+            <h3 style="margin:0;">📥 Pending Submissions</h3>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="sub-filter" onchange="loadBingoSubmissions()" style="font-size:13px;">
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All</option>
+              </select>
+              <button class="btn-edit" onclick="loadBingoSubmissions()">↻ Refresh</button>
+            </div>
+          </div>
+          <div id="bingo-submissions-list"><p style="color:var(--muted);font-size:13px;">Loading…</p></div>
+        </div>
+
+        <div class="card">
           <h3>Configure Tile Steps</h3>
           <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">
             For tiles that require multiple drops or objectives, define the individual steps here.
@@ -767,7 +784,7 @@
     // XP Settings fields
     ['messageXpMin','messageXpMax','messageXpCooldownSecs',
      'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins',
-     'afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId'].forEach(k => {
+     'afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId','bingoReviewChannelId'].forEach(k => {
       const el = document.getElementById(k);
       if (el) el.value = s[k] ?? '';
     });
@@ -799,8 +816,8 @@
 
   async function saveXpSettings() {
     const keys = ['messageXpMin','messageXpMax','messageXpCooldownSecs',
-                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId'];
-    const strKeys = new Set(['afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId']);
+                  'voiceJoinXp','voiceJoinCooldownSecs','voiceIntervalXp','voiceIntervalMins','afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId','bingoReviewChannelId'];
+    const strKeys = new Set(['afkChannelId','rankNotifyChannelId','womGroupId','womActivityChannelId','droptrackerGroupId','bingoReviewChannelId']);
     const data = {};
     keys.forEach(k => {
       const el = document.getElementById(k);
@@ -1359,6 +1376,7 @@
     renderBingoScore();
     renderBingoSelectors();
     renderBingoStepConfig();
+    loadBingoSubmissions();
   }
 
   function hexToRgba(hex, alpha) {
@@ -1696,6 +1714,78 @@
     await api('PUT', `/api/bingo/tile-config/${tileId}`, { steps });
     await loadBingoState();
     showToast(steps.length > 0 ? `${steps.length} steps saved.` : 'Steps cleared.');
+  }
+
+  async function loadBingoSubmissions() {
+    const filter = document.getElementById('sub-filter')?.value || 'pending';
+    const el = document.getElementById('bingo-submissions-list');
+    if (!el) return;
+    const res = await api('GET', `/api/bingo/submissions?status=${filter}`);
+    const subs = await res.json();
+    if (!subs.length) {
+      el.innerHTML = `<p style="color:var(--muted);font-size:13px;">No ${filter === 'all' ? '' : filter + ' '}submissions.</p>`;
+      return;
+    }
+    const statusColor = { pending: '#fbbf24', approved: '#34d399', rejected: '#f87171' };
+    el.innerHTML = subs.map(s => {
+      const ts = new Date(s.createdAt).toLocaleString();
+      const tileName = s.tileId !== 'pending' ? (bingoState.tiles || []).find(t => t.id === s.tileId)?.name || s.tileId : '—';
+      return `
+        <div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">
+          <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+            ${s.imageUrl ? `<a href="${s.imageUrl}" target="_blank">
+              <img src="${s.imageUrl}" style="width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;" />
+            </a>` : ''}
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+                <span style="font-weight:700;">${s.submittedBy}</span>
+                <span style="font-size:12px;padding:2px 8px;border-radius:10px;background:${statusColor[s.status]||'#888'}22;color:${statusColor[s.status]||'#888'};border:1px solid ${statusColor[s.status]||'#888'}44;">${s.status}</span>
+                <span style="font-size:12px;color:var(--muted);">${ts}</span>
+              </div>
+              ${s.note ? `<div style="font-size:13px;color:var(--muted);margin-bottom:6px;">"${s.note}"</div>` : ''}
+              ${s.status !== 'pending' ? `<div style="font-size:13px;margin-bottom:4px;">
+                Tile: <strong>${tileName}</strong>
+                ${s.teamId?.name ? ` · Team: <strong style="color:${s.teamId.color}">${s.teamId.name}</strong>` : ''}
+                ${s.reviewedBy ? ` · by ${s.reviewedBy}` : ''}
+              </div>` : ''}
+              ${s.status === 'pending' ? `
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;">
+                  <div>
+                    <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:3px;">Tile</label>
+                    <select id="approve-tile-${s._id}" style="font-size:13px;max-width:200px;">
+                      ${(bingoState.tiles||[]).map(t => `<option value="${t.id}">${t.name}${t.value>1?' (×'+t.value+')':''}</option>`).join('')}
+                    </select>
+                  </div>
+                  <div>
+                    <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:3px;">Team</label>
+                    <select id="approve-team-${s._id}" style="font-size:13px;max-width:180px;">
+                      ${(bingoState.teams||[]).map(t => `<option value="${t._id}">${t.name}</option>`).join('')}
+                    </select>
+                  </div>
+                  <button class="btn-save" onclick="approveSubmission('${s._id}')">✅ Approve</button>
+                  <button class="btn-danger" onclick="rejectSubmission('${s._id}')">❌ Reject</button>
+                </div>` : ''}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  async function approveSubmission(id) {
+    const tileId = document.getElementById(`approve-tile-${id}`)?.value;
+    const teamId = document.getElementById(`approve-team-${id}`)?.value;
+    if (!tileId || !teamId) return showToast('Select a tile and team.', true);
+    await api('POST', `/api/bingo/submissions/${id}/approve`, { tileId, teamId });
+    showToast('Submission approved ✅');
+    await loadBingoSubmissions();
+    await loadBingoState();
+  }
+
+  async function rejectSubmission(id) {
+    const reason = prompt('Rejection reason (optional):') ?? '';
+    await api('POST', `/api/bingo/submissions/${id}/reject`, { reason });
+    showToast('Submission rejected.');
+    await loadBingoSubmissions();
   }
 
   async function clearBingoTileSteps(tileId) {

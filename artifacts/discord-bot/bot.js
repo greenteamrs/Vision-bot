@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 
 // --- MongoDB: User Schema ---
 const userSchema = new mongoose.Schema({
@@ -775,6 +776,79 @@ function calcBingoScore(completedTileIds) {
   return { tilePoints, lineBonus: doneLines.length, total: tilePoints + doneLines.length, doneLines };
 }
 
+// --- Bingo Board Image Generation ---
+function drawCheckmark(ctx, cx, cy, size, color, lineWidth) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = lineWidth * 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - size * 0.5, cy + size * 0.05);
+  ctx.lineTo(cx - size * 0.05, cy + size * 0.48);
+  ctx.lineTo(cx + size * 0.55, cy - size * 0.45);
+  ctx.stroke();
+  ctx.restore();
+}
+
+async function generateBingoImage(filterTeam) {
+  const COLS = 6, ROWS = 6;
+  const teams = await BingoTeam.find();
+  const completions = await BingoCompletion.find().populate('teamId', 'name color');
+
+  const boardPath = path.join(__dirname, 'bingo-board.png');
+  const img = await loadImage(boardPath);
+
+  const canvas = createCanvas(img.width, img.height);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+
+  const cw = img.width / COLS;
+  const rh = img.height / ROWS;
+
+  if (filterTeam) {
+    const color = filterTeam.color || '#00ff00';
+    const teamComps = completions.filter(c => c.teamId?._id?.toString() === filterTeam._id.toString());
+    for (const comp of teamComps) {
+      const tile = BINGO_TILES.find(t => t.id === comp.tileId);
+      if (!tile) continue;
+      const cx = (tile.col - 1) * cw + cw / 2;
+      const cy = (tile.row - 1) * rh + (rh * tile.rowSpan) / 2;
+      const size = Math.min(cw, rh * tile.rowSpan) * 0.52;
+      drawCheckmark(ctx, cx, cy, size, color, Math.max(7, size * 0.16));
+    }
+  } else {
+    for (const tile of BINGO_TILES) {
+      const tileComps = completions.filter(c => c.tileId === tile.id);
+      if (!tileComps.length) continue;
+
+      const tx = (tile.col - 1) * cw;
+      const ty = (tile.row - 1) * rh;
+      const th = rh * tile.rowSpan;
+      const n = tileComps.length;
+
+      const maxSize = Math.min(cw, th) * 0.3;
+      const spacing = Math.min(maxSize * 1.4, (cw * 0.85) / n);
+      const size = Math.min(maxSize, spacing * 0.72);
+      const lineW = Math.max(3, size * 0.13);
+
+      const totalW = (n - 1) * spacing;
+      const startX = tx + cw / 2 - totalW / 2;
+      const centerY = ty + th / 2;
+
+      tileComps.forEach((comp, i) => {
+        const team = teams.find(t => t._id.toString() === comp.teamId?._id?.toString());
+        const color = team?.color || '#ffffff';
+        drawCheckmark(ctx, startX + i * spacing, centerY, size, color, lineW);
+      });
+    }
+  }
+
+  return canvas.toBuffer('image/png');
+}
+
 // --- Ready ---
 client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
@@ -1108,14 +1182,32 @@ client.on(Events.MessageCreate, async (message) => {
         ``,
         `⬜ **Remaining (${todo.length}):** ${todo.map(t => t.name).join(', ')}`,
       ];
-      await sendLongMessage(message.channel, '', lines);
+      try {
+        const imgBuffer = await generateBingoImage(found.team);
+        await message.channel.send({
+          content: lines.join('\n'),
+          files: [{ attachment: imgBuffer, name: 'bingo-progress.png' }],
+        });
+      } catch (e) {
+        console.error('Bingo image error:', e);
+        await sendLongMessage(message.channel, '', lines);
+      }
     } else {
       const lines = [
         `🎯 **Bingo Leaderboard** (max ${maxTotal} pts: ${BINGO_TOTAL_POINTS} tiles + ${BINGO_LINES.length} lines)`,
         ``,
         ...scores.map((s, i) => `${medals[i]||`${i+1}.`} **${s.team.name}** — ${s.total} pts  *(${s.tilePoints} tiles + ${s.lineBonus} line${s.lineBonus!==1?'s':''})*`),
       ];
-      message.channel.send(lines.join('\n'));
+      try {
+        const imgBuffer = await generateBingoImage(null);
+        await message.channel.send({
+          content: lines.join('\n'),
+          files: [{ attachment: imgBuffer, name: 'bingo-board.png' }],
+        });
+      } catch (e) {
+        console.error('Bingo image error:', e);
+        message.channel.send(lines.join('\n'));
+      }
     }
   }
 

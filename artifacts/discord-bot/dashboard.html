@@ -1499,13 +1499,10 @@
 
   // --- Tile modal (steps + complete toggle) ---
   function openBingoTileModal(tile) {
-    const teamId = document.getElementById('bingo-active-team')?.value;
-    const team = bingoState.teams.find(t => t._id === teamId);
+    const activeTeamId = document.getElementById('bingo-active-team')?.value;
     const tileConfig = (bingoState.tileConfigs || []).find(tc => tc.tileId === tile.id);
     const hasSteps = tileConfig && tileConfig.steps.length > 0;
-    const isComplete = (bingoState.completions || []).some(c => c.tileId === tile.id && c.teamId?._id === teamId);
-    const prog = (bingoState.progress || []).find(p => p.tileId === tile.id && p.teamId?._id === teamId);
-    const completedSteps = prog ? prog.completedSteps : [];
+    const teams = bingoState.teams || [];
 
     let modal = document.getElementById('bingo-tile-modal');
     if (!modal) {
@@ -1518,17 +1515,39 @@
     }
     modal.style.display = 'flex';
 
-    const teamColor = team?.color || '#888';
+    // Per-team completion rows
+    const teamRowsHtml = teams.length ? `
+      <div style="margin-top:16px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Team Completions</div>
+        ${teams.map(t => {
+          const done = (bingoState.completions || []).some(c => c.tileId === tile.id && c.teamId?._id === t._id);
+          const color = t.color || '#888';
+          return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);">
+            <span style="width:11px;height:11px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>
+            <span style="flex:1;font-weight:600;">${t.name}</span>
+            ${done
+              ? `<button class="btn-danger" style="padding:4px 12px;font-size:12px;" onclick="toggleBingoTileSimple('${tile.id}','${t._id}',true)">✕ Remove</button>`
+              : `<button class="btn-primary" style="padding:4px 12px;font-size:12px;background:${color};" onclick="toggleBingoTileSimple('${tile.id}','${t._id}',false)">✓ Complete</button>`
+            }
+          </div>`;
+        }).join('')}
+      </div>` : `<p style="color:var(--muted);font-size:13px;margin-top:12px;">No teams set up yet.</p>`;
+
+    // Steps section for the active team only
+    const activeTeam = teams.find(t => t._id === activeTeamId);
+    const prog = (bingoState.progress || []).find(p => p.tileId === tile.id && p.teamId?._id === activeTeamId);
+    const completedSteps = prog ? prog.completedSteps : [];
+    const teamColor = activeTeam?.color || '#888';
     const stepsHtml = hasSteps ? `
-      <div style="margin:14px 0 8px;">
+      <div style="margin:16px 0 8px;">
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
-          Steps ${teamId ? `— ${team?.name}` : '(select a team to track progress)'}
+          Steps ${activeTeam ? `— <span style="color:${teamColor}">${activeTeam.name}</span>` : '(select a team above to track steps)'}
         </div>
-        ${tileConfig.steps.map((step, i) => {
+        ${tileConfig.steps.map((step) => {
           const checked = completedSteps.includes(step);
-          return `<label style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:${teamId?'pointer':'default'};">
-            <input type="checkbox" ${checked?'checked':''} ${!teamId?'disabled':''}
-              style="width:16px;height:16px;accent-color:${teamColor};cursor:${teamId?'pointer':'default'};"
+          return `<label style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:${activeTeamId?'pointer':'default'};">
+            <input type="checkbox" ${checked?'checked':''} ${!activeTeamId?'disabled':''}
+              style="width:16px;height:16px;accent-color:${teamColor};cursor:${activeTeamId?'pointer':'default'};"
               onchange="toggleBingoStep('${tile.id}','${step.replace(/'/g,"\\'")}',this.checked)" />
             <span style="${checked?`color:${teamColor};font-weight:600;`:''}">${step}</span>
             ${checked ? `<span style="margin-left:auto;color:${teamColor};font-size:13px;">✓</span>` : ''}
@@ -1540,18 +1559,9 @@
         </div>
       </div>` : '';
 
-    const completeBtn = teamId && !hasSteps ? `
-      <div style="margin-top:14px;display:flex;gap:8px;">
-        ${isComplete
-          ? `<button class="btn-danger" onclick="toggleBingoTileSimple('${tile.id}',true)">✕ Remove completion</button>`
-          : `<button class="btn-primary" onclick="toggleBingoTileSimple('${tile.id}',false)" style="background:${teamColor};">✓ Mark complete</button>`}
-      </div>` : '';
-
-    const noTeamNote = !teamId ? `<p style="color:var(--muted);font-size:13px;margin-top:8px;">Select a team from the dropdown above to track progress.</p>` : '';
-
     modal.innerHTML = `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
-        padding:24px;max-width:420px;width:90%;max-height:80vh;overflow-y:auto;position:relative;">
+        padding:24px;max-width:440px;width:90%;max-height:85vh;overflow-y:auto;position:relative;">
         <button onclick="document.getElementById('bingo-tile-modal').remove()"
           style="position:absolute;top:12px;right:14px;background:none;border:none;color:var(--muted);
           font-size:18px;cursor:pointer;line-height:1;">✕</button>
@@ -1560,9 +1570,8 @@
           Value: ${tile.value > 1 ? `<strong style="color:#fbbf24;">×${tile.value} pts</strong>` : '1 pt'}
           ${hasSteps ? ` · ${tileConfig.steps.length} steps` : ''}
         </div>
+        ${teamRowsHtml}
         ${stepsHtml}
-        ${completeBtn}
-        ${noTeamNote}
       </div>`;
   }
 
@@ -1576,18 +1585,19 @@
     if (tile) openBingoTileModal(tile);
   }
 
-  async function toggleBingoTileSimple(tileId, isComplete) {
-    const teamId = document.getElementById('bingo-active-team')?.value;
+  async function toggleBingoTileSimple(tileId, teamId, isComplete) {
     if (!teamId) return;
     const tile = (bingoState.tiles || []).find(t => t.id === tileId);
+    const team = (bingoState.teams || []).find(t => t._id === teamId);
     if (isComplete) {
-      if (!confirm(`Remove "${tile?.name}" from this team?`)) return;
+      if (!confirm(`Remove "${tile?.name}" completion for ${team?.name || 'this team'}?`)) return;
       await api('DELETE', '/api/bingo/complete', { tileId, teamId });
     } else {
       await api('POST', '/api/bingo/complete', { tileId, teamId });
     }
-    document.getElementById('bingo-tile-modal')?.remove();
     await loadBingoState();
+    const updatedTile = (bingoState.tiles || []).find(t => t.id === tileId);
+    if (updatedTile) openBingoTileModal(updatedTile);
   }
 
   function calcBingoScoreClient(completedTileIds) {

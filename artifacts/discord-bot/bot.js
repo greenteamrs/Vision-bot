@@ -452,24 +452,54 @@ async function syncDroptrackerMembers() {
   if (result.error) return { updated: 0, total: 0, error: result.error };
   const members = Array.isArray(result.data) ? result.data : (result.data.members || []);
   let updated = 0;
+  let linked = 0;
   for (const m of members) {
     const rsName = m.player_name || m.name || m.username;
     if (!rsName) continue;
-    const user = await User.findOne({ $or: [
-      { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
-      { rsNames: new RegExp(`^${rsName}$`, 'i') },
-    ]});
-    if (!user) continue;
-    // Store WOM ID if provided
+
+    const discordId = m.discord_id || m.discordId || m.discord_user_id;
     const womId = m.wom_id || m.wom_player_id;
+
+    let user = null;
+
+    // 1. Try to find by Discord ID from Droptracker (most reliable)
+    if (discordId) {
+      user = await User.findOne({ discordId: String(discordId) });
+      if (user) {
+        // Auto-link RS name if not already linked
+        const alreadyLinked =
+          (user.rsName || '').toLowerCase() === rsName.toLowerCase() ||
+          (user.rsNames || []).some(n => n.toLowerCase() === rsName.toLowerCase());
+        if (!alreadyLinked) {
+          const changes = { $addToSet: { rsNames: rsName } };
+          if (!user.rsName) changes.$set = { rsName };
+          await User.updateOne({ _id: user._id }, changes);
+          linked++;
+          updated++;
+        }
+      }
+    }
+
+    // 2. Fall back to matching by RS name already in our DB
+    if (!user) {
+      user = await User.findOne({ $or: [
+        { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
+        { rsNames: new RegExp(`^${rsName}$`, 'i') },
+      ]});
+    }
+
+    if (!user) continue;
+
+    // Store WOM ID if provided
     const changes = {};
     if (womId && !user.womPlayerId) changes.womPlayerId = womId;
+    if (discordId && !user.discordLinkedViaDroptracker) changes.discordLinkedViaDroptracker = true;
     if (Object.keys(changes).length) {
       await User.updateOne({ _id: user._id }, changes);
       updated++;
     }
   }
-  return { updated, total: members.length };
+  return { updated, linked, total: members.length };
 }
 
 async function getDroptrackerTopPlayers(npcName, limit = 10) {
@@ -533,35 +563,56 @@ async function checkRankUps(guild) {
 }
 
 // --- Drop Top XP Awards ---
-async function awardDropTopXp(rankedNames, guild, channel) {
+async function awardDropTopXp(players, guild, channel) {
   const s = await getSettings();
   const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
   const lines = [];
   const unmatched = [];
 
-  for (let i = 0; i < rankedNames.length && i < 10; i++) {
-    const rsName = rankedNames[i].toLowerCase();
+  // Accept either full player objects (from Droptracker API) or plain RS name strings
+  const entries = players.map(p =>
+    typeof p === 'string'
+      ? { rsName: p, discordId: null }
+      : {
+          rsName: p.player_name || p.name || p.username || '',
+          discordId: String(p.discord_id || p.discordId || p.discord_user_id || '').trim() || null,
+        }
+  );
+
+  for (let i = 0; i < entries.length && i < 10; i++) {
+    const { rsName, discordId } = entries[i];
     const xpReward = s.dropTopXp[i] || 1000;
-    const dbUser = await User.findOne({ $or: [
-      { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
-      { rsNames: new RegExp(`^${rsName}$`, 'i') },
-    ] });
+
+    let dbUser = null;
+
+    // 1. Match by Discord ID from Droptracker (/claim-rsn) — most reliable
+    if (discordId) {
+      dbUser = await User.findOne({ discordId });
+    }
+
+    // 2. Fall back to RS name match in our DB
+    if (!dbUser && rsName) {
+      dbUser = await User.findOne({ $or: [
+        { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
+        { rsNames: new RegExp(`^${rsName}$`, 'i') },
+      ] });
+    }
 
     if (!dbUser) {
-      unmatched.push(`${medals[i]} **${rankedNames[i]}** — no Discord link found`);
+      unmatched.push(`${medals[i]} **${rsName || '?'}** — no Discord link found`);
       continue;
     }
 
     const updated = await addXp(dbUser.userId, dbUser.username, xpReward);
     const discordMember = await guild.members.fetch(dbUser.userId).catch(() => null);
     const displayName = discordMember ? `<@${dbUser.userId}>` : dbUser.username;
-    lines.push(`${medals[i]} ${displayName} (**${rankedNames[i]}**) — +${xpReward.toLocaleString()} XP → Level ${updated.level}`);
+    lines.push(`${medals[i]} ${displayName} (**${rsName}**) — +${xpReward.toLocaleString()} XP → Level ${updated.level}`);
   }
 
   let response = `🏆 **Monthly DropTracker Awards!**\n\n`;
   if (lines.length > 0) response += lines.join('\n') + '\n';
   if (unmatched.length > 0) {
-    response += `\n⚠️ **Unmatched RS names** (ask them to use \`!rslink <rsname>\`):\n`;
+    response += `\n⚠️ **Unmatched** (ask them to do \`/claim-rsn\` on Droptracker):\n`;
     response += unmatched.join('\n');
   }
   channel.send(response);
@@ -650,8 +701,7 @@ client.once('ready', async () => {
         return;
       }
 
-      const rankedNames = players.map(p => p.player_name || p.name || p.username).filter(Boolean);
-      await awardDropTopXp(rankedNames, guild, channel);
+      await awardDropTopXp(players, guild, channel);
     } catch (err) {
       console.error("Monthly auto-award error:", err);
     }
@@ -838,10 +888,9 @@ client.on(Events.MessageCreate, async (message) => {
     if (result.error) return message.channel.send(`❌ ${result.error}`);
     const players = Array.isArray(result.data) ? result.data : (result.data.players || result.data.members || []);
     if (!players.length) return message.channel.send("❌ No players found in Droptracker.");
-    const rankedNames = players.map(p => p.player_name || p.name || p.username).filter(Boolean);
-    const preview = rankedNames.map((n, i) => `${i + 1}. ${n}`).join('\n');
+    const preview = players.slice(0, 10).map((p, i) => `${i + 1}. ${p.player_name || p.name || p.username || '?'}`).join('\n');
     await message.channel.send(`📋 **DropTracker Rankings:**\n${preview}\n\nAwarding XP now...`);
-    await awardDropTopXp(rankedNames, message.guild, message.channel);
+    await awardDropTopXp(players, message.guild, message.channel);
   }
 
   if (command === cmd('toploot')) {
@@ -889,7 +938,8 @@ client.on(Events.MessageCreate, async (message) => {
     const msg = await message.channel.send("⏳ Syncing Droptracker members...");
     const result = await syncDroptrackerMembers();
     if (result.error) { await msg.delete().catch(() => {}); return message.channel.send(`❌ ${result.error}`); }
-    msg.edit(`✅ Droptracker sync complete — ${result.updated} user(s) updated out of ${result.total} members.`);
+    const linkNote = result.linked ? ` (${result.linked} RS name(s) auto-linked from Discord)` : '';
+    msg.edit(`✅ Droptracker sync complete — ${result.updated} user(s) updated out of ${result.total} members${linkNote}.`);
   }
 
   if (command === cmd('testaward')) {
@@ -901,8 +951,7 @@ client.on(Events.MessageCreate, async (message) => {
     const players = Array.isArray(result.data) ? result.data
       : (result.data.players || result.data.members || []);
     if (!players.length) return message.channel.send("❌ No Droptracker data returned.");
-    const rankedNames = players.map(p => p.player_name || p.name || p.username).filter(Boolean);
-    await awardDropTopXp(rankedNames, message.guild, message.channel);
+    await awardDropTopXp(players, message.guild, message.channel);
   }
 
   if (command === cmd('split')) {

@@ -1474,7 +1474,7 @@ client.on(Events.InteractionCreate, async interaction => {
       if (focused.name === 'submission') {
         const subs = await BingoSubmission.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(25);
         const choices = subs.map(s => ({
-          name: `${s.submittedBy} — ${new Date(s.createdAt).toLocaleDateString()}${s.note ? ' · ' + s.note.slice(0, 40) : ''}`,
+          name: `${s.submittedBy} — ${new Date(s.createdAt).toLocaleDateString()} ${new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${s.note ? ' · ' + s.note.slice(0, 30) : ''}`,
           value: s._id.toString(),
         })).filter(c => c.name.toLowerCase().includes(focused.value.toLowerCase()));
         return interaction.respond(choices.slice(0, 25));

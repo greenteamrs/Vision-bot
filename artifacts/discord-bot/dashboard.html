@@ -277,6 +277,18 @@
   }
   .btn-cancel:hover { background: #1f1f35; }
 
+  .btn-danger {
+    padding: 5px 10px;
+    background: #7f1d1d;
+    border: 1px solid #991b1b;
+    border-radius: 6px;
+    color: #fca5a5;
+    cursor: pointer;
+    font-size: 0.82rem;
+    flex-shrink: 0;
+  }
+  .btn-danger:hover { background: #991b1b; color: #fff; }
+
   .toast {
     position: fixed;
     bottom: 24px; right: 24px;
@@ -327,6 +339,7 @@
       <button onclick="showSection('ranks', this)">🎖️ Ranks</button>
       <button onclick="showSection('users', this)">👥 Users</button>
       <button onclick="showSection('droptracker', this)">💰 Droptracker</button>
+      <button onclick="showSection('bingo', this)">🎯 Bingo</button>
     </nav>
 
     <main>
@@ -552,6 +565,49 @@
         </div>
         <div id="dt-content">
           <div class="card" style="color:#888;text-align:center;padding:30px;">Click a button above to load Droptracker data.</div>
+        </div>
+      </div>
+
+      <!-- BINGO -->
+      <div class="section" id="section-bingo">
+        <div class="section-title">🎯 Bingo Event</div>
+
+        <div class="card">
+          <h3>Teams</h3>
+          <div id="bingo-teams-list"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;">
+            <input type="text" id="new-team-name" placeholder="Team name" style="flex:1;min-width:120px;" />
+            <input type="color" id="new-team-color" value="#e74c3c" style="width:44px;height:36px;padding:2px;cursor:pointer;border-radius:6px;border:1px solid var(--border);" />
+            <button class="btn-save" onclick="addBingoTeam()">+ Add Team</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Board</h3>
+          <p style="color:var(--muted);font-size:13px;margin-bottom:12px;">Select a team below, then click tiles on the board to mark them complete. Click a completed tile again to unmark it.</p>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+            <label style="color:var(--muted);font-size:13px;">Active team:</label>
+            <select id="bingo-active-team" style="flex:1;max-width:220px;"></select>
+          </div>
+          <div id="bingo-board-container" style="position:relative;display:inline-block;max-width:100%;user-select:none;border-radius:6px;overflow:hidden;">
+            <img id="bingo-board-img" src="/bingo-board.png" crossorigin="anonymous" style="display:block;width:100%;max-width:720px;" onload="renderBingoBoard()" />
+            <div id="bingo-board-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Score</h3>
+          <div id="bingo-score-table"></div>
+          <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
+            <p style="color:var(--muted);font-size:13px;margin-bottom:10px;">Post the board image to a Discord channel:</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <input type="text" id="bingo-channel-id" placeholder="Discord channel ID" style="flex:1;max-width:220px;" />
+              <select id="bingo-post-team" style="max-width:180px;">
+                <option value="">All teams</option>
+              </select>
+              <button class="btn-save" onclick="postBingoToDiscord()">📤 Post to Discord</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1008,6 +1064,7 @@
     if (name === 'commands') loadCommands();
     if (name === 'overview') loadStatus();
     if (name === 'ranks') loadRanks();
+    if (name === 'bingo') loadBingoState();
   }
 
   function showMsg(id) {
@@ -1281,6 +1338,245 @@
     } catch(e) { showToast('Error contacting bot server.', true); }
     btn.disabled = false; btn.textContent = '🔄 Sync Members';
   }
+
+  // ===================== BINGO =====================
+  let bingoState = { teams: [], completions: [], tiles: [] };
+
+  async function loadBingoState() {
+    const res = await api('GET', '/api/bingo/state');
+    bingoState = await res.json();
+    renderBingoTeams();
+    renderBingoBoard();
+    renderBingoScore();
+    renderBingoSelectors();
+  }
+
+  function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1,3),16)||0;
+    const g = parseInt(hex.slice(3,5),16)||0;
+    const b = parseInt(hex.slice(5,7),16)||0;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function renderBingoTeams() {
+    const el = document.getElementById('bingo-teams-list');
+    if (!bingoState.teams.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px;">No teams yet. Add one below.</p>';
+      return;
+    }
+    el.innerHTML = bingoState.teams.map(t => `
+      <div style="display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">
+        <span style="width:18px;height:18px;border-radius:3px;background:${t.color};display:inline-block;flex-shrink:0;"></span>
+        <span style="flex:1;font-weight:600;">${t.name}</span>
+        <input type="color" value="${t.color}" title="Change colour"
+          style="width:36px;height:28px;padding:2px;cursor:pointer;border-radius:4px;border:1px solid var(--border);"
+          onchange="updateBingoTeamColor('${t._id}', this.value)" />
+        <input type="text" value="${t.name}"
+          style="width:140px;"
+          onblur="updateBingoTeamName('${t._id}', this.value)"
+          onkeydown="if(event.key==='Enter')this.blur()" />
+        <button class="btn-danger" onclick="deleteBingoTeam('${t._id}')">✕</button>
+      </div>
+    `).join('');
+  }
+
+  function renderBingoSelectors() {
+    const active = document.getElementById('bingo-active-team');
+    const post = document.getElementById('bingo-post-team');
+    const prevActive = active.value;
+    active.innerHTML = bingoState.teams.map(t => `<option value="${t._id}">${t.name}</option>`).join('');
+    if (prevActive && bingoState.teams.find(t => t._id === prevActive)) active.value = prevActive;
+    post.innerHTML = '<option value="">All teams</option>' +
+      bingoState.teams.map(t => `<option value="${t._id}">${t.name}</option>`).join('');
+  }
+
+  function renderBingoBoard() {
+    const overlay = document.getElementById('bingo-board-overlay');
+    if (!overlay) return;
+    overlay.innerHTML = '';
+    const COLS = 6, ROWS = 6;
+    const cw = 100 / COLS;
+    const rh = 100 / ROWS;
+
+    for (const tile of (bingoState.tiles || [])) {
+      const left = (tile.col - 1) * cw;
+      const top  = (tile.row - 1) * rh;
+      const h    = rh * tile.rowSpan;
+      const comps = (bingoState.completions || []).filter(c => c.tileId === tile.id);
+
+      const div = document.createElement('div');
+      div.style.cssText = `position:absolute;left:${left}%;top:${top}%;width:${cw}%;height:${h}%;
+        box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;gap:2px;overflow:hidden;transition:outline 0.1s;`;
+      div.title = tile.name + (tile.value > 1 ? ` (×${tile.value})` : '');
+      div.dataset.tileId = tile.id;
+
+      if (comps.length > 0) {
+        div.style.background = hexToRgba(comps[0].teamId?.color || '#888', 0.55);
+        const check = document.createElement('div');
+        check.style.cssText = 'font-size:clamp(14px,3vw,28px);line-height:1;color:#fff;font-weight:900;text-shadow:0 1px 3px rgba(0,0,0,0.8);';
+        check.textContent = '✓';
+        div.appendChild(check);
+        comps.forEach(c => {
+          const badge = document.createElement('div');
+          badge.style.cssText = `background:${c.teamId?.color||'#888'};color:#fff;font-size:clamp(8px,1.2vw,11px);
+            font-weight:700;padding:1px 5px;border-radius:3px;max-width:90%;overflow:hidden;
+            text-overflow:ellipsis;white-space:nowrap;text-shadow:none;`;
+          badge.textContent = c.teamId?.name || '?';
+          div.appendChild(badge);
+        });
+      }
+
+      div.addEventListener('mouseenter', () => { div.style.outline = '2px solid rgba(255,255,255,0.7)'; });
+      div.addEventListener('mouseleave', () => { div.style.outline = ''; });
+      div.addEventListener('click', () => toggleBingoTile(tile));
+      overlay.appendChild(div);
+    }
+  }
+
+  async function toggleBingoTile(tile) {
+    const teamId = document.getElementById('bingo-active-team').value;
+    if (!teamId) return showToast('Select a team first.', true);
+    const existing = (bingoState.completions || []).find(c => c.tileId === tile.id && c.teamId?._id === teamId);
+    if (existing) {
+      if (!confirm(`Remove "${tile.name}" from this team?`)) return;
+      await api('DELETE', '/api/bingo/complete', { tileId: tile.id, teamId });
+    } else {
+      await api('POST', '/api/bingo/complete', { tileId: tile.id, teamId });
+    }
+    await loadBingoState();
+  }
+
+  function renderBingoScore() {
+    const el = document.getElementById('bingo-score-table');
+    if (!el) return;
+    if (!bingoState.teams.length) {
+      el.innerHTML = '<p style="color:var(--muted);">No teams yet.</p>';
+      return;
+    }
+    const TOTAL = (bingoState.tiles || []).reduce((s, t) => s + t.value, 0);
+    const scores = bingoState.teams.map(team => {
+      const comps = (bingoState.completions || []).filter(c => c.teamId?._id === team._id);
+      const pts = comps.reduce((s, c) => s + ((bingoState.tiles||[]).find(t => t.id === c.tileId)?.value || 0), 0);
+      return { team, pts, tileCount: comps.length };
+    }).sort((a, b) => b.pts - a.pts);
+    const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣'];
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="border-bottom:1px solid var(--border);">
+        <th style="text-align:left;padding:6px 8px;width:32px;">#</th>
+        <th style="text-align:left;padding:6px 8px;">Team</th>
+        <th style="text-align:center;padding:6px 8px;">Tiles</th>
+        <th style="text-align:center;padding:6px 8px;">Points</th>
+        <th style="text-align:left;padding:6px 8px;min-width:120px;">Progress</th>
+      </tr></thead>
+      <tbody>${scores.map((s, i) => `
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:6px 8px;">${medals[i]||i+1}</td>
+          <td style="padding:6px 8px;">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${s.team.color};margin-right:6px;vertical-align:middle;"></span>
+            <strong>${s.team.name}</strong>
+          </td>
+          <td style="text-align:center;padding:6px 8px;">${s.tileCount}</td>
+          <td style="text-align:center;padding:6px 8px;font-weight:700;">${s.pts} / ${TOTAL}</td>
+          <td style="padding:6px 8px;">
+            <div style="background:var(--border);border-radius:4px;height:8px;width:100%;max-width:140px;">
+              <div style="background:${s.team.color};height:100%;border-radius:4px;width:${TOTAL?Math.round(s.pts/TOTAL*100):0}%;transition:width 0.3s;"></div>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>`;
+  }
+
+  async function addBingoTeam() {
+    const name = document.getElementById('new-team-name').value.trim();
+    const color = document.getElementById('new-team-color').value;
+    if (!name) return showToast('Enter a team name.', true);
+    await api('POST', '/api/bingo/teams', { name, color });
+    document.getElementById('new-team-name').value = '';
+    await loadBingoState();
+    showToast(`Team "${name}" added.`);
+  }
+
+  async function updateBingoTeamColor(id, color) {
+    await api('PATCH', `/api/bingo/teams/${id}`, { color });
+    await loadBingoState();
+  }
+
+  async function updateBingoTeamName(id, name) {
+    if (!name.trim()) return;
+    await api('PATCH', `/api/bingo/teams/${id}`, { name: name.trim() });
+    await loadBingoState();
+  }
+
+  async function deleteBingoTeam(id) {
+    if (!confirm('Delete this team and all their tile completions?')) return;
+    await api('DELETE', `/api/bingo/teams/${id}`);
+    await loadBingoState();
+    showToast('Team deleted.');
+  }
+
+  async function postBingoToDiscord() {
+    const channelId = document.getElementById('bingo-channel-id').value.trim();
+    if (!channelId) return showToast('Enter a Discord channel ID.', true);
+    const teamId = document.getElementById('bingo-post-team').value;
+    const team = teamId ? bingoState.teams.find(t => t._id === teamId) : null;
+
+    const img = document.getElementById('bingo-board-img');
+    if (!img.complete || !img.naturalWidth) return showToast('Board image not loaded yet.', true);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    const COLS = 6, ROWS = 6;
+    const cw = canvas.width / COLS;
+    const rh = canvas.height / ROWS;
+
+    for (const tile of (bingoState.tiles || [])) {
+      const x = (tile.col - 1) * cw;
+      const y = (tile.row - 1) * rh;
+      const h = rh * tile.rowSpan;
+      const comps = teamId
+        ? (bingoState.completions || []).filter(c => c.tileId === tile.id && c.teamId?._id === teamId)
+        : (bingoState.completions || []).filter(c => c.tileId === tile.id);
+      if (!comps.length) continue;
+
+      const color = comps[0].teamId?.color || '#888';
+      ctx.fillStyle = hexToRgba(color, 0.55);
+      ctx.fillRect(x, y, cw, h);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${Math.round(rh * 0.38)}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const labelOffset = comps.length > 0 ? rh * 0.1 : 0;
+      ctx.fillText('✓', x + cw / 2, y + h / 2 - labelOffset);
+
+      ctx.font = `bold ${Math.round(rh * 0.11)}px Arial`;
+      comps.forEach((c, idx) => {
+        const lx = x + cw / 2;
+        const ly = y + h / 2 + labelOffset + idx * rh * 0.14;
+        const label = c.teamId?.name || '?';
+        const metrics = ctx.measureText(label);
+        const pw = metrics.width + 10, ph = rh * 0.13;
+        ctx.fillStyle = c.teamId?.color || '#888';
+        ctx.fillRect(lx - pw/2, ly - ph/2, pw, ph);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, lx, ly + 1);
+      });
+    }
+
+    const imageData = canvas.toDataURL('image/png');
+    try {
+      const res = await api('POST', '/api/bingo/post-score', { channelId, imageData, teamName: team?.name || '' });
+      const data = await res.json();
+      if (data.error) showToast(data.error, true);
+      else showToast('✅ Board posted to Discord!');
+    } catch(e) { showToast('Error posting to Discord.', true); }
+  }
+  // ===================== END BINGO =====================
 
   async function checkRankUpsNow() {
     const btn = document.getElementById('btn-check-ranks');

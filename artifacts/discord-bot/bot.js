@@ -52,6 +52,7 @@ const settingsSchema = new mongoose.Schema({
   womActivityChannelId: { type: String, default: '' },
   womLastActivityAt: { type: Date, default: null },
   droptrackerGroupId: { type: String, default: '' },
+  bingoChannelId: { type: String, default: '' },
   levelA: { type: Number, default: 5 },
   levelB: { type: Number, default: 50 },
   levelC: { type: Number, default: 100 },
@@ -69,6 +70,22 @@ const commandConfigSchema = new mongoose.Schema({
   category:    { type: String, default: 'General' },
 });
 const CommandConfig = mongoose.model('CommandConfig', commandConfigSchema);
+
+// --- Bingo Models ---
+const bingoTeamSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  color: { type: String, default: '#e74c3c' },
+  order: { type: Number, default: 0 },
+}, { timestamps: true });
+const BingoTeam = mongoose.model('BingoTeam', bingoTeamSchema);
+
+const bingoCompletionSchema = new mongoose.Schema({
+  tileId: { type: String, required: true },
+  teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'BingoTeam', required: true },
+  completedBy: { type: String, default: '' },
+  completedAt: { type: Date, default: Date.now },
+});
+const BingoCompletion = mongoose.model('BingoCompletion', bingoCompletionSchema);
 
 const DEFAULT_COMMANDS = [
   { key: 'lp',              name: 'lp',              category: 'Loot Points', description: 'Check your LP balance',                  usage: '!lp [@user]',              isMod: false },
@@ -100,6 +117,7 @@ const DEFAULT_COMMANDS = [
   { key: 'importmee6',      name: 'importmee6',       category: 'Admin',       description: 'Import levels from MEE6',                usage: '!importmee6',              isMod: true  },
   { key: 'cleanduplicates', name: 'cleanduplicates',  category: 'Admin',       description: 'Remove duplicate RS name entries',       usage: '!cleanduplicates',         isMod: true  },
   { key: 'fixlp',           name: 'fixlp',            category: 'Admin',       description: 'Restore hardcoded LP values',            usage: '!fixlp',                   isMod: true  },
+  { key: 'bingoscore',      name: 'bingoscore',       category: 'Bingo',       description: 'Post bingo scoreboard to Discord',       usage: '!bingoscore [team]',       isMod: false },
   { key: 'help',            name: 'help',             category: 'General',     description: 'Show all available commands',            usage: '!help',                    isMod: false },
 ];
 
@@ -145,7 +163,7 @@ async function saveSettings(data) {
     'messageXpMin', 'messageXpMax', 'messageXpCooldownSecs',
     'voiceJoinXp', 'voiceJoinCooldownSecs',
     'voiceIntervalXp', 'voiceIntervalMins',
-    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId', 'womActivityChannelId', 'droptrackerGroupId',
+    'dropTopXp', 'afkChannelId', 'rankNotifyChannelId', 'womGroupId', 'womActivityChannelId', 'droptrackerGroupId', 'bingoChannelId',
     'levelA', 'levelB', 'levelC', 'levelMax',
   ];
   const update = {};
@@ -618,6 +636,45 @@ async function awardDropTopXp(players, guild, channel) {
   channel.send(response);
 }
 
+// --- Bingo Tile Definitions ---
+const BINGO_TILES = [
+  { id: 'r1c1', name: 'Zenyte+',           row: 1, col: 1, rowSpan: 1, value: 1 },
+  { id: 'r1c2', name: 'Lord of the Rings', row: 1, col: 2, rowSpan: 1, value: 1 },
+  { id: 'r1c3', name: 'OG GWD Warrior',    row: 1, col: 3, rowSpan: 1, value: 1 },
+  { id: 'r1c4', name: 'Nex',               row: 1, col: 4, rowSpan: 1, value: 1 },
+  { id: 'r1c5', name: 'Not Picky',         row: 1, col: 5, rowSpan: 1, value: 1 },
+  { id: 'r1c6', name: 'Voidwaker',         row: 1, col: 6, rowSpan: 1, value: 1 },
+  { id: 'r2c1', name: 'CHAOS',             row: 2, col: 1, rowSpan: 1, value: 1 },
+  { id: 'r2c2', name: 'Nightmare',         row: 2, col: 2, rowSpan: 1, value: 1 },
+  { id: 'r2c3', name: 'Fang Collector',    row: 2, col: 3, rowSpan: 1, value: 1 },
+  { id: 'r2c4', name: "Nike's",            row: 2, col: 4, rowSpan: 1, value: 1 },
+  { id: 'r2c5', name: 'Bloody',            row: 2, col: 5, rowSpan: 1, value: 1 },
+  { id: 'r2c6', name: 'Better get fishin', row: 2, col: 6, rowSpan: 1, value: 1 },
+  { id: 'r3c1', name: 'Hammering',         row: 3, col: 1, rowSpan: 1, value: 1 },
+  { id: 'r3c2', name: 'Full Godsword',     row: 3, col: 2, rowSpan: 1, value: 1 },
+  { id: 'r3c3', name: 'Corporeal Beast',   row: 3, col: 3, rowSpan: 2, value: 2 },
+  { id: 'r3c4', name: 'Mega Rare',         row: 3, col: 4, rowSpan: 2, value: 2 },
+  { id: 'r3c5', name: 'Prayer Upgrade',    row: 3, col: 5, rowSpan: 1, value: 1 },
+  { id: 'r3c6', name: 'Suit up',           row: 3, col: 6, rowSpan: 1, value: 1 },
+  { id: 'r4c1', name: 'Pyramid Plunder',   row: 4, col: 1, rowSpan: 1, value: 1 },
+  { id: 'r4c2', name: 'Shielding',         row: 4, col: 2, rowSpan: 1, value: 1 },
+  { id: 'r4c5', name: 'Pet',               row: 4, col: 5, rowSpan: 1, value: 1 },
+  { id: 'r4c6', name: 'Priffy',            row: 4, col: 6, rowSpan: 1, value: 1 },
+  { id: 'r5c1', name: 'On an Oath',        row: 5, col: 1, rowSpan: 1, value: 1 },
+  { id: 'r5c2', name: 'Tormenting',        row: 5, col: 2, rowSpan: 1, value: 1 },
+  { id: 'r5c3', name: 'MGK',              row: 5, col: 3, rowSpan: 1, value: 1 },
+  { id: 'r5c4', name: 'DT2',              row: 5, col: 4, rowSpan: 1, value: 1 },
+  { id: 'r5c5', name: 'Dual Damage',       row: 5, col: 5, rowSpan: 1, value: 1 },
+  { id: 'r5c6', name: 'Set Completor',     row: 5, col: 6, rowSpan: 1, value: 1 },
+  { id: 'r6c1', name: 'Speeding',          row: 6, col: 1, rowSpan: 1, value: 1 },
+  { id: 'r6c2', name: 'Granite Warrior',   row: 6, col: 2, rowSpan: 1, value: 1 },
+  { id: 'r6c3', name: 'Gladiator',         row: 6, col: 3, rowSpan: 1, value: 1 },
+  { id: 'r6c4', name: 'Better get Slayin', row: 6, col: 4, rowSpan: 1, value: 1 },
+  { id: 'r6c5', name: 'Avernic Hilt',      row: 6, col: 5, rowSpan: 1, value: 1 },
+  { id: 'r6c6', name: 'Slayer Starter Kit',row: 6, col: 6, rowSpan: 1, value: 1 },
+];
+const BINGO_TOTAL_POINTS = BINGO_TILES.reduce((s, t) => s + t.value, 0);
+
 // --- Ready ---
 client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
@@ -910,6 +967,44 @@ client.on(Events.MessageCreate, async (message) => {
       return `${medals[i] || `${i+1}.`} **${name}** — ${gp} GP${drops ? ` (${drops} drops)` : ''}`;
     });
     message.channel.send(`${title}\n${lines.join('\n')}`);
+  }
+
+  if (command === cmd('bingoscore')) {
+    const teams = await BingoTeam.find().sort({ order: 1, createdAt: 1 });
+    const completions = await BingoCompletion.find().populate('teamId', 'name color');
+    if (!teams.length) return message.channel.send("❌ No bingo teams set up. Configure teams in the dashboard.");
+
+    const filterTeam = args.join(' ').trim().toLowerCase();
+    const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣'];
+
+    const scores = teams.map(team => {
+      const comps = completions.filter(c => c.teamId?._id?.toString() === team._id.toString());
+      const pts = comps.reduce((s, c) => s + (BINGO_TILES.find(t => t.id === c.tileId)?.value || 0), 0);
+      return { team, pts, tileCount: comps.length };
+    }).sort((a, b) => b.pts - a.pts);
+
+    if (filterTeam) {
+      const found = scores.find(s => s.team.name.toLowerCase().includes(filterTeam));
+      if (!found) return message.channel.send(`❌ Team not found. Teams: ${teams.map(t => t.name).join(', ')}`);
+      const comps = completions.filter(c => c.teamId?._id?.toString() === found.team._id.toString());
+      const done = comps.map(c => BINGO_TILES.find(t => t.id === c.tileId)).filter(Boolean);
+      const todo = BINGO_TILES.filter(t => !comps.find(c => c.tileId === t.id));
+      const lines = [
+        `🎯 **${found.team.name} — Bingo Progress** (${found.pts}/${BINGO_TOTAL_POINTS} pts)`,
+        ``,
+        `✅ **Completed (${done.length}):** ${done.map(t => `${t.name}${t.value>1?' ×2':''}`).join(', ') || 'none'}`,
+        ``,
+        `⬜ **Remaining (${todo.length}):** ${todo.map(t => t.name).join(', ')}`,
+      ];
+      await sendLongMessage(message.channel, '', lines);
+    } else {
+      const lines = [
+        `🎯 **Bingo Leaderboard** (${BINGO_TOTAL_POINTS} pts total)`,
+        ``,
+        ...scores.map((s, i) => `${medals[i]||`${i+1}.`} **${s.team.name}** — ${s.pts} pts · ${s.tileCount} tile${s.tileCount!==1?'s':''}`),
+      ];
+      message.channel.send(lines.join('\n'));
+    }
   }
 
   if (command === cmd('drops')) {
@@ -1255,6 +1350,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Serve bingo board image
+  if (pathname === '/bingo-board.png') {
+    try {
+      const data = fs.readFileSync(path.join(__dirname, 'bingo-board.png'));
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=3600' });
+      res.end(data);
+    } catch (e) {
+      res.writeHead(404); res.end('Not found');
+    }
+    return;
+  }
+
   // Auth check for all /api/* routes
   if (pathname.startsWith('/api/')) {
     if (!checkAuth(req)) {
@@ -1502,6 +1609,88 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         sendJson(res, 400, { error: e.message });
       }
+      return;
+    }
+
+    // GET /api/bingo/state
+    if (pathname === '/api/bingo/state' && req.method === 'GET') {
+      const teams = await BingoTeam.find().sort({ order: 1, createdAt: 1 });
+      const completions = await BingoCompletion.find().populate('teamId', 'name color');
+      sendJson(res, 200, { teams, completions, tiles: BINGO_TILES });
+      return;
+    }
+
+    // POST /api/bingo/teams
+    if (pathname === '/api/bingo/teams' && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const team = await BingoTeam.create({ name: data.name, color: data.color || '#e74c3c', order: data.order || 0 });
+        sendJson(res, 201, team);
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    // PATCH /api/bingo/teams/:id
+    const bingoTeamPatch = pathname.match(/^\/api\/bingo\/teams\/(.+)$/);
+    if (bingoTeamPatch && req.method === 'PATCH') {
+      try {
+        const data = await readBody(req);
+        const upd = {};
+        if (data.name !== undefined) upd.name = data.name;
+        if (data.color !== undefined) upd.color = data.color;
+        if (data.order !== undefined) upd.order = Number(data.order);
+        const team = await BingoTeam.findByIdAndUpdate(bingoTeamPatch[1], { $set: upd }, { new: true });
+        if (!team) { sendJson(res, 404, { error: 'Not found' }); return; }
+        sendJson(res, 200, team);
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    // DELETE /api/bingo/teams/:id
+    const bingoTeamDel = pathname.match(/^\/api\/bingo\/teams\/(.+)$/);
+    if (bingoTeamDel && req.method === 'DELETE') {
+      await BingoTeam.findByIdAndDelete(bingoTeamDel[1]);
+      await BingoCompletion.deleteMany({ teamId: bingoTeamDel[1] });
+      sendJson(res, 200, { success: true });
+      return;
+    }
+
+    // POST /api/bingo/complete
+    if (pathname === '/api/bingo/complete' && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const existing = await BingoCompletion.findOne({ tileId: data.tileId, teamId: data.teamId });
+        if (existing) { sendJson(res, 200, existing); return; }
+        const comp = await BingoCompletion.create({ tileId: data.tileId, teamId: data.teamId, completedBy: data.completedBy || '' });
+        sendJson(res, 201, comp);
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    // DELETE /api/bingo/complete
+    if (pathname === '/api/bingo/complete' && req.method === 'DELETE') {
+      try {
+        const data = await readBody(req);
+        await BingoCompletion.deleteOne({ tileId: data.tileId, teamId: data.teamId });
+        sendJson(res, 200, { success: true });
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    // POST /api/bingo/post-score
+    if (pathname === '/api/bingo/post-score' && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const channelId = data.channelId;
+        if (!channelId) { sendJson(res, 400, { error: 'channelId required' }); return; }
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (!channel) { sendJson(res, 404, { error: 'Channel not found. Check the channel ID.' }); return; }
+        const base64 = data.imageData.replace(/^data:image\/png;base64,/, '');
+        const buffer = Buffer.from(base64, 'base64');
+        const label = data.teamName ? ` — ${data.teamName}` : '';
+        await channel.send({ content: `🎯 **Bingo Score${label}**`, files: [{ attachment: buffer, name: 'bingo-score.png' }] });
+        sendJson(res, 200, { success: true });
+      } catch (e) { sendJson(res, 500, { error: e.message }); }
       return;
     }
 

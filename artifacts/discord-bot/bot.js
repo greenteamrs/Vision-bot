@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
 const fs = require('fs');
@@ -151,6 +151,48 @@ const DEFAULT_COMMANDS = [
   { key: 'bingoreject',    name: 'bingo-reject',     category: 'Bingo',       description: 'Reject a submission — reply to it with optional reason', usage: '!bingo-reject [reason]',         isMod: true  },
   { key: 'help',            name: 'help',             category: 'General',     description: 'Show all available commands',            usage: '!help',                    isMod: false },
 ];
+
+// --- Slash command definitions ---
+const SLASH_COMMANDS = [
+  new SlashCommandBuilder()
+    .setName('bingo-submit')
+    .setDescription('Submit a drop screenshot for bingo review')
+    .addAttachmentOption(opt =>
+      opt.setName('image').setDescription('Your drop screenshot').setRequired(true))
+    .addStringOption(opt =>
+      opt.setName('note').setDescription('Optional note about the drop (e.g. boss, task)').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('bingo-approve')
+    .setDescription('Approve a pending bingo submission and assign it to a team (mods only)')
+    .addStringOption(opt =>
+      opt.setName('submission').setDescription('Pending submission to approve').setRequired(true).setAutocomplete(true))
+    .addStringOption(opt =>
+      opt.setName('tile').setDescription('Bingo tile this drop counts for').setRequired(true).setAutocomplete(true))
+    .addStringOption(opt =>
+      opt.setName('team').setDescription('Team to assign the tile to').setRequired(true).setAutocomplete(true)),
+
+  new SlashCommandBuilder()
+    .setName('bingo-reject')
+    .setDescription('Reject a pending bingo submission (mods only)')
+    .addStringOption(opt =>
+      opt.setName('submission').setDescription('Pending submission to reject').setRequired(true).setAutocomplete(true))
+    .addStringOption(opt =>
+      opt.setName('reason').setDescription('Reason for rejection').setRequired(false)),
+].map(cmd => cmd.toJSON());
+
+async function registerSlashCommands(clientId, guildId) {
+  try {
+    const rest = new REST().setToken(process.env.DISCORD_TOKEN);
+    await rest.put(
+      Routes.applicationGuildCommands(clientId, guildId),
+      { body: SLASH_COMMANDS }
+    );
+    console.log(`Registered ${SLASH_COMMANDS.length} slash commands in guild ${guildId}`);
+  } catch (err) {
+    console.error('Failed to register slash commands:', err.message);
+  }
+}
 
 // Command name cache — key → current name. Updated on startup and via PATCH /api/commands/:key
 let commandNames = {};
@@ -737,6 +779,11 @@ client.once('ready', async () => {
   await getSettings();
   await seedCommands();
   setInterval(() => refreshCommandNames().catch(() => {}), 60000);
+
+  // Register slash commands in every guild
+  for (const [guildId] of client.guilds.cache) {
+    await registerSlashCommands(client.user.id, guildId);
+  }
 
   const channelId = process.env.DAILY_CHANNEL_ID;
   if (!channelId) {
@@ -1411,6 +1458,133 @@ client.on(Events.MessageCreate, async (message) => {
     }
     helpText += `\n📊 **Current XP Rates**\nMessage XP: ${s.messageXpMin}–${s.messageXpMax} XP (${s.messageXpCooldownSecs}s cooldown)\nVoice Join: ${s.voiceJoinXp} XP | Voice Activity: ${s.voiceIntervalXp} XP / ${s.voiceIntervalMins} mins`;
     message.channel.send(helpText);
+  }
+});
+
+// --- Slash Commands ---
+client.on(Events.InteractionCreate, async interaction => {
+  // Autocomplete
+  if (interaction.isAutocomplete()) {
+    const { commandName, options } = interaction;
+    const focused = options.getFocused(true);
+
+    if (commandName === 'bingo-approve' || commandName === 'bingo-reject') {
+      if (focused.name === 'submission') {
+        const subs = await BingoSubmission.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(25);
+        const choices = subs.map(s => ({
+          name: `${s.submittedBy} — ${new Date(s.createdAt).toLocaleDateString()}${s.note ? ' · ' + s.note.slice(0, 40) : ''}`,
+          value: s._id.toString(),
+        })).filter(c => c.name.toLowerCase().includes(focused.value.toLowerCase()));
+        return interaction.respond(choices.slice(0, 25));
+      }
+      if (focused.name === 'tile' && commandName === 'bingo-approve') {
+        const choices = BINGO_TILES
+          .filter(t => t.name.toLowerCase().includes(focused.value.toLowerCase()))
+          .slice(0, 25)
+          .map(t => ({ name: t.name + (t.value > 1 ? ` (×${t.value})` : ''), value: t.id }));
+        return interaction.respond(choices);
+      }
+      if (focused.name === 'team' && commandName === 'bingo-approve') {
+        const teams = await BingoTeam.find();
+        const choices = teams
+          .filter(t => t.name.toLowerCase().includes(focused.value.toLowerCase()))
+          .slice(0, 25)
+          .map(t => ({ name: t.name, value: t._id.toString() }));
+        return interaction.respond(choices);
+      }
+    }
+    return interaction.respond([]);
+  }
+
+  if (!interaction.isChatInputCommand()) return;
+  const { commandName, options, user, member } = interaction;
+
+  // /bingo-submit
+  if (commandName === 'bingo-submit') {
+    const s = await getSettings();
+    const reviewChannelId = String(s.bingoReviewChannelId || '').trim();
+    if (!reviewChannelId) return interaction.reply({ content: '❌ No bingo review channel set. Ask an admin to configure it in the dashboard.', ephemeral: true });
+
+    const attachment = options.getAttachment('image');
+    const note = options.getString('note') || '';
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const sub = await BingoSubmission.create({
+      tileId: 'pending',
+      teamId: new mongoose.Types.ObjectId('000000000000000000000001'),
+      submittedBy: user.tag,
+      submittedById: user.id,
+      imageUrl: attachment.url,
+      note,
+      status: 'pending',
+    });
+
+    const reviewChannel = await client.channels.fetch(reviewChannelId).catch(() => null);
+    if (!reviewChannel) return interaction.editReply('❌ Could not find review channel. Ask an admin to check the channel ID.');
+
+    const reviewMsg = await reviewChannel.send({
+      content: [
+        `📥 **Bingo Submission** — ID: \`${sub._id}\``,
+        `**From:** ${user} (${user.tag})`,
+        note ? `**Note:** ${note}` : null,
+        ``,
+        `Mods: use \`/bingo-approve\` or \`/bingo-reject\` and pick this submission from the dropdown.`,
+      ].filter(Boolean).join('\n'),
+      files: [attachment.url],
+    });
+
+    await BingoSubmission.findByIdAndUpdate(sub._id, { reviewMessageId: reviewMsg.id });
+    return interaction.editReply('📥 Your screenshot has been submitted for mod review!');
+  }
+
+  // /bingo-approve
+  if (commandName === 'bingo-approve') {
+    if (!member.permissions.has('Administrator') && !isMod(member))
+      return interaction.reply({ content: '❌ Mods only.', ephemeral: true });
+
+    const subId = options.getString('submission');
+    const tileId = options.getString('tile');
+    const teamId = options.getString('team');
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const sub = await BingoSubmission.findById(subId).catch(() => null);
+    if (!sub || sub.status !== 'pending') return interaction.editReply('❌ Submission not found or already reviewed.');
+
+    const tile = BINGO_TILES.find(t => t.id === tileId);
+    const team = await BingoTeam.findById(teamId);
+    if (!tile || !team) return interaction.editReply('❌ Invalid tile or team.');
+
+    const already = await BingoCompletion.findOne({ tileId, teamId });
+    if (!already) await BingoCompletion.create({ tileId, teamId, completedBy: sub.submittedBy });
+    await BingoSubmission.findByIdAndUpdate(sub._id, { tileId, teamId, status: 'approved', reviewedBy: user.tag });
+
+    const submitter = await client.users.fetch(sub.submittedById).catch(() => null);
+    if (submitter) submitter.send(`✅ Your bingo submission was approved! **${tile.name}** has been marked complete for **${team.name}**.`).catch(() => {});
+
+    return interaction.editReply(`✅ Approved! **${tile.name}** assigned to **${team.name}** (submitted by ${sub.submittedBy}).`);
+  }
+
+  // /bingo-reject
+  if (commandName === 'bingo-reject') {
+    if (!member.permissions.has('Administrator') && !isMod(member))
+      return interaction.reply({ content: '❌ Mods only.', ephemeral: true });
+
+    const subId = options.getString('submission');
+    const reason = options.getString('reason') || 'No reason given.';
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const sub = await BingoSubmission.findById(subId).catch(() => null);
+    if (!sub || sub.status !== 'pending') return interaction.editReply('❌ Submission not found or already reviewed.');
+
+    await BingoSubmission.findByIdAndUpdate(sub._id, { status: 'rejected', reviewedBy: user.tag });
+
+    const submitter = await client.users.fetch(sub.submittedById).catch(() => null);
+    if (submitter) submitter.send(`❌ Your bingo submission was rejected. Reason: **${reason}**`).catch(() => {});
+
+    return interaction.editReply(`❌ Submission rejected. Reason: ${reason}`);
   }
 });
 

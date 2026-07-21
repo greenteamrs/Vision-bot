@@ -173,7 +173,9 @@ const SLASH_COMMANDS = [
     .addStringOption(opt =>
       opt.setName('tile').setDescription('Bingo tile this drop counts for').setRequired(true).setAutocomplete(true))
     .addStringOption(opt =>
-      opt.setName('team').setDescription('Team to assign the tile to').setRequired(true).setAutocomplete(true)),
+      opt.setName('team').setDescription('Team to assign the tile to').setRequired(true).setAutocomplete(true))
+    .addStringOption(opt =>
+      opt.setName('step').setDescription('For multi-step tiles: which step this completes (leave blank to complete the whole tile)').setRequired(false).setAutocomplete(true)),
 
   new SlashCommandBuilder()
     .setName('bingo-reject')
@@ -1584,6 +1586,17 @@ client.on(Events.InteractionCreate, async interaction => {
           .filter(t => t.name.toLowerCase().includes(focused.value.toLowerCase()))
           .slice(0, 25)
           .map(t => ({ name: t.name, value: t._id.toString() }));
+        return interaction.respond(choices);
+      }
+      if (focused.name === 'step' && commandName === 'bingo-approve') {
+        const tileId = options.getString('tile');
+        if (!tileId) return interaction.respond([]);
+        const tileConfig = await BingoTileConfig.findOne({ tileId }).lean();
+        if (!tileConfig || !tileConfig.steps.length) return interaction.respond([{ name: 'This tile has no steps — leave blank to complete it fully', value: '__none__' }]);
+        const choices = tileConfig.steps
+          .filter(s => s.toLowerCase().includes(focused.value.toLowerCase()))
+          .slice(0, 25)
+          .map(s => ({ name: s, value: s }));
         return interaction.respond(choices);
       }
     }

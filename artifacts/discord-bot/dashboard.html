@@ -1447,6 +1447,14 @@
     await loadBingoState();
   }
 
+  function calcBingoScoreClient(completedTileIds) {
+    const tiles = bingoState.tiles || [];
+    const lines = bingoState.lines || [];
+    const tilePoints = completedTileIds.reduce((s, id) => s + (tiles.find(t => t.id === id)?.value || 0), 0);
+    const doneLines = lines.filter(line => line.tiles.every(tid => completedTileIds.includes(tid)));
+    return { tilePoints, lineBonus: doneLines.length, total: tilePoints + doneLines.length, doneLines };
+  }
+
   function renderBingoScore() {
     const el = document.getElementById('bingo-score-table');
     if (!el) return;
@@ -1454,37 +1462,53 @@
       el.innerHTML = '<p style="color:var(--muted);">No teams yet.</p>';
       return;
     }
-    const TOTAL = (bingoState.tiles || []).reduce((s, t) => s + t.value, 0);
+    const TILE_TOTAL = (bingoState.tiles || []).reduce((s, t) => s + t.value, 0);
+    const LINE_TOTAL = (bingoState.lines || []).length;
+    const MAX_TOTAL = TILE_TOTAL + LINE_TOTAL;
+
     const scores = bingoState.teams.map(team => {
       const comps = (bingoState.completions || []).filter(c => c.teamId?._id === team._id);
-      const pts = comps.reduce((s, c) => s + ((bingoState.tiles||[]).find(t => t.id === c.tileId)?.value || 0), 0);
-      return { team, pts, tileCount: comps.length };
-    }).sort((a, b) => b.pts - a.pts);
+      const { tilePoints, lineBonus, total, doneLines } = calcBingoScoreClient(comps.map(c => c.tileId));
+      return { team, tilePoints, lineBonus, total, tileCount: comps.length, doneLines };
+    }).sort((a, b) => b.total - a.total);
+
     const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣'];
-    el.innerHTML = `<table style="width:100%;border-collapse:collapse;">
-      <thead><tr style="border-bottom:1px solid var(--border);">
-        <th style="text-align:left;padding:6px 8px;width:32px;">#</th>
-        <th style="text-align:left;padding:6px 8px;">Team</th>
-        <th style="text-align:center;padding:6px 8px;">Tiles</th>
-        <th style="text-align:center;padding:6px 8px;">Points</th>
-        <th style="text-align:left;padding:6px 8px;min-width:120px;">Progress</th>
-      </tr></thead>
-      <tbody>${scores.map((s, i) => `
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:6px 8px;">${medals[i]||i+1}</td>
-          <td style="padding:6px 8px;">
-            <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${s.team.color};margin-right:6px;vertical-align:middle;"></span>
-            <strong>${s.team.name}</strong>
-          </td>
-          <td style="text-align:center;padding:6px 8px;">${s.tileCount}</td>
-          <td style="text-align:center;padding:6px 8px;font-weight:700;">${s.pts} / ${TOTAL}</td>
-          <td style="padding:6px 8px;">
-            <div style="background:var(--border);border-radius:4px;height:8px;width:100%;max-width:140px;">
-              <div style="background:${s.team.color};height:100%;border-radius:4px;width:${TOTAL?Math.round(s.pts/TOTAL*100):0}%;transition:width 0.3s;"></div>
-            </div>
-          </td>
-        </tr>`).join('')}
-      </tbody></table>`;
+    const lineEmoji = { row: '➡️', col: '⬇️', diag: '↗️' };
+
+    el.innerHTML = `
+      <p style="color:var(--muted);font-size:12px;margin-bottom:10px;">
+        Max score: <strong>${MAX_TOTAL} pts</strong> — ${TILE_TOTAL} tile pts + ${LINE_TOTAL} line bonuses (each completed row/column/diagonal = +1 pt)
+      </p>
+      <table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:6px 8px;width:32px;">#</th>
+          <th style="text-align:left;padding:6px 8px;">Team</th>
+          <th style="text-align:center;padding:6px 8px;">Tiles</th>
+          <th style="text-align:center;padding:6px 8px;">Tile pts</th>
+          <th style="text-align:center;padding:6px 8px;">Lines</th>
+          <th style="text-align:center;padding:6px 8px;font-weight:700;">Total</th>
+          <th style="text-align:left;padding:6px 8px;min-width:100px;">Progress</th>
+        </tr></thead>
+        <tbody>${scores.map((s, i) => `
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;">${medals[i]||i+1}</td>
+            <td style="padding:6px 8px;">
+              <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${s.team.color};margin-right:6px;vertical-align:middle;"></span>
+              <strong>${s.team.name}</strong>
+              ${s.doneLines.length ? `<div style="font-size:11px;color:#a78bfa;margin-top:2px;">${s.doneLines.map(l=>`${lineEmoji[l.type]||''}${l.label}`).join(' · ')}</div>` : ''}
+            </td>
+            <td style="text-align:center;padding:6px 8px;">${s.tileCount}</td>
+            <td style="text-align:center;padding:6px 8px;">${s.tilePoints}</td>
+            <td style="text-align:center;padding:6px 8px;color:${s.lineBonus>0?'#a78bfa':'var(--muted)'};">+${s.lineBonus}</td>
+            <td style="text-align:center;padding:6px 8px;font-weight:700;font-size:1.05em;">${s.total} <span style="color:var(--muted);font-weight:400;font-size:0.85em;">/ ${MAX_TOTAL}</span></td>
+            <td style="padding:6px 8px;">
+              <div style="background:var(--border);border-radius:4px;height:8px;width:100%;max-width:120px;">
+                <div style="background:${s.team.color};height:100%;border-radius:4px;width:${MAX_TOTAL?Math.round(s.total/MAX_TOTAL*100):0}%;transition:width 0.3s;"></div>
+              </div>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
   }
 
   async function addBingoTeam() {

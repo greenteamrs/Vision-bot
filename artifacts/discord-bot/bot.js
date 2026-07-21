@@ -675,6 +675,31 @@ const BINGO_TILES = [
 ];
 const BINGO_TOTAL_POINTS = BINGO_TILES.reduce((s, t) => s + t.value, 0);
 
+// Lines that award a bonus point when fully completed
+// Note: r3c3 (Corp Beast) occupies rows 3&4 col 3; r3c4 (Mega Rare) occupies rows 3&4 col 4
+const BINGO_LINES = [
+  { type: 'row',  label: 'Row 1',         tiles: ['r1c1','r1c2','r1c3','r1c4','r1c5','r1c6'] },
+  { type: 'row',  label: 'Row 2',         tiles: ['r2c1','r2c2','r2c3','r2c4','r2c5','r2c6'] },
+  { type: 'row',  label: 'Row 3',         tiles: ['r3c1','r3c2','r3c3','r3c4','r3c5','r3c6'] },
+  { type: 'row',  label: 'Row 4',         tiles: ['r4c1','r4c2','r3c3','r3c4','r4c5','r4c6'] },
+  { type: 'row',  label: 'Row 5',         tiles: ['r5c1','r5c2','r5c3','r5c4','r5c5','r5c6'] },
+  { type: 'row',  label: 'Row 6',         tiles: ['r6c1','r6c2','r6c3','r6c4','r6c5','r6c6'] },
+  { type: 'col',  label: 'Column 1',      tiles: ['r1c1','r2c1','r3c1','r4c1','r5c1','r6c1'] },
+  { type: 'col',  label: 'Column 2',      tiles: ['r1c2','r2c2','r3c2','r4c2','r5c2','r6c2'] },
+  { type: 'col',  label: 'Column 3',      tiles: ['r1c3','r2c3','r3c3','r5c3','r6c3'] },
+  { type: 'col',  label: 'Column 4',      tiles: ['r1c4','r2c4','r3c4','r5c4','r6c4'] },
+  { type: 'col',  label: 'Column 5',      tiles: ['r1c5','r2c5','r3c5','r4c5','r5c5','r6c5'] },
+  { type: 'col',  label: 'Column 6',      tiles: ['r1c6','r2c6','r3c6','r4c6','r5c6','r6c6'] },
+  { type: 'diag', label: 'Diagonal ↘',    tiles: ['r1c1','r2c2','r3c3','r3c4','r5c5','r6c6'] },
+  { type: 'diag', label: 'Diagonal ↙',    tiles: ['r1c6','r2c5','r3c4','r3c3','r5c2','r6c1'] },
+];
+
+function calcBingoScore(completedTileIds) {
+  const tilePoints = completedTileIds.reduce((s, id) => s + (BINGO_TILES.find(t => t.id === id)?.value || 0), 0);
+  const doneLines = BINGO_LINES.filter(line => line.tiles.every(tid => completedTileIds.includes(tid)));
+  return { tilePoints, lineBonus: doneLines.length, total: tilePoints + doneLines.length, doneLines };
+}
+
 // --- Ready ---
 client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
@@ -979,9 +1004,12 @@ client.on(Events.MessageCreate, async (message) => {
 
     const scores = teams.map(team => {
       const comps = completions.filter(c => c.teamId?._id?.toString() === team._id.toString());
-      const pts = comps.reduce((s, c) => s + (BINGO_TILES.find(t => t.id === c.tileId)?.value || 0), 0);
-      return { team, pts, tileCount: comps.length };
-    }).sort((a, b) => b.pts - a.pts);
+      const tileIds = comps.map(c => c.tileId);
+      const { tilePoints, lineBonus, total, doneLines } = calcBingoScore(tileIds);
+      return { team, tilePoints, lineBonus, total, tileCount: comps.length, doneLines };
+    }).sort((a, b) => b.total - a.total);
+
+    const maxTotal = BINGO_TOTAL_POINTS + BINGO_LINES.length;
 
     if (filterTeam) {
       const found = scores.find(s => s.team.name.toLowerCase().includes(filterTeam));
@@ -989,19 +1017,23 @@ client.on(Events.MessageCreate, async (message) => {
       const comps = completions.filter(c => c.teamId?._id?.toString() === found.team._id.toString());
       const done = comps.map(c => BINGO_TILES.find(t => t.id === c.tileId)).filter(Boolean);
       const todo = BINGO_TILES.filter(t => !comps.find(c => c.tileId === t.id));
+      const lineEmoji = { row: '➡️', col: '⬇️', diag: '↗️' };
       const lines = [
-        `🎯 **${found.team.name} — Bingo Progress** (${found.pts}/${BINGO_TOTAL_POINTS} pts)`,
+        `🎯 **${found.team.name} — Bingo Progress**`,
+        `**Score: ${found.total} pts** (${found.tilePoints} tiles + ${found.lineBonus} line bonus${found.lineBonus!==1?'es':''})`,
         ``,
         `✅ **Completed (${done.length}):** ${done.map(t => `${t.name}${t.value>1?' ×2':''}`).join(', ') || 'none'}`,
+        ``,
+        found.doneLines.length ? `🎉 **Lines completed:** ${found.doneLines.map(l => `${lineEmoji[l.type]||'📏'} ${l.label}`).join(', ')}` : `📏 **Lines completed:** none yet`,
         ``,
         `⬜ **Remaining (${todo.length}):** ${todo.map(t => t.name).join(', ')}`,
       ];
       await sendLongMessage(message.channel, '', lines);
     } else {
       const lines = [
-        `🎯 **Bingo Leaderboard** (${BINGO_TOTAL_POINTS} pts total)`,
+        `🎯 **Bingo Leaderboard** (max ${maxTotal} pts: ${BINGO_TOTAL_POINTS} tiles + ${BINGO_LINES.length} lines)`,
         ``,
-        ...scores.map((s, i) => `${medals[i]||`${i+1}.`} **${s.team.name}** — ${s.pts} pts · ${s.tileCount} tile${s.tileCount!==1?'s':''}`),
+        ...scores.map((s, i) => `${medals[i]||`${i+1}.`} **${s.team.name}** — ${s.total} pts  *(${s.tilePoints} tiles + ${s.lineBonus} line${s.lineBonus!==1?'s':''})*`),
       ];
       message.channel.send(lines.join('\n'));
     }
@@ -1616,7 +1648,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/bingo/state' && req.method === 'GET') {
       const teams = await BingoTeam.find().sort({ order: 1, createdAt: 1 });
       const completions = await BingoCompletion.find().populate('teamId', 'name color');
-      sendJson(res, 200, { teams, completions, tiles: BINGO_TILES });
+      sendJson(res, 200, { teams, completions, tiles: BINGO_TILES, lines: BINGO_LINES });
       return;
     }
 

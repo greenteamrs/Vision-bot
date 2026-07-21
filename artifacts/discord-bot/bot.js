@@ -158,7 +158,9 @@ const SLASH_COMMANDS = [
     .setName('bingo-submit')
     .setDescription('Submit a drop screenshot for bingo review')
     .addAttachmentOption(opt =>
-      opt.setName('image').setDescription('Your drop screenshot').setRequired(true))
+      opt.setName('image').setDescription('Upload a screenshot directly').setRequired(false))
+    .addStringOption(opt =>
+      opt.setName('link').setDescription('Or paste a Gyazo / Imgur / image URL instead').setRequired(false))
     .addStringOption(opt =>
       opt.setName('note').setDescription('Optional note about the drop (e.g. boss, task)').setRequired(false)),
 
@@ -1506,7 +1508,11 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!reviewChannelId) return interaction.reply({ content: '❌ No bingo review channel set. Ask an admin to configure it in the dashboard.', ephemeral: true });
 
     const attachment = options.getAttachment('image');
+    const link = options.getString('link') || '';
     const note = options.getString('note') || '';
+    const imageUrl = attachment?.url || link;
+
+    if (!imageUrl) return interaction.reply({ content: '❌ Please attach a screenshot or paste an image link (Gyazo, Imgur, etc.).', ephemeral: true });
 
     await interaction.deferReply({ ephemeral: true });
 
@@ -1515,7 +1521,7 @@ client.on(Events.InteractionCreate, async interaction => {
       teamId: new mongoose.Types.ObjectId('000000000000000000000001'),
       submittedBy: user.tag,
       submittedById: user.id,
-      imageUrl: attachment.url,
+      imageUrl,
       note,
       status: 'pending',
     });

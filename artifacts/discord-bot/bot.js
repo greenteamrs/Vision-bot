@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes, StringSelectMenuBuilder, ActionRowBuilder , EmbedBuilder } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
 const fs = require('fs');
@@ -6,6 +6,7 @@ const path = require('path');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
+
 
 // --- MongoDB: User Schema ---
 const userSchema = new mongoose.Schema({
@@ -1695,16 +1696,38 @@ client.on(Events.InteractionCreate, async interaction => {
     const reviewChannel = await client.channels.fetch(reviewChannelId).catch(() => null);
     if (!reviewChannel) return interaction.editReply('❌ Could not find review channel. Ask an admin to check the channel ID.');
 
-    const reviewMsg = await reviewChannel.send({
-      content: [
-        `📥 **Bingo Submission** — ID: \`${sub._id}\``,
-        `**From:** ${user} (${user.tag})`,
-        note ? `**Note:** ${note}` : null,
-        ``,
-        `Mods: use \`/bingo-approve\` or \`/bingo-reject\` and pick this submission from the dropdown.`,
-      ].filter(Boolean).join('\n'),
-      files: [attachment.url],
-    });
+    const embed = new EmbedBuilder()
+  .setColor(0x2b8cff)
+  .setTitle('📥 New Bingo Submission')
+  .addFields(
+    {
+      name: 'Submitted By',
+      value: `${user} (${user.tag})`,
+      inline: false,
+    },
+    {
+      name: 'Submission ID',
+      value: `\`${sub._id}\``,
+      inline: false,
+    }
+  )
+  .setFooter({
+    text: 'Use /bingo-approve or /bingo-reject to review this submission.',
+  });
+
+if (note) {
+  embed.addFields({
+    name: 'Note',
+    value: note,
+    inline: false,
+  });
+}
+
+embed.setImage(imageUrl);
+
+const reviewMsg = await reviewChannel.send({
+  embeds: [embed],
+});
 
     await BingoSubmission.findByIdAndUpdate(sub._id, { reviewMessageId: reviewMsg.id });
     return interaction.editReply('📥 Your screenshot has been submitted for mod review!');

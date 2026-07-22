@@ -1671,16 +1671,16 @@ client.on(Events.InteractionCreate, async interaction => {
   if (commandName === 'bingo-submit') {
     const s = await getSettings();
     const reviewChannelId = String(s.bingoReviewChannelId || '').trim();
-    if (!reviewChannelId) return interaction.reply({ content: '❌ No bingo review channel set. Ask an admin to configure it in the dashboard.', ephemeral: true });
+    if (!reviewChannelId) return interaction.reply({ content: '❌ No bingo review channel set. Ask an admin to configure it in the dashboard.', ephemeral: false });
 
     const attachment = options.getAttachment('image');
     const link = options.getString('link') || '';
     const note = options.getString('note') || '';
     const imageUrl = attachment?.url || link;
 
-    if (!imageUrl) return interaction.reply({ content: '❌ Please attach a screenshot or paste an image link (Gyazo, Imgur, etc.).', ephemeral: true });
+    if (!imageUrl) return interaction.reply({ content: '❌ Please attach a screenshot or paste an image link (Gyazo, Imgur, etc.).', ephemeral: false });
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
 
     const sub = await BingoSubmission.create({
       tileId: 'pending',
@@ -1713,13 +1713,13 @@ client.on(Events.InteractionCreate, async interaction => {
   // /bingo-approve
   if (commandName === 'bingo-approve') {
     if (!member.permissions.has('Administrator') && !isMod(member))
-      return interaction.reply({ content: '❌ Mods only.', ephemeral: true });
+      return interaction.reply({ content: '❌ Mods only.', ephemeral: false });
 
     const subId = options.getString('submission');
     const tileId = options.getString('tile');
     const teamId = options.getString('team');
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
 
     const sub = await BingoSubmission.findById(subId).catch(() => null);
     if (!sub || sub.status !== 'pending') return interaction.editReply('❌ Submission not found or already reviewed.');
@@ -1774,12 +1774,12 @@ client.on(Events.InteractionCreate, async interaction => {
   // /bingo-reject
   if (commandName === 'bingo-reject') {
     if (!member.permissions.has('Administrator') && !isMod(member))
-      return interaction.reply({ content: '❌ Mods only.', ephemeral: true });
+      return interaction.reply({ content: '❌ Mods only.', ephemeral: false });
 
     const subId = options.getString('submission');
     const reason = options.getString('reason') || 'No reason given.';
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
 
     const sub = await BingoSubmission.findById(subId).catch(() => null);
     if (!sub || sub.status !== 'pending') return interaction.editReply('❌ Submission not found or already reviewed.');

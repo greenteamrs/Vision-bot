@@ -1669,69 +1669,110 @@ client.on(Events.InteractionCreate, async interaction => {
   const { commandName, options, user, member } = interaction;
 
   // /bingo-submit
-  if (commandName === 'bingo-submit') {
-    const s = await getSettings();
-    const reviewChannelId = String(s.bingoReviewChannelId || '').trim();
-    if (!reviewChannelId) return interaction.reply({ content: '❌ No bingo review channel set. Ask an admin to configure it in the dashboard.', ephemeral: false });
+if (commandName === 'bingo-submit') {
+  const s = await getSettings();
+  const reviewChannelId = String(s.bingoReviewChannelId || '').trim();
 
-    const attachment = options.getAttachment('image');
-    const link = options.getString('link') || '';
-    const note = options.getString('note') || '';
-    const imageUrl = attachment?.url || link;
+  if (!reviewChannelId) {
+    return interaction.reply({
+      content: '❌ No bingo review channel set. Ask an admin to configure it in the dashboard.',
+      ephemeral: false,
+    });
+  }
 
-    if (!imageUrl) return interaction.reply({ content: '❌ Please attach a screenshot or paste an image link (Gyazo, Imgur, etc.).', ephemeral: false });
+  const attachment = options.getAttachment('image');
+  const link = options.getString('link') || '';
+  const note = options.getString('note') || '';
 
-    await interaction.deferReply({ ephemeral: false });
+  const imageUrl = attachment?.url || link;
 
-    const sub = await BingoSubmission.create({
-      tileId: 'pending',
-      teamId: new mongoose.Types.ObjectId('000000000000000000000001'),
-      submittedBy: user.tag,
-      submittedById: user.id,
-      imageUrl,
-      note,
-      status: 'pending',
+  if (!imageUrl) {
+    return interaction.reply({
+      content: '❌ Please attach a screenshot or paste an image link (Gyazo, Imgur, etc.).',
+      ephemeral: false,
+    });
+  }
+
+  await interaction.deferReply({ ephemeral: false });
+
+  const sub = await BingoSubmission.create({
+    tileId: 'pending',
+    teamId: new mongoose.Types.ObjectId('000000000000000000000001'),
+    submittedBy: user.tag,
+    submittedById: user.id,
+    imageUrl,
+    note,
+    status: 'pending',
+  });
+
+  const reviewChannel = await client.channels.fetch(reviewChannelId).catch(() => null);
+  if (!reviewChannel) {
+    return interaction.editReply('❌ Could not find review channel. Ask an admin to check the channel ID.');
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0x2b8cff)
+    .setTitle('📥 New Bingo Submission')
+    .addFields(
+      {
+        name: 'Submitted By',
+        value: `${user} (${user.tag})`,
+        inline: false,
+      },
+      {
+        name: 'Submission ID',
+        value: `\`${sub._id}\``,
+        inline: false,
+      }
+    )
+    .setFooter({
+      text: 'Use /bingo-approve or /bingo-reject to review this submission.',
     });
 
-    const reviewChannel = await client.channels.fetch(reviewChannelId).catch(() => null);
-    if (!reviewChannel) return interaction.editReply('❌ Could not find review channel. Ask an admin to check the channel ID.');
-
-    const embed = new EmbedBuilder()
-  .setColor(0x2b8cff)
-  .setTitle('📥 New Bingo Submission')
-  .addFields(
-    {
-      name: 'Submitted By',
-      value: `${user} (${user.tag})`,
+  if (note) {
+    embed.addFields({
+      name: 'Note',
+      value: note,
       inline: false,
-    },
-    {
-      name: 'Submission ID',
-      value: `\`${sub._id}\``,
-      inline: false,
-    }
-  )
-  .setFooter({
-    text: 'Use /bingo-approve or /bingo-reject to review this submission.',
-  });
-
-if (note) {
-  embed.addFields({
-    name: 'Note',
-    value: note,
-    inline: false,
-  });
-}
-
-embed.setImage(imageUrl);
-
-const reviewMsg = await reviewChannel.send({
-  embeds: [embed],
-});
-
-    await BingoSubmission.findByIdAndUpdate(sub._id, { reviewMessageId: reviewMsg.id });
-    return interaction.editReply('📥 Your screenshot has been submitted for mod review!');
+    });
   }
+
+  embed.setImage(imageUrl);
+
+  const reviewMsg = await reviewChannel.send({
+    embeds: [embed],
+  });
+
+  await BingoSubmission.findByIdAndUpdate(sub._id, {
+    reviewMessageId: reviewMsg.id,
+  });
+
+  // Public confirmation in the channel
+  if (attachment) {
+    await interaction.editReply({
+      content: [
+        `📥 **${user.username}** has submitted a bingo screenshot for mod review!`,
+        note ? `**Note:** ${note}` : null,
+      ].filter(Boolean).join('\n'),
+      files: [
+        {
+          attachment: attachment.url,
+          name: attachment.name,
+        },
+      ],
+    });
+  } else {
+    await interaction.editReply({
+      content: [
+        `📥 **${user.username}** has submitted a bingo screenshot for mod review!`,
+        note ? `**Note:** ${note}` : null,
+        imageUrl,
+      ].filter(Boolean).join('\n'),
+    });
+  }
+
+  return;
+}
 
   // /bingo-approve
   if (commandName === 'bingo-approve') {

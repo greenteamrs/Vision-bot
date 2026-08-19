@@ -527,7 +527,7 @@
       <div class="section" id="section-ranks">
         <div class="section-title">Ranks</div>
         <div class="card">
-          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) and notifies when a member meets a rank's requirements. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!checkranks</code> in Discord (mods only) to trigger an immediate check.</p>
+          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) for eligibility using days, LP, and level. The WOM Rank Name mapping prevents notifications for ranks a member already has in Wise Old Man. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!checkranks</code> in Discord (mods only) to trigger an immediate check.</p>
           <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
             <button class="btn-save" onclick="openRankModal()">+ Add Rank</button>
             <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow()" id="btn-check-ranks">🔍 Check Now</button>
@@ -538,6 +538,7 @@
               <thead>
                 <tr>
                   <th>Rank Name</th>
+                  <th>WOM Rank Name</th>
                   <th>Min Days</th>
                   <th>Min LP</th>
                   <th>Min Level</th>
@@ -545,7 +546,7 @@
                 </tr>
               </thead>
               <tbody id="ranks-table-body">
-                <tr><td colspan="5" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
+                <tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -689,6 +690,7 @@
     <h3 id="rank-modal-title">Add Rank</h3>
     <input type="hidden" id="rank-modal-id" />
     <div class="field"><label>Rank Name</label><input type="text" id="rank-name" placeholder="e.g. Sergeant" /></div>
+    <div class="field"><label>WOM Rank Name</label><input type="text" id="rank-womName" placeholder="Exact rank name from Wise Old Man" /></div>
     <div class="field"><label>Min Days in Clan</label><input type="number" id="rank-minDays" value="0" min="0" /></div>
     <div class="field"><label>Min Loot Points</label><input type="number" id="rank-minLootPoints" value="0" min="0" /></div>
     <div class="field"><label>Min Community Level</label><input type="number" id="rank-minLevel" value="0" min="0" /></div>
@@ -1126,12 +1128,13 @@
     currentRanks = await res.json();
     const tbody = document.getElementById('ranks-table-body');
     if (!currentRanks || currentRanks.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
       return;
     }
     tbody.innerHTML = currentRanks.map((r, i) => `
       <tr>
         <td style="font-weight:600;color:#c4b5fd">${esc(r.name)}</td>
+        <td style="color:#93c5fd">${esc(r.womName || '—')}</td>
         <td>${r.minDays} days</td>
         <td>${r.minLootPoints.toLocaleString()} LP</td>
         <td>Level ${r.minLevel}</td>
@@ -1157,6 +1160,7 @@
     document.getElementById('rank-modal-title').textContent = rank ? `Edit Rank — ${rank.name}` : 'Add Rank';
     document.getElementById('rank-modal-id').value = rank?._id || '';
     document.getElementById('rank-name').value = rank?.name || '';
+    document.getElementById('rank-womName').value = rank?.womName || '';
     document.getElementById('rank-minDays').value = rank?.minDays ?? 0;
     document.getElementById('rank-minLootPoints').value = rank?.minLootPoints ?? 0;
     document.getElementById('rank-minLevel').value = rank?.minLevel ?? 0;
@@ -1172,6 +1176,7 @@
     const id = document.getElementById('rank-modal-id').value;
     const data = {
       name: document.getElementById('rank-name').value.trim(),
+      womName: document.getElementById('rank-womName').value.trim(),
       minDays: Number(document.getElementById('rank-minDays').value) || 0,
       minLootPoints: Number(document.getElementById('rank-minLootPoints').value) || 0,
       minLevel: Number(document.getElementById('rank-minLevel').value) || 0,

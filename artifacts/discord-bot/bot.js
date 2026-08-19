@@ -21,6 +21,7 @@ const userSchema = new mongoose.Schema({
   rsNames: { type: [String], default: [] },
   joinedServerAt: { type: Date, default: null },
   joinedClanAt: { type: Date, default: null },
+  womRank: { type: String, default: '' },
   notifiedRankId: { type: String, default: null },
 });
 
@@ -29,6 +30,7 @@ const User = mongoose.model('User', userSchema);
 // --- MongoDB: Rank Schema ---
 const rankSchema = new mongoose.Schema({
   name: { type: String, required: true },
+  womName: { type: String, default: '' },
   minDays: { type: Number, default: 0 },
   minLootPoints: { type: Number, default: 0 },
   minLevel: { type: Number, default: 0 },
@@ -461,8 +463,19 @@ async function syncWomMembers() {
     if (!user) continue;
 
     const newDate = new Date(m.createdAt);
+    const rawWomRank = m.role ?? m.rank ?? m.groupRole ?? m.memberRole ?? '';
+    const womRank = typeof rawWomRank === 'string'
+      ? rawWomRank.trim()
+      : String(rawWomRank?.name || rawWomRank?.title || '').trim();
+    const updates = {};
     if (!user.joinedClanAt || Math.abs(user.joinedClanAt - newDate) > 1000) {
-      await User.updateOne({ _id: user._id }, { joinedClanAt: newDate });
+      updates.joinedClanAt = newDate;
+    }
+    if (womRank && user.womRank !== womRank) {
+      updates.womRank = womRank;
+    }
+    if (Object.keys(updates).length > 0) {
+      await User.updateOne({ _id: user._id }, { $set: updates });
       updated++;
     }
   }
@@ -637,6 +650,21 @@ async function checkRankUps(guild) {
     }
 
     if (!qualifiedRank) continue;
+
+    // WOM is the source of truth for a player's current rank when the
+    // dashboard rank has an adjustable WOM name mapping. Fall back to the
+    // notification history until a mapping is configured.
+    const normalizedWomRank = String(user.womRank || '').trim().toLowerCase();
+    const currentWomRank = normalizedWomRank
+      ? ranks.find(rank => String(rank.womName || rank.name || '').trim().toLowerCase() === normalizedWomRank)
+      : null;
+    if (currentWomRank && qualifiedRank.order <= currentWomRank.order) {
+      if (user.notifiedRankId !== currentWomRank._id.toString()) {
+        await User.updateOne({ userId: user.userId }, { notifiedRankId: currentWomRank._id.toString() });
+      }
+      continue;
+    }
+
     if (user.notifiedRankId === qualifiedRank._id.toString()) continue;
 
     await User.updateOne({ userId: user.userId }, { notifiedRankId: qualifiedRank._id.toString() });
@@ -647,7 +675,8 @@ async function checkRankUps(guild) {
       const mention = discordMember ? `<@${user.userId}>` : (user.username || user.userId);
       channel.send(
         `🎉 **Rank-up alert!** ${mention} now qualifies for **${qualifiedRank.name}**!\n` +
-        `📅 ${days} days | 🏆 ${user.lootPoints} LP | ⭐ Level ${user.level}`
+          `📅 ${days} days | 🏆 ${user.lootPoints} LP | ⭐ Level ${user.level}` +
+          (user.womRank ? `\n🌐 WOM rank: **${user.womRank}**` : '')
       );
       notified++;
     } catch (err) {
@@ -2149,6 +2178,7 @@ const server = http.createServer(async (req, res) => {
         const data = await readBody(req);
         const rank = await Rank.create({
           name: data.name,
+          womName: String(data.womName || '').trim(),
           minDays: Number(data.minDays) || 0,
           minLootPoints: Number(data.minLootPoints) || 0,
           minLevel: Number(data.minLevel) || 0,
@@ -2178,7 +2208,7 @@ const server = http.createServer(async (req, res) => {
     if (rankMatchPatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
-        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order'];
+        const allowed = ['name', 'womName', 'minDays', 'minLootPoints', 'minLevel', 'order'];
         const update = {};
         for (const k of allowed) {
           if (data[k] !== undefined) update[k] = data[k];

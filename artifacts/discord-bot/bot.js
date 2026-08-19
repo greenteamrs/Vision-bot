@@ -35,6 +35,7 @@ const rankSchema = new mongoose.Schema({
   minLevel: { type: Number, default: 0 },
   order: { type: Number, default: 0 },
   notifyOnEligibility: { type: Boolean, default: true },
+  specialRequirement: { type: String, default: '' },
 }, { timestamps: true });
 
 const Rank = mongoose.model('Rank', rankSchema);
@@ -674,11 +675,14 @@ async function checkRankUps(guild) {
       const channel = await client.channels.fetch(notifyChannelId);
       const discordMember = guild ? await guild.members.fetch(user.userId).catch(() => null) : null;
       const mention = discordMember ? `<@${user.userId}>` : (user.username || user.userId);
-      channel.send(
-        `🎉 **Rank-up alert!** ${mention} now qualifies for **${qualifiedRank.name}**!\n` +
+      const specialRequirement = String(qualifiedRank.specialRequirement || '').trim();
+      const messageText = specialRequirement
+        ? `🎉 **Rank eligibility check!** ${mention} is eligible for **${qualifiedRank.name}** based on the configured requirements.\n` +
+          `🔎 **Check requirement:** ${specialRequirement}`
+        : `🎉 **Rank-up alert!** ${mention} now qualifies for **${qualifiedRank.name}**!\n` +
           `📅 ${days} days | 🏆 ${user.lootPoints} LP | ⭐ Level ${user.level}` +
-          (user.womRank ? `\n🌐 WOM rank: **${user.womRank}**` : '')
-      );
+          (user.womRank ? `\n🌐 WOM rank: **${user.womRank}**` : '');
+      channel.send(messageText);
       notified++;
     } catch (err) {
       console.error(`Rank notify error for ${user.username}:`, err);
@@ -2184,6 +2188,7 @@ const server = http.createServer(async (req, res) => {
           minLevel: Number(data.minLevel) || 0,
           order: Number(data.order) || 0,
           notifyOnEligibility: data.notifyOnEligibility !== false,
+          specialRequirement: String(data.specialRequirement || '').trim(),
         });
         sendJson(res, 201, rank);
       } catch (e) {
@@ -2209,11 +2214,15 @@ const server = http.createServer(async (req, res) => {
     if (rankMatchPatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
-        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order', 'notifyOnEligibility'];
+        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order', 'notifyOnEligibility', 'specialRequirement'];
         const update = {};
         for (const k of allowed) {
           if (data[k] !== undefined) {
-            update[k] = k === 'notifyOnEligibility' ? data[k] !== false : data[k];
+            update[k] = k === 'notifyOnEligibility'
+              ? data[k] !== false
+              : k === 'specialRequirement'
+                ? String(data[k] || '').trim()
+                : data[k];
           }
         }
         const rank = await Rank.findByIdAndUpdate(rankMatchPatch[1], { $set: update }, { new: true });

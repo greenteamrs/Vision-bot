@@ -7,6 +7,8 @@ The bot should continue calculating rank eligibility from configured days-in-cla
 
 Ranks can be marked as notification-silent for higher/admin tiers. Silent tiers still participate in eligibility and WOM rank comparisons, but do not trigger automatic alerts; the checker selects the highest eligible notification-enabled tier.
 
+A notification-enabled rank may include a free-text special requirement. When the numeric requirements are met, the alert should ask moderators to check that requirement rather than claiming the rank is fully completed.
+
 **Why:** WOM is the source of truth for the rank a player currently holds, but the bot's thresholds remain useful for deciding whether the player is eligible for advancement. A separate mapping field would add unnecessary configuration.
 
 **How to apply:** Notify only when the highest eligible configured rank is above the matching WOM rank. If names do not yet match, retain the existing notification-history fallback until the dashboard names are aligned.

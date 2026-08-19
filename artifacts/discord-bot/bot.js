@@ -30,7 +30,6 @@ const User = mongoose.model('User', userSchema);
 // --- MongoDB: Rank Schema ---
 const rankSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  womName: { type: String, default: '' },
   minDays: { type: Number, default: 0 },
   minLootPoints: { type: Number, default: 0 },
   minLevel: { type: Number, default: 0 },
@@ -652,11 +651,11 @@ async function checkRankUps(guild) {
     if (!qualifiedRank) continue;
 
     // WOM is the source of truth for a player's current rank when the
-    // dashboard rank has an adjustable WOM name mapping. Fall back to the
-    // notification history until a mapping is configured.
+    // dashboard rank name matches the WOM rank name. Fall back to the
+    // notification history while names are not yet aligned.
     const normalizedWomRank = String(user.womRank || '').trim().toLowerCase();
     const currentWomRank = normalizedWomRank
-      ? ranks.find(rank => String(rank.womName || rank.name || '').trim().toLowerCase() === normalizedWomRank)
+      ? ranks.find(rank => String(rank.name || '').trim().toLowerCase() === normalizedWomRank)
       : null;
     if (currentWomRank && qualifiedRank.order <= currentWomRank.order) {
       if (user.notifiedRankId !== currentWomRank._id.toString()) {
@@ -2178,7 +2177,6 @@ const server = http.createServer(async (req, res) => {
         const data = await readBody(req);
         const rank = await Rank.create({
           name: data.name,
-          womName: String(data.womName || '').trim(),
           minDays: Number(data.minDays) || 0,
           minLootPoints: Number(data.minLootPoints) || 0,
           minLevel: Number(data.minLevel) || 0,
@@ -2208,7 +2206,7 @@ const server = http.createServer(async (req, res) => {
     if (rankMatchPatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
-        const allowed = ['name', 'womName', 'minDays', 'minLootPoints', 'minLevel', 'order'];
+        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order'];
         const update = {};
         for (const k of allowed) {
           if (data[k] !== undefined) update[k] = data[k];

@@ -34,6 +34,7 @@ const rankSchema = new mongoose.Schema({
   minLootPoints: { type: Number, default: 0 },
   minLevel: { type: Number, default: 0 },
   order: { type: Number, default: 0 },
+  notifyOnEligibility: { type: Boolean, default: true },
 }, { timestamps: true });
 
 const Rank = mongoose.model('Rank', rankSchema);
@@ -640,13 +641,14 @@ async function checkRankUps(guild) {
 
   for (const user of users) {
     const days = daysInClan(user);
-    let qualifiedRank = null;
-
-    for (const rank of ranks) {
-      if (days >= rank.minDays && user.lootPoints >= rank.minLootPoints && user.level >= rank.minLevel) {
-        qualifiedRank = rank;
-      }
-    }
+    const qualifiedRank = ranks
+      .filter(rank =>
+        days >= rank.minDays &&
+        user.lootPoints >= rank.minLootPoints &&
+        user.level >= rank.minLevel &&
+        rank.notifyOnEligibility !== false
+      )
+      .at(-1);
 
     if (!qualifiedRank) continue;
 
@@ -2181,6 +2183,7 @@ const server = http.createServer(async (req, res) => {
           minLootPoints: Number(data.minLootPoints) || 0,
           minLevel: Number(data.minLevel) || 0,
           order: Number(data.order) || 0,
+          notifyOnEligibility: data.notifyOnEligibility !== false,
         });
         sendJson(res, 201, rank);
       } catch (e) {
@@ -2206,10 +2209,12 @@ const server = http.createServer(async (req, res) => {
     if (rankMatchPatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
-        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order'];
+        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order', 'notifyOnEligibility'];
         const update = {};
         for (const k of allowed) {
-          if (data[k] !== undefined) update[k] = data[k];
+          if (data[k] !== undefined) {
+            update[k] = k === 'notifyOnEligibility' ? data[k] !== false : data[k];
+          }
         }
         const rank = await Rank.findByIdAndUpdate(rankMatchPatch[1], { $set: update }, { new: true });
         if (!rank) { sendJson(res, 404, { error: 'Not found' }); return; }

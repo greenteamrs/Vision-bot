@@ -527,7 +527,7 @@
       <div class="section" id="section-ranks">
         <div class="section-title">Ranks</div>
         <div class="card">
-          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) for eligibility using days, LP, and level. Rank names should match the names used by Wise Old Man so the bot can recognize a member's current rank. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!checkranks</code> in Discord (mods only) to trigger an immediate check.</p>
+          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) for eligibility using days, LP, and level. Turn notifications off for higher/admin ranks that should not trigger automatic alerts. Rank names should match the names used by Wise Old Man so the bot can recognize a member's current rank. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!checkranks</code> in Discord (mods only) to trigger an immediate check.</p>
           <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
             <button class="btn-save" onclick="openRankModal()">+ Add Rank</button>
             <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow()" id="btn-check-ranks">🔍 Check Now</button>
@@ -541,11 +541,12 @@
                   <th>Min Days</th>
                   <th>Min LP</th>
                   <th>Min Level</th>
+                  <th>Notifications</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="ranks-table-body">
-                <tr><td colspan="5" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
+                <tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -693,6 +694,10 @@
     <div class="field"><label>Min Loot Points</label><input type="number" id="rank-minLootPoints" value="0" min="0" /></div>
     <div class="field"><label>Min Community Level</label><input type="number" id="rank-minLevel" value="0" min="0" /></div>
     <div class="field"><label>Order (lower = lower tier)</label><input type="number" id="rank-order" value="0" min="0" /></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:14px 0;color:#ddd;">
+      <input type="checkbox" id="rank-notify" checked />
+      Send automatic rank-up notifications for this rank
+    </label>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeRankModal()">Cancel</button>
       <button class="btn-save" onclick="saveRank()">Save Rank</button>
@@ -1126,7 +1131,7 @@
     currentRanks = await res.json();
     const tbody = document.getElementById('ranks-table-body');
     if (!currentRanks || currentRanks.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
       return;
     }
     tbody.innerHTML = currentRanks.map((r, i) => `
@@ -1135,6 +1140,7 @@
         <td>${r.minDays} days</td>
         <td>${r.minLootPoints.toLocaleString()} LP</td>
         <td>Level ${r.minLevel}</td>
+        <td style="color:${r.notifyOnEligibility === false ? '#fbbf24' : '#86efac'}">${r.notifyOnEligibility === false ? 'Off' : 'On'}</td>
         <td style="display:flex;gap:4px;align-items:center;">
           <button class="btn-tier" onclick="moveRank(${i},-1)" ${i === 0 ? 'disabled' : ''}>↑</button>
           <button class="btn-tier" onclick="moveRank(${i},1)" ${i === currentRanks.length - 1 ? 'disabled' : ''}>↓</button>
@@ -1161,6 +1167,7 @@
     document.getElementById('rank-minLootPoints').value = rank?.minLootPoints ?? 0;
     document.getElementById('rank-minLevel').value = rank?.minLevel ?? 0;
     document.getElementById('rank-order').value = rank?.order ?? 0;
+    document.getElementById('rank-notify').checked = rank?.notifyOnEligibility !== false;
     document.getElementById('rank-modal').classList.add('open');
   }
 
@@ -1176,6 +1183,7 @@
       minLootPoints: Number(document.getElementById('rank-minLootPoints').value) || 0,
       minLevel: Number(document.getElementById('rank-minLevel').value) || 0,
       order: Number(document.getElementById('rank-order').value) || 0,
+      notifyOnEligibility: document.getElementById('rank-notify').checked,
     };
     if (!data.name) { showToast('Rank name is required.', true); return; }
     const res = id

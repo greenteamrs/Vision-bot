@@ -1,0 +1,1 @@
+- [WOM rank mapping](wom-rank-mapping.md) — eligibility stays threshold-based, while mapped WOM rank prevents duplicate or lower-rank notifications.

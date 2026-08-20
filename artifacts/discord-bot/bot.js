@@ -915,12 +915,10 @@ client.once('ready', async () => {
 
   try {
     const channel = await client.channels.fetch(channelId);
-    const leaderboard = await buildLeaderboard();
-    const xpLeaderboard = await buildXpLeaderboard();
     const statusMessage = settings.lastDailyStatusAt
       ? '🔄 **Bot is back online.**'
       : '✅ **Bot is online and ready.**';
-    await channel.send(`${statusMessage}\n${leaderboard}\n\n${xpLeaderboard}`);
+    await channel.send(statusMessage);
     await Settings.updateOne({ key: 'main' }, { $set: { lastDailyStatusAt: new Date() } });
   } catch (err) {
     console.error("Failed to post startup message:", err);

@@ -56,6 +56,7 @@ const settingsSchema = new mongoose.Schema({
   womGroupId: { type: String, default: '' },
   womActivityChannelId: { type: String, default: '' },
   womLastActivityAt: { type: Date, default: null },
+  lastDailyStatusAt: { type: Date, default: null },
   droptrackerGroupId: { type: String, default: '' },
   bingoChannelId: { type: String, default: '' },
   bingoReviewChannelId: { type: String, default: '' },
@@ -66,6 +67,16 @@ const settingsSchema = new mongoose.Schema({
 });
 
 const Settings = mongoose.model('Settings', settingsSchema);
+
+// --- MongoDB: Calendar Event Schema ---
+const calendarEventSchema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  type: { type: String, default: 'Event', trim: true },
+  start: { type: Date, required: true },
+  end: { type: Date, required: true },
+  color: { type: String, default: '#8ab4f8' },
+}, { timestamps: true });
+const CalendarEvent = mongoose.model('CalendarEvent', calendarEventSchema);
 
 const commandConfigSchema = new mongoose.Schema({
   key:         { type: String, unique: true, required: true },
@@ -887,7 +898,7 @@ async function generateBingoImage(filterTeam) {
 // --- Ready ---
 client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
-  await getSettings();
+  const settings = await getSettings();
   await seedCommands();
   setInterval(() => refreshCommandNames().catch(() => {}), 60000);
 
@@ -906,7 +917,11 @@ client.once('ready', async () => {
     const channel = await client.channels.fetch(channelId);
     const leaderboard = await buildLeaderboard();
     const xpLeaderboard = await buildXpLeaderboard();
-    channel.send(`✅ **Bot is online!**\n${leaderboard}\n\n${xpLeaderboard}`);
+    const statusMessage = settings.lastDailyStatusAt
+      ? '🔄 **Bot is back online.**'
+      : '✅ **Bot is online and ready.**';
+    await channel.send(`${statusMessage}\n${leaderboard}\n\n${xpLeaderboard}`);
+    await Settings.updateOne({ key: 'main' }, { $set: { lastDailyStatusAt: new Date() } });
   } catch (err) {
     console.error("Failed to post startup message:", err);
   }
@@ -914,9 +929,8 @@ client.once('ready', async () => {
   cron.schedule("59 23 * * *", async () => {
     try {
       const channel = await client.channels.fetch(channelId);
-      const leaderboard = await buildLeaderboard();
-      const xpLeaderboard = await buildXpLeaderboard();
-      channel.send(`📅 **Daily Summary**\n${leaderboard}\n\n${xpLeaderboard}`);
+      await channel.send('✅ **Bot is still up and running.**');
+      await Settings.updateOne({ key: 'main' }, { $set: { lastDailyStatusAt: new Date() } });
     } catch (err) {
       console.error("Failed to post daily leaderboard:", err);
     }
@@ -2206,6 +2220,57 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         sendJson(res, 500, { error: e.message });
       }
+      return;
+    }
+
+    // Calendar events
+    if (pathname === '/api/calendar/events' && req.method === 'GET') {
+      const events = await CalendarEvent.find().sort({ start: 1 });
+      sendJson(res, 200, events);
+      return;
+    }
+
+    if (pathname === '/api/calendar/events' && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const start = new Date(data.start);
+        const end = new Date(data.end);
+        if (!data.title?.trim() || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+          sendJson(res, 400, { error: 'Title, valid dates, and an end after the start are required.' });
+          return;
+        }
+        const event = await CalendarEvent.create({
+          title: data.title.trim(),
+          type: String(data.type || 'Event').trim(),
+          start,
+          end,
+          color: /^#[0-9a-f]{6}$/i.test(data.color || '') ? data.color : '#8ab4f8',
+        });
+        sendJson(res, 201, event);
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    const calendarEventMatch = pathname.match(/^\/api\/calendar\/events\/([^/]+)$/);
+    if (calendarEventMatch && req.method === 'PATCH') {
+      try {
+        const data = await readBody(req);
+        const update = {};
+        if (data.title !== undefined) update.title = String(data.title).trim();
+        if (data.type !== undefined) update.type = String(data.type).trim();
+        if (data.start !== undefined) update.start = new Date(data.start);
+        if (data.end !== undefined) update.end = new Date(data.end);
+        if (data.color !== undefined && /^#[0-9a-f]{6}$/i.test(data.color)) update.color = data.color;
+        const event = await CalendarEvent.findByIdAndUpdate(calendarEventMatch[1], { $set: update }, { new: true });
+        if (!event) { sendJson(res, 404, { error: 'Event not found' }); return; }
+        sendJson(res, 200, event);
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    if (calendarEventMatch && req.method === 'DELETE') {
+      await CalendarEvent.findByIdAndDelete(calendarEventMatch[1]);
+      sendJson(res, 200, { success: true });
       return;
     }
 

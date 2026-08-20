@@ -360,6 +360,7 @@
   <div class="layout">
     <nav>
       <button class="active" onclick="showSection('overview', this)">📊 Overview</button>
+      <button onclick="showSection('calendar', this)">📅 Calendar</button>
       <button onclick="showSection('xp-settings', this)">⭐ XP Settings</button>
       <button onclick="showSection('levels', this)">📈 Levels</button>
       <button onclick="showSection('awards', this)">🏆 Monthly Awards</button>
@@ -402,6 +403,34 @@
         <div class="card">
           <h3>Monthly Drop Top Awards</h3>
           <div id="ov-awards" style="color:#888; font-size:0.9rem;"></div>
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <h3 style="margin:0;">Upcoming events</h3>
+            <button class="btn-edit" onclick="showSection('calendar', document.querySelector('nav button[onclick*=calendar]'))">Open calendar</button>
+          </div>
+          <div id="ov-upcoming" class="calendar-list"><span style="color:#888;">No upcoming events.</span></div>
+        </div>
+      </div>
+
+      <!-- CALENDAR -->
+      <div class="section" id="section-calendar">
+        <div class="section-title">Calendar</div>
+        <div class="card" style="background:#202124;border-color:#303134;">
+          <div class="calendar-toolbar">
+            <div class="calendar-actions">
+              <button onclick="calendarToday()">Today</button>
+              <button onclick="calendarMove(-1)">‹</button><button onclick="calendarMove(1)">›</button>
+            </div>
+            <h2 id="calendar-title"></h2>
+            <div class="calendar-actions">
+              <button id="cal-month" class="active" onclick="setCalendarView('month')">Month</button>
+              <button id="cal-week" onclick="setCalendarView('week')">Week</button>
+              <button id="cal-year" onclick="setCalendarView('year')">Year</button>
+              <button class="btn-save" onclick="openEventModal()">+ Event</button>
+            </div>
+          </div>
+          <div id="calendar-content"></div>
         </div>
       </div>
 
@@ -738,6 +767,26 @@
   </div>
 </div>
 
+<!-- CALENDAR EVENT MODAL -->
+<div class="modal-overlay" id="event-modal">
+  <div class="modal">
+    <h3 id="event-modal-title">Add calendar event</h3>
+    <input type="hidden" id="event-id" />
+    <div class="field"><label>Event title</label><input type="text" id="event-title" placeholder="e.g. Clan raid" /></div>
+    <div class="field"><label>Type</label><input type="text" id="event-type" placeholder="e.g. Raid, Meeting, Reminder" /></div>
+    <div class="field-grid">
+      <div class="field"><label>Start</label><input type="datetime-local" id="event-start" /></div>
+      <div class="field"><label>End</label><input type="datetime-local" id="event-end" /></div>
+    </div>
+    <div class="field"><label>Color</label><input type="color" id="event-color" value="#8ab4f8" style="height:40px;padding:3px;" /></div>
+    <div class="modal-actions">
+      <button class="btn-danger" id="event-delete" onclick="deleteEvent()" style="display:none;margin-right:auto;">Delete</button>
+      <button class="btn-cancel" onclick="closeEventModal()">Cancel</button>
+      <button class="btn-save" onclick="saveEvent()">Save event</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -747,6 +796,9 @@
   let userSort = 'level';
   let userSortDir = 'desc';
   let currentRanks = [];
+  let calendarEvents = [];
+  let calendarView = 'month';
+  let calendarDate = new Date();
 
   // ---- AUTH ----
   async function login() {
@@ -787,6 +839,7 @@
   async function init() {
     await loadStatus();
     await loadSettings();
+    await loadCalendarEvents();
     loadUsers(1);
   }
 
@@ -1127,9 +1180,120 @@
     if (name === 'users') loadUsers(1);
     if (name === 'commands') loadCommands();
     if (name === 'overview') loadStatus();
+    if (name === 'calendar') renderCalendar();
     if (name === 'ranks') loadRanks();
     if (name === 'bingo') loadBingoState();
   }
+
+  // ---- CALENDAR ----
+  async function loadCalendarEvents() {
+    const res = await api('GET', '/api/calendar/events');
+    calendarEvents = res.ok ? await res.json() : [];
+    renderUpcoming();
+    if (document.getElementById('section-calendar')?.classList.contains('active')) renderCalendar();
+  }
+  const dayKey = d => {
+    const x = new Date(d);
+    return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+  };
+  const fmtDate = d => new Intl.DateTimeFormat(undefined, {month:'short', day:'numeric', year:'numeric'}).format(new Date(d));
+  const fmtTime = d => new Intl.DateTimeFormat(undefined, {hour:'numeric', minute:'2-digit'}).format(new Date(d));
+  const escAttr = s => esc(s).replace(/"/g, '&quot;');
+  function renderUpcoming() {
+    const el = document.getElementById('ov-upcoming');
+    if (!el) return;
+    const now = Date.now();
+    const upcoming = calendarEvents.filter(e => new Date(e.end).getTime() >= now).sort((a,b) => new Date(a.start)-new Date(b.start)).slice(0,5);
+    el.innerHTML = upcoming.length ? upcoming.map(e => `<div class="upcoming-event" style="border-left-color:${e.color}">
+      <div style="width:9px;height:9px;border-radius:50%;background:${e.color};flex-shrink:0"></div>
+      <div><strong>${esc(e.title)}</strong><small>${esc(e.type || 'Event')} · ${fmtDate(e.start)} · ${fmtTime(e.start)}–${fmtTime(e.end)}</small></div>
+    </div>`).join('') : '<span style="color:#888;">No upcoming events.</span>';
+  }
+  function setCalendarView(view) {
+    calendarView = view;
+    ['month','week','year'].forEach(v => document.getElementById(`cal-${v}`).classList.toggle('active', v === view));
+    renderCalendar();
+  }
+  function calendarToday() { calendarDate = new Date(); renderCalendar(); }
+  function calendarMove(amount) {
+    if (calendarView === 'month') calendarDate.setMonth(calendarDate.getMonth() + amount);
+    else if (calendarView === 'year') calendarDate.setFullYear(calendarDate.getFullYear() + amount);
+    else calendarDate.setDate(calendarDate.getDate() + amount * 7);
+    renderCalendar();
+  }
+  function sameOrBetween(date, e) {
+    const d = new Date(date); d.setHours(12,0,0,0);
+    const s = new Date(e.start); s.setHours(0,0,0,0);
+    const end = new Date(e.end); end.setHours(23,59,59,999);
+    return d >= s && d <= end;
+  }
+  function eventsForDay(d) { return calendarEvents.filter(e => sameOrBetween(d,e)); }
+  function renderCalendar() {
+    const title = document.getElementById('calendar-title'), content = document.getElementById('calendar-content');
+    if (!title || !content) return;
+    if (calendarView === 'month') {
+      title.textContent = new Intl.DateTimeFormat(undefined,{month:'long',year:'numeric'}).format(calendarDate);
+      renderMonth(content);
+    } else if (calendarView === 'year') {
+      title.textContent = String(calendarDate.getFullYear());
+      renderYear(content);
+    } else {
+      const start = new Date(calendarDate); start.setDate(start.getDate() - start.getDay());
+      const end = new Date(start); end.setDate(end.getDate()+6);
+      title.textContent = `${fmtDate(start)} – ${fmtDate(end)}`;
+      renderWeek(content, start);
+    }
+  }
+  function dayCell(d, muted=false) {
+    const events = eventsForDay(d);
+    return `<div class="calendar-day ${muted?'muted':''} ${dayKey(d)===dayKey(new Date())?'today':''}" onclick="openEventModal('${dayKey(d)}')">
+      <span class="day-number">${d.getDate()}</span>${events.map(e=>`<div class="calendar-event" style="background:${e.color}" title="${escAttr(e.title)}">${esc(e.title)}</div>`).join('')}
+    </div>`;
+  }
+  function renderMonth(el) {
+    const y=calendarDate.getFullYear(), m=calendarDate.getMonth(), first=new Date(y,m,1), start=new Date(y,m,1-first.getDay());
+    let html = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div class="calendar-weekday">${d}</div>`).join('');
+    for(let i=0;i<42;i++){const d=new Date(start);d.setDate(start.getDate()+i);html+=dayCell(d,d.getMonth()!==m);}
+    el.innerHTML=`<div class="calendar-grid">${html}</div>`;
+  }
+  function renderYear(el) {
+    let html='';
+    for(let m=0;m<12;m++){const first=new Date(calendarDate.getFullYear(),m,1);let cells='';
+      for(let i=0;i<first.getDay();i++) cells+='<span></span>';
+      const days=new Date(calendarDate.getFullYear(),m+1,0).getDate();
+      for(let d=1;d<=days;d++){const date=new Date(calendarDate.getFullYear(),m,d);cells+=`<span class="${eventsForDay(date).length?'has-event':''}" onclick="calendarDate=new Date(${calendarDate.getFullYear()},${m},${d});setCalendarView('month')">${d}</span>`;}
+      html+=`<div class="mini-month"><h4>${first.toLocaleString(undefined,{month:'long'})}</h4><div class="mini-month-grid">${cells}</div></div>`;
+    } el.innerHTML=`<div class="calendar-year">${html}</div>`;
+  }
+  function renderWeek(el,start) {
+    let html='<div></div>';
+    for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);html+=`<div class="week-head">${d.toLocaleString(undefined,{weekday:'short'})}<br><strong>${d.getDate()}</strong></div>`;}
+    for(let h=0;h<10;h++){html+=`<div class="time-label">${String(h+8).padStart(2,'0')}:00</div>`;for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);html+=`<div onclick="openEventModal('${dayKey(d)}')">${h===0?eventsForDay(d).map(e=>`<div class="calendar-event" style="background:${e.color}">${esc(e.title)}<br><small>${fmtTime(e.start)}</small></div>`).join(''):''}</div>`;}}
+    el.innerHTML=`<div class="week-grid">${html}</div>`;
+  }
+  function localInputValue(d) { const x=new Date(d); x.setMinutes(x.getMinutes()-x.getTimezoneOffset()); return x.toISOString().slice(0,16); }
+  function openEventModal(dateKey='') {
+    const existing = dateKey ? calendarEvents.find(e=>dayKey(e.start)===dateKey) : null;
+    document.getElementById('event-id').value=existing?existing._id:'';
+    document.getElementById('event-title').value=existing?.title||'';
+    document.getElementById('event-type').value=existing?.type||'Event';
+    const base=dateKey?new Date(`${dateKey}T09:00`):new Date(); const end=new Date(base); end.setHours(base.getHours()+1);
+    document.getElementById('event-start').value=localInputValue(existing?.start||base);
+    document.getElementById('event-end').value=localInputValue(existing?.end||end);
+    document.getElementById('event-color').value=existing?.color||'#8ab4f8';
+    document.getElementById('event-delete').style.display=existing?'block':'none';
+    document.getElementById('event-modal-title').textContent=existing?'Edit calendar event':'Add calendar event';
+    document.getElementById('event-modal').classList.add('open');
+  }
+  function closeEventModal(){document.getElementById('event-modal').classList.remove('open');}
+  async function saveEvent(){
+    const id=document.getElementById('event-id').value;
+    const data={title:document.getElementById('event-title').value.trim(),type:document.getElementById('event-type').value.trim()||'Event',start:new Date(document.getElementById('event-start').value).toISOString(),end:new Date(document.getElementById('event-end').value).toISOString(),color:document.getElementById('event-color').value};
+    if(!data.title||new Date(data.end)<new Date(data.start)) return showToast('Enter a title and a valid date range.',true);
+    const res=await api(id?'PATCH':'POST',id?`/api/calendar/events/${id}`:'/api/calendar/events',data);
+    if(res.ok){closeEventModal();await loadCalendarEvents();renderCalendar();showToast(id?'Event updated.':'Event added.');}else showToast('Could not save event.',true);
+  }
+  async function deleteEvent(){const id=document.getElementById('event-id').value;if(!id||!confirm('Delete this event?'))return;const res=await api('DELETE',`/api/calendar/events/${id}`);if(res.ok){closeEventModal();await loadCalendarEvents();renderCalendar();showToast('Event deleted.');}}
 
   function showMsg(id) {
     const el = document.getElementById(id);

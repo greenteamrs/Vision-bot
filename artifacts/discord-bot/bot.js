@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
@@ -77,6 +78,17 @@ const calendarEventSchema = new mongoose.Schema({
   color: { type: String, default: '#8ab4f8' },
 }, { timestamps: true });
 const CalendarEvent = mongoose.model('CalendarEvent', calendarEventSchema);
+
+// --- Dashboard moderator accounts ---
+const dashboardAccountSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  passwordHash: { type: String, default: '' },
+  mustSetPassword: { type: Boolean, default: true },
+  resetTokenHash: { type: String, default: '' },
+  resetTokenExpiresAt: { type: Date, default: null },
+  role: { type: String, enum: ['mod'], default: 'mod' },
+}, { timestamps: true });
+const DashboardAccount = mongoose.model('DashboardAccount', dashboardAccountSchema);
 
 const commandConfigSchema = new mongoose.Schema({
   key:         { type: String, unique: true, required: true },
@@ -1959,11 +1971,46 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 });
 
 // --- Dashboard HTTP Server ---
+const dashboardSessions = new Map();
+
+function randomSetupCode() {
+  return crypto.randomBytes(9).toString('base64url');
+}
+
+function hashSecret(secret) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(secret, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function matchesSecret(secret, stored) {
+  if (!secret || !stored || !stored.includes(':')) return false;
+  const [salt, expected] = stored.split(':');
+  const actual = crypto.scryptSync(secret, salt, 64).toString('hex');
+  return expected.length === actual.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
+}
+
+function createDashboardSession(context) {
+  const token = crypto.randomBytes(32).toString('hex');
+  dashboardSessions.set(token, { ...context, expiresAt: Date.now() + 8 * 60 * 60 * 1000 });
+  return token;
+}
+
+function getAuthContext(req) {
+  const auth = req.headers['authorization'] || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (token && dashboardSessions.has(token)) {
+    const session = dashboardSessions.get(token);
+    if (session.expiresAt > Date.now()) return session;
+    dashboardSessions.delete(token);
+  }
+  const masterPassword = process.env.DASHBOARD_PASSWORD;
+  if (!masterPassword || token === masterPassword) return { username: 'admin', role: 'admin' };
+  return null;
+}
+
 function checkAuth(req) {
-  const pwd = process.env.DASHBOARD_PASSWORD;
-  if (!pwd) return true;
-  const auth = req.headers['authorization'];
-  return auth === `Bearer ${pwd}`;
+  return Boolean(getAuthContext(req));
 }
 
 function readBody(req) {
@@ -2033,8 +2080,123 @@ const server = http.createServer(async (req, res) => {
 
   // Auth check for all /api/* routes
   if (pathname.startsWith('/api/')) {
-    if (!checkAuth(req)) {
+    const authContext = getAuthContext(req);
+
+    // Login is the only public API route.
+    if (pathname === '/api/auth/login' && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const username = String(data.username || '').trim().toLowerCase();
+        const password = String(data.password || '');
+        const masterPassword = process.env.DASHBOARD_PASSWORD;
+
+        if (username === 'admin' && ((!masterPassword && !password) || (masterPassword && password === masterPassword))) {
+          const token = createDashboardSession({ username: 'admin', role: 'admin' });
+          sendJson(res, 200, { token, user: { username: 'admin', role: 'admin' } });
+          return;
+        }
+
+        const account = await DashboardAccount.findOne({ username });
+        if (!account) { sendJson(res, 401, { error: 'Invalid username or password.' }); return; }
+
+        if (account.mustSetPassword) {
+          const validCode = account.resetTokenExpiresAt > new Date()
+            && matchesSecret(password, account.resetTokenHash);
+          if (!validCode) {
+            sendJson(res, 401, { error: 'Use the one-time setup code from an admin, or ask an admin to reset your access.' });
+            return;
+          }
+          const token = createDashboardSession({ username: account.username, role: 'mod', accountId: String(account._id), pendingPassword: true });
+          sendJson(res, 200, { token, mustSetPassword: true, user: { username: account.username, role: 'mod' } });
+          return;
+        }
+
+        if (!matchesSecret(password, account.passwordHash)) {
+          sendJson(res, 401, { error: 'Invalid username or password.' });
+          return;
+        }
+        const token = createDashboardSession({ username: account.username, role: 'mod', accountId: String(account._id) });
+        sendJson(res, 200, { token, user: { username: account.username, role: 'mod' } });
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    if (!authContext) {
       sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    if (pathname === '/api/auth/set-password' && req.method === 'POST') {
+      if (!authContext.pendingPassword || !authContext.accountId) {
+        sendJson(res, 403, { error: 'Password setup is not pending.' });
+        return;
+      }
+      try {
+        const data = await readBody(req);
+        const password = String(data.password || '');
+        if (password.length < 8) {
+          sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+          return;
+        }
+        await DashboardAccount.findByIdAndUpdate(authContext.accountId, {
+          $set: { passwordHash: hashSecret(password), mustSetPassword: false, resetTokenHash: '', resetTokenExpiresAt: null },
+        });
+        for (const [token, session] of dashboardSessions) {
+          if (session.accountId === authContext.accountId) {
+            dashboardSessions.set(token, { ...session, pendingPassword: false });
+          }
+        }
+        sendJson(res, 200, { success: true });
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
+      return;
+    }
+
+    if (pathname === '/api/auth/me' && req.method === 'GET') {
+      sendJson(res, 200, { user: { username: authContext.username, role: authContext.role }, mustSetPassword: Boolean(authContext.pendingPassword) });
+      return;
+    }
+
+    if (pathname === '/api/mod-accounts' && req.method === 'GET') {
+      if (authContext.role !== 'admin') { sendJson(res, 403, { error: 'Admin access required.' }); return; }
+      const accounts = await DashboardAccount.find().sort({ username: 1 }).select('username mustSetPassword createdAt');
+      sendJson(res, 200, accounts);
+      return;
+    }
+
+    if (pathname === '/api/mod-accounts' && req.method === 'POST') {
+      if (authContext.role !== 'admin') { sendJson(res, 403, { error: 'Admin access required.' }); return; }
+      try {
+        const data = await readBody(req);
+        const username = String(data.username || '').trim().toLowerCase();
+        if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username) || username === 'admin') {
+          sendJson(res, 400, { error: 'Use 3–32 letters, numbers, dots, underscores, or hyphens.' });
+          return;
+        }
+        const setupCode = randomSetupCode();
+        const account = await DashboardAccount.create({
+          username,
+          mustSetPassword: true,
+          resetTokenHash: hashSecret(setupCode),
+          resetTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        });
+        sendJson(res, 201, { username: account.username, setupCode });
+      } catch (e) {
+        sendJson(res, e.code === 11000 ? 409 : 400, { error: e.code === 11000 ? 'That username already exists.' : e.message });
+      }
+      return;
+    }
+
+    const modAccountReset = pathname.match(/^\/api\/mod-accounts\/([^/]+)\/reset$/);
+    if (modAccountReset && req.method === 'POST') {
+      if (authContext.role !== 'admin') { sendJson(res, 403, { error: 'Admin access required.' }); return; }
+      try {
+        const setupCode = randomSetupCode();
+        const account = await DashboardAccount.findByIdAndUpdate(modAccountReset[1], {
+          $set: { mustSetPassword: true, resetTokenHash: hashSecret(setupCode), resetTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) },
+        }, { new: true }).select('username');
+        if (!account) { sendJson(res, 404, { error: 'Account not found.' }); return; }
+        sendJson(res, 200, { username: account.username, setupCode });
+      } catch (e) { sendJson(res, 400, { error: e.message }); }
       return;
     }
 

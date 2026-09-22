@@ -340,9 +340,18 @@
 <div id="login-screen">
   <div class="login-box">
     <h1>⚔️ Visionary Bot</h1>
-    <p>Enter your dashboard password</p>
-    <input type="password" id="password-input" placeholder="Password" />
-    <button class="btn-primary" onclick="login()">Sign In</button>
+    <div id="login-form">
+      <p>Sign in to the moderator dashboard</p>
+      <input type="text" id="username-input" placeholder="Username" autocomplete="username" />
+      <input type="password" id="password-input" placeholder="Password or setup code" autocomplete="current-password" />
+      <button class="btn-primary" onclick="login()">Sign In</button>
+    </div>
+    <div id="set-password-form" style="display:none;">
+      <p>Choose your private dashboard password</p>
+      <input type="password" id="new-password-input" placeholder="New password (8+ characters)" autocomplete="new-password" />
+      <input type="password" id="confirm-password-input" placeholder="Confirm new password" autocomplete="new-password" />
+      <button class="btn-primary" onclick="setInitialPassword()">Save Password</button>
+    </div>
     <div id="login-error"></div>
   </div>
 </div>
@@ -361,6 +370,7 @@
     <nav>
       <button class="active" onclick="showSection('overview', this)">📊 Overview</button>
       <button onclick="showSection('calendar', this)">📅 Calendar</button>
+      <button id="nav-mod-accounts" style="display:none;" onclick="showSection('mod-accounts', this)">🔐 Mod Accounts</button>
       <button onclick="showSection('xp-settings', this)">⭐ XP Settings</button>
       <button onclick="showSection('levels', this)">📈 Levels</button>
       <button onclick="showSection('awards', this)">🏆 Monthly Awards</button>
@@ -431,6 +441,24 @@
             </div>
           </div>
           <div id="calendar-content"></div>
+        </div>
+      </div>
+
+      <!-- MODERATOR ACCOUNTS -->
+      <div class="section" id="section-mod-accounts">
+        <div class="section-title">Moderator Accounts</div>
+        <div class="card">
+          <h3>Create moderator login</h3>
+          <p style="color:#888;font-size:.85rem;margin:-6px 0 16px;">The setup code is shown once. Give it to the moderator; they choose and keep their own password.</p>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input type="text" id="new-mod-username" placeholder="e.g. alex_mod" style="max-width:250px;" />
+            <button class="btn-save" onclick="createModAccount()">Create account</button>
+          </div>
+          <div id="new-mod-code" style="display:none;margin-top:14px;padding:12px;background:#172554;border:1px solid #2563eb;border-radius:7px;color:#bfdbfe;"></div>
+        </div>
+        <div class="card">
+          <h3>Existing moderator accounts</h3>
+          <div id="mod-accounts-list" class="calendar-list"><span style="color:#888;">Loading...</span></div>
         </div>
       </div>
 
@@ -802,25 +830,63 @@
 
   // ---- AUTH ----
   async function login() {
-    const pwd = document.getElementById('password-input').value;
-    AUTH_TOKEN = pwd;
+    const username = document.getElementById('username-input').value.trim();
+    const password = document.getElementById('password-input').value;
     try {
-      const res = await api('GET', '/api/status');
-      if (res.ok) {
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('app').style.display = 'flex';
-        init();
-      } else {
-        document.getElementById('login-error').textContent = 'Incorrect password.';
+      const res = await api('POST', '/api/auth/login', { username, password });
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById('login-error').textContent = data.error || 'Could not sign in.';
         AUTH_TOKEN = '';
+        return;
       }
+      AUTH_TOKEN = data.token;
+      if (data.mustSetPassword) {
+        document.getElementById('login-form').style.display = 'none';
+        document.getElementById('set-password-form').style.display = 'block';
+        document.getElementById('login-error').textContent = '';
+        return;
+      }
+      enterDashboard(data.user);
     } catch (e) {
       document.getElementById('login-error').textContent = 'Could not connect to bot.';
     }
   }
 
+  async function setInitialPassword() {
+    const password = document.getElementById('new-password-input').value;
+    const confirmation = document.getElementById('confirm-password-input').value;
+    if (password.length < 8) {
+      document.getElementById('login-error').textContent = 'Password must be at least 8 characters.';
+      return;
+    }
+    if (password !== confirmation) {
+      document.getElementById('login-error').textContent = 'Passwords do not match.';
+      return;
+    }
+    const res = await api('POST', '/api/auth/set-password', { password });
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById('login-error').textContent = data.error || 'Could not save password.';
+      return;
+    }
+    const me = await api('GET', '/api/auth/me');
+    const meData = await me.json();
+    enterDashboard(meData.user);
+  }
+
+  function enterDashboard(user) {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('nav-mod-accounts').style.display = user?.role === 'admin' ? 'block' : 'none';
+    init();
+  }
+
   document.getElementById('password-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') login();
+  });
+  document.getElementById('confirm-password-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') setInitialPassword();
   });
 
   // ---- API ----
@@ -833,6 +899,42 @@
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+  }
+
+  // ---- MODERATOR ACCOUNTS ----
+  async function loadModAccounts() {
+    const res = await api('GET', '/api/mod-accounts');
+    const el = document.getElementById('mod-accounts-list');
+    if (!el) return;
+    if (!res.ok) { el.innerHTML = '<span style="color:#f87171;">Admin access required.</span>'; return; }
+    const accounts = await res.json();
+    el.innerHTML = accounts.length ? accounts.map(a => `<div class="upcoming-event">
+      <div style="flex:1;"><strong>${esc(a.username)}</strong><small>${a.mustSetPassword ? 'Setup pending' : 'Password set'}</small></div>
+      <button class="btn-edit" onclick="resetModAccount('${a._id}', '${escAttr(a.username)}')">Reset password</button>
+    </div>`).join('') : '<span style="color:#888;">No moderator accounts yet.</span>';
+  }
+
+  async function createModAccount() {
+    const username = document.getElementById('new-mod-username').value.trim();
+    const res = await api('POST', '/api/mod-accounts', { username });
+    const data = await res.json();
+    if (!res.ok) return showToast(data.error || 'Could not create account.', true);
+    document.getElementById('new-mod-code').style.display = 'block';
+    document.getElementById('new-mod-code').innerHTML = `Setup code for <strong>${esc(data.username)}</strong>: <code style="color:#fff;font-size:1rem;">${esc(data.setupCode)}</code><br><small>Copy this now. It expires in 24 hours and is never shown again.</small>`;
+    document.getElementById('new-mod-username').value = '';
+    await loadModAccounts();
+    showToast('Moderator account created.');
+  }
+
+  async function resetModAccount(id, username) {
+    if (!confirm(`Reset the password for ${username}? They will choose a new password at next login.`)) return;
+    const res = await api('POST', `/api/mod-accounts/${id}/reset`);
+    const data = await res.json();
+    if (!res.ok) return showToast(data.error || 'Could not reset account.', true);
+    document.getElementById('new-mod-code').style.display = 'block';
+    document.getElementById('new-mod-code').innerHTML = `New setup code for <strong>${esc(data.username)}</strong>: <code style="color:#fff;font-size:1rem;">${esc(data.setupCode)}</code><br><small>Copy this now. It expires in 24 hours and is never shown again.</small>`;
+    await loadModAccounts();
+    showToast('Password reset code created.');
   }
 
   // ---- INIT ----
@@ -1181,6 +1283,7 @@
     if (name === 'commands') loadCommands();
     if (name === 'overview') loadStatus();
     if (name === 'calendar') renderCalendar();
+    if (name === 'mod-accounts') loadModAccounts();
     if (name === 'ranks') loadRanks();
     if (name === 'bingo') loadBingoState();
   }

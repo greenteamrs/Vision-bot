@@ -204,13 +204,13 @@ const SLASH_COMMANDS = [
     .addUserOption(o => o.setName('user').setDescription('User to check; defaults to you')),
   new SlashCommandBuilder().setName('lplist').setDescription('Show the full loot point list A–Z'),
   addRecipientOptions(new SlashCommandBuilder().setName('split').setDescription('Give each selected user the specified loot points')
-    .addNumberOption(o => o.setName('amount').setDescription('Loot points per user (decimals allowed)').setRequired(true).setMinValue(0.01))),
+    .addStringOption(o => o.setName('amount').setDescription('Loot points per user; use . or , for decimals').setRequired(true).setMaxLength(32))),
   addRecipientOptions(new SlashCommandBuilder().setName('donate').setDescription('Give each selected user half the specified amount')
-    .addNumberOption(o => o.setName('amount').setDescription('Total amount to split in half (decimals allowed)').setRequired(true).setMinValue(0.01))),
+    .addStringOption(o => o.setName('amount').setDescription('Total amount; use . or , for decimals').setRequired(true).setMaxLength(32))),
   addRecipientOptions(new SlashCommandBuilder().setName('add').setDescription('Add loot points to selected users (mods)')
-    .addNumberOption(o => o.setName('amount').setDescription('Loot points to add').setRequired(true).setMinValue(0.01))),
+    .addStringOption(o => o.setName('amount').setDescription('Loot points to add; use . or , for decimals').setRequired(true).setMaxLength(32))),
   addRecipientOptions(new SlashCommandBuilder().setName('remove').setDescription('Remove loot points from selected users (mods)')
-    .addNumberOption(o => o.setName('amount').setDescription('Loot points to remove').setRequired(true).setMinValue(0.01))),
+    .addStringOption(o => o.setName('amount').setDescription('Loot points to remove; use . or , for decimals').setRequired(true).setMaxLength(32))),
   new SlashCommandBuilder().setName('xp').setDescription('Check XP and level progress')
     .addUserOption(o => o.setName('user').setDescription('User to check; defaults to you')),
   new SlashCommandBuilder().setName('level').setDescription('Check a user’s current level')
@@ -1088,7 +1088,14 @@ function getRecipientUsers(options) {
 }
 
 function formatNumber(value) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 10 }).format(value);
+  return new Intl.NumberFormat('de-DE', { useGrouping: false, maximumFractionDigits: 15 }).format(value);
+}
+
+function parseLootPointAmount(rawValue) {
+  const raw = String(rawValue ?? '').trim();
+  if (!/^(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(raw)) return null;
+  const amount = Number(raw.replace(',', '.'));
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
 }
 
 // --- Message Handler ---
@@ -1745,10 +1752,10 @@ async function handleConvertedSlashCommand(interaction) {
       if (['add', 'remove'].includes(commandName) && !isAdmin(member) && !isMod(member)) {
         return interaction.editReply('❌ Mods only.');
       }
-      const amount = options.getNumber('amount');
+      const amount = parseLootPointAmount(options.getString('amount'));
       const targets = getRecipientUsers(options);
-      if (!Number.isFinite(amount) || amount <= 0 || !targets.length) {
-        return interaction.editReply('❌ Choose a positive amount and at least one user.');
+      if (amount === null || !targets.length) {
+        return interaction.editReply('❌ Enter a positive amount using a dot or comma for decimals, and choose at least one user.');
       }
       const perUser = commandName === 'donate' ? amount / 2 : amount;
       const change = commandName === 'remove' ? -amount : perUser;

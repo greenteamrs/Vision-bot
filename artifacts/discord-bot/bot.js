@@ -143,7 +143,7 @@ const bingoCompletionSchema = new mongoose.Schema({
 });
 const BingoCompletion = mongoose.model('BingoCompletion', bingoCompletionSchema);
 
-const DEFAULT_COMMANDS = [
+const ALL_COMMANDS = [
   { key: 'lp',              name: 'lp',              category: 'Loot Points', description: 'Check your LP balance',                  usage: '!lp [@user]',              isMod: false },
   { key: 'total',           name: 'total',            category: 'Loot Points', description: 'Show the top LP leaderboard',            usage: '!total',                   isMod: false },
   { key: 'lplist',          name: 'lplist',           category: 'Loot Points', description: 'Show full LP list A–Z',                  usage: '!lplist',                  isMod: false },
@@ -180,36 +180,66 @@ const DEFAULT_COMMANDS = [
   { key: 'help',            name: 'help',             category: 'General',     description: 'Show all available commands',            usage: '!help',                    isMod: false },
 ];
 
+const ENABLED_COMMAND_KEYS = new Set([
+  'lp', 'lplist', 'split', 'donate', 'add', 'remove', 'xp', 'level', 'xplist',
+  'addxp', 'removexp', 'rslink', 'rsunlink', 'myrs', 'rsnames', 'rsset',
+  'droptop', 'toploot', 'drops', 'syncdroptracker', 'syncwom', 'checkranks', 'help',
+]);
+const DEFAULT_COMMANDS = ALL_COMMANDS.filter(command => ENABLED_COMMAND_KEYS.has(command.key));
+
 // --- Slash command definitions ---
+function addRecipientOptions(command) {
+  for (let i = 1; i <= 10; i++) {
+    command.addUserOption(option =>
+      option
+        .setName(`user${i}`)
+        .setDescription(i === 1 ? 'First user' : `Additional user ${i}`)
+        .setRequired(i === 1));
+  }
+  return command;
+}
+
 const SLASH_COMMANDS = [
-  new SlashCommandBuilder()
-    .setName('bingo-submit')
-    .setDescription('Submit a drop screenshot for bingo review')
-    .addAttachmentOption(opt =>
-      opt.setName('image').setDescription('Upload a screenshot directly').setRequired(false))
-    .addStringOption(opt =>
-      opt.setName('link').setDescription('Or paste a Gyazo / Imgur / image URL instead').setRequired(false))
-    .addStringOption(opt =>
-      opt.setName('note').setDescription('Optional note about the drop (e.g. boss, task)').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('bingo-approve')
-    .setDescription('Approve a pending bingo submission and assign it to a team (mods only)')
-    .addStringOption(opt =>
-      opt.setName('submission').setDescription('Pending submission to approve').setRequired(true).setAutocomplete(true))
-    .addStringOption(opt =>
-      opt.setName('tile').setDescription('Bingo tile this drop counts for').setRequired(true).setAutocomplete(true))
-    .addStringOption(opt =>
-      opt.setName('team').setDescription('Team to assign the tile to').setRequired(true).setAutocomplete(true)),
-
-  new SlashCommandBuilder()
-    .setName('bingo-reject')
-    .setDescription('Reject a pending bingo submission (mods only)')
-    .addStringOption(opt =>
-      opt.setName('submission').setDescription('Pending submission to reject').setRequired(true).setAutocomplete(true))
-    .addStringOption(opt =>
-      opt.setName('reason').setDescription('Reason for rejection').setRequired(false)),
-].map(cmd => cmd.toJSON());
+  new SlashCommandBuilder().setName('lp').setDescription('Check a user’s loot point balance')
+    .addUserOption(o => o.setName('user').setDescription('User to check; defaults to you')),
+  new SlashCommandBuilder().setName('lplist').setDescription('Show the full loot point list A–Z'),
+  addRecipientOptions(new SlashCommandBuilder().setName('split').setDescription('Give each selected user the specified loot points')
+    .addNumberOption(o => o.setName('amount').setDescription('Loot points per user (decimals allowed)').setRequired(true).setMinValue(0.01))),
+  addRecipientOptions(new SlashCommandBuilder().setName('donate').setDescription('Give each selected user half the specified amount')
+    .addNumberOption(o => o.setName('amount').setDescription('Total amount to split in half (decimals allowed)').setRequired(true).setMinValue(0.01))),
+  addRecipientOptions(new SlashCommandBuilder().setName('add').setDescription('Add loot points to selected users (mods)')
+    .addNumberOption(o => o.setName('amount').setDescription('Loot points to add').setRequired(true).setMinValue(0.01))),
+  addRecipientOptions(new SlashCommandBuilder().setName('remove').setDescription('Remove loot points from selected users (mods)')
+    .addNumberOption(o => o.setName('amount').setDescription('Loot points to remove').setRequired(true).setMinValue(0.01))),
+  new SlashCommandBuilder().setName('xp').setDescription('Check XP and level progress')
+    .addUserOption(o => o.setName('user').setDescription('User to check; defaults to you')),
+  new SlashCommandBuilder().setName('level').setDescription('Check a user’s current level')
+    .addUserOption(o => o.setName('user').setDescription('User to check; defaults to you')),
+  new SlashCommandBuilder().setName('xplist').setDescription('Show the full XP and level list A–Z'),
+  addRecipientOptions(new SlashCommandBuilder().setName('addxp').setDescription('Add XP to selected users (admins)')
+    .addIntegerOption(o => o.setName('amount').setDescription('XP to add').setRequired(true).setMinValue(1))),
+  addRecipientOptions(new SlashCommandBuilder().setName('removexp').setDescription('Remove XP from selected users (admins)')
+    .addIntegerOption(o => o.setName('amount').setDescription('XP to remove').setRequired(true).setMinValue(1))),
+  new SlashCommandBuilder().setName('rslink').setDescription('Link a RuneScape name to your account')
+    .addStringOption(o => o.setName('name').setDescription('RuneScape name to link').setRequired(true).setMaxLength(100)),
+  new SlashCommandBuilder().setName('rsunlink').setDescription('Unlink a RuneScape name from your account')
+    .addStringOption(o => o.setName('name').setDescription('RuneScape name to unlink').setRequired(true).setMaxLength(100)),
+  new SlashCommandBuilder().setName('myrs').setDescription('See your linked RuneScape names'),
+  new SlashCommandBuilder().setName('rsnames').setDescription('List all linked RuneScape names (admins)'),
+  new SlashCommandBuilder().setName('rsset').setDescription('Set a RuneScape name for a user (admins)')
+    .addUserOption(o => o.setName('user').setDescription('User to update').setRequired(true))
+    .addStringOption(o => o.setName('name').setDescription('RuneScape name to link').setRequired(true).setMaxLength(100)),
+  new SlashCommandBuilder().setName('droptop').setDescription('Award monthly XP from the Droptracker API (mods)')
+    .addStringOption(o => o.setName('npc').setDescription('Optional NPC filter').setMaxLength(100)),
+  new SlashCommandBuilder().setName('toploot').setDescription('Show the Droptracker loot leaderboard')
+    .addStringOption(o => o.setName('npc').setDescription('Optional NPC filter').setMaxLength(100)),
+  new SlashCommandBuilder().setName('drops').setDescription('Show recent Droptracker drops')
+    .addStringOption(o => o.setName('npc').setDescription('Optional NPC filter').setMaxLength(100)),
+  new SlashCommandBuilder().setName('syncdroptracker').setDescription('Sync members from Droptracker (mods)'),
+  new SlashCommandBuilder().setName('syncwom').setDescription('Sync clan join dates from Wise Old Man (mods)'),
+  new SlashCommandBuilder().setName('checkranks').setDescription('Run a rank-up check now (mods)'),
+  new SlashCommandBuilder().setName('help').setDescription('Show available bot slash commands'),
+].map(command => command.toJSON());
 
 async function registerSlashCommands(clientId, guildId) {
   try {
@@ -239,10 +269,14 @@ async function refreshCommandNames() {
 }
 
 async function seedCommands() {
+  await CommandConfig.deleteMany({ key: { $nin: DEFAULT_COMMANDS.map(def => def.key) } });
   for (const def of DEFAULT_COMMANDS) {
     await CommandConfig.findOneAndUpdate(
       { key: def.key },
-      { $setOnInsert: { name: def.name, description: def.description, usage: def.usage, isMod: def.isMod, category: def.category } },
+      {
+        $set: { description: def.description, usage: def.usage, isMod: def.isMod, category: def.category },
+        $setOnInsert: { name: def.name },
+      },
       { upsert: true }
     );
   }
@@ -415,7 +449,11 @@ async function buildXpLeaderboard() {
 }
 
 function isMod(member) {
-  return member.roles.cache.some(r => r.name.toLowerCase() === "mods" || r.name.toLowerCase() === "mod");
+  return Boolean(member?.roles?.cache?.some(r => r.name.toLowerCase() === "mods" || r.name.toLowerCase() === "mod"));
+}
+
+function isAdmin(member) {
+  return Boolean(member?.permissions?.has('Administrator'));
 }
 
 function daysInClan(user) {
@@ -1024,6 +1062,35 @@ async function sendLongMessage(channel, header, lines) {
   for (const chunk of chunks) await channel.send(chunk);
 }
 
+async function replyLongInteraction(interaction, header, lines) {
+  const chunks = [];
+  let current = `${header}\n`;
+  for (const line of lines) {
+    if ((current + line + '\n').length > 1900) {
+      chunks.push(current);
+      current = `${line}\n`;
+    } else {
+      current += `${line}\n`;
+    }
+  }
+  if (current.trim()) chunks.push(current);
+  await interaction.editReply(chunks.shift() || header);
+  for (const chunk of chunks) await interaction.followUp(chunk);
+}
+
+function getRecipientUsers(options) {
+  const recipients = [];
+  for (let i = 1; i <= 10; i++) {
+    const target = options.getUser(`user${i}`);
+    if (target && !recipients.some(user => user.id === target.id)) recipients.push(target);
+  }
+  return recipients;
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 10 }).format(value);
+}
+
 // --- Message Handler ---
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
@@ -1052,6 +1119,16 @@ client.on(Events.MessageCreate, async (message) => {
 
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
+
+  const legacyCommand = DEFAULT_COMMANDS.find(def =>
+    cmd(def.key).toLowerCase() === command || def.name.toLowerCase() === command
+  );
+  if (legacyCommand) {
+    await message.reply(`\`!${command}\` command has been converted to \`/${legacyCommand.key}\`.`);
+  }
+  // All former prefix commands are disabled: selected commands point to their
+  // slash replacement; unselected commands have been retired.
+  return;
 
   if (command === cmd('lp')) {
     const user = message.mentions.users.first() || message.author;
@@ -1625,6 +1702,253 @@ client.on(Events.MessageCreate, async (message) => {
   }
 });
 
+// --- Converted slash command handlers ---
+const convertedSlashNames = new Set([
+  'lp', 'lplist', 'split', 'donate', 'add', 'remove', 'xp', 'level', 'xplist',
+  'addxp', 'removexp', 'rslink', 'rsunlink', 'myrs', 'rsnames', 'rsset',
+  'droptop', 'toploot', 'drops', 'syncdroptracker', 'syncwom', 'checkranks', 'help',
+]);
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function handleConvertedSlashCommand(interaction) {
+  const { commandName, options, user, member } = interaction;
+  if (!convertedSlashNames.has(commandName)) return false;
+
+  await interaction.deferReply();
+  try {
+    if (commandName === 'lp') {
+      const target = options.getUser('user') || user;
+      const balance = await getLootPoints(target.id, target.username);
+      return interaction.editReply(`${target.username} has ${formatNumber(balance)} LP.`);
+    }
+
+    if (commandName === 'xp' || commandName === 'level') {
+      const target = options.getUser('user') || user;
+      const record = await getUser(target.id, target.username);
+      const line = commandName === 'xp'
+        ? `⭐ ${target.username} — **Level ${record.level}** | ${record.xp}/${xpForLevel(record.level)} XP`
+        : `🏅 ${target.username} is **Level ${record.level}** — ${record.xp}/${xpForLevel(record.level)} XP to next level`;
+      return interaction.editReply(line);
+    }
+
+    if (commandName === 'lplist') {
+      const users = await User.find({ lootPoints: { $gt: 0 } }).sort({ username: 1 });
+      if (!users.length) return interaction.editReply('No loot points recorded yet!');
+      const lines = users.map(record => `• ${record.username || record.userId} — ${formatNumber(record.lootPoints)} LP`);
+      return replyLongInteraction(interaction, `🏆 **LP List (A–Z) — ${users.length} members**`, lines);
+    }
+
+    if (['split', 'donate', 'add', 'remove'].includes(commandName)) {
+      if (['add', 'remove'].includes(commandName) && !isAdmin(member) && !isMod(member)) {
+        return interaction.editReply('❌ Mods only.');
+      }
+      const amount = options.getNumber('amount');
+      const targets = getRecipientUsers(options);
+      if (!Number.isFinite(amount) || amount <= 0 || !targets.length) {
+        return interaction.editReply('❌ Choose a positive amount and at least one user.');
+      }
+      const perUser = commandName === 'donate' ? amount / 2 : amount;
+      const change = commandName === 'remove' ? -amount : perUser;
+      const lines = [];
+      for (const target of targets) {
+        const balance = await modifyLootPoints(target.id, target.username, change);
+        if (commandName === 'add') lines.push(`✅ Added ${formatNumber(amount)} LP to ${target.username}. Now has ${formatNumber(balance)} LP.`);
+        else if (commandName === 'remove') lines.push(`❌ Removed ${formatNumber(amount)} LP from ${target.username}. Now has ${formatNumber(balance)} LP.`);
+        else lines.push(`${target.username} received ${formatNumber(perUser)} LP — now has ${formatNumber(balance)} LP`);
+      }
+      const title = commandName === 'split' ? '💰 **Split:**' : commandName === 'donate' ? '💖 **Donate:**' : '';
+      return interaction.editReply([title, ...lines].filter(Boolean).join('\n'));
+    }
+
+    if (commandName === 'xplist') {
+      const users = await User.find({ $or: [{ level: { $gt: 0 } }, { xp: { $gt: 0 } }] }).sort({ username: 1 });
+      if (!users.length) return interaction.editReply('No XP recorded yet!');
+      const lines = users.map(record => `• ${record.username || record.userId} — Level ${record.level} | ${record.xp}/${xpForLevel(record.level)} XP`);
+      return replyLongInteraction(interaction, `⭐ **XP List (A–Z) — ${users.length} members**`, lines);
+    }
+
+    if (commandName === 'addxp' || commandName === 'removexp') {
+      if (!isAdmin(member)) return interaction.editReply('❌ Admins only.');
+      const amount = options.getInteger('amount');
+      const targets = getRecipientUsers(options);
+      const lines = [];
+      for (const target of targets) {
+        if (commandName === 'addxp') {
+          const updated = await addXp(target.id, target.username, amount);
+          lines.push(`✅ Added ${amount} XP to ${target.username}. Now Level ${updated.level} (${updated.xp} XP).`);
+        } else {
+          const record = await getUser(target.id, target.username);
+          record.xp = Math.max(0, record.xp - amount);
+          await record.save();
+          lines.push(`❌ Removed ${amount} XP from ${target.username}. Now Level ${record.level} (${record.xp} XP).`);
+        }
+      }
+      return interaction.editReply(lines.join('\n'));
+    }
+
+    if (commandName === 'rslink') {
+      const rsName = options.getString('name').trim();
+      const escapedName = escapeRegex(rsName);
+      const existing = await User.findOne({
+        userId: { $ne: user.id },
+        $or: [
+          { rsName: { $regex: new RegExp(`^${escapedName}$`, 'i') } },
+          { rsNames: new RegExp(`^${escapedName}$`, 'i') },
+        ],
+      });
+      if (existing) return interaction.editReply(`❌ The RS name **${rsName}** is already linked to another account.`);
+      const currentUser = await User.findOne({ userId: user.id });
+      const names = currentUser?.rsNames || [];
+      const hasNames = names.length > 0 || Boolean(currentUser?.rsName);
+      const alreadyHas = names.some(name => name.toLowerCase() === rsName.toLowerCase());
+      const setFields = { username: user.username };
+      if (!hasNames) {
+        setFields.rsName = rsName;
+        if (!currentUser?.joinedClanAt) setFields.joinedClanAt = new Date();
+      }
+      const update = { $set: setFields };
+      if (!alreadyHas) update.$push = { rsNames: rsName };
+      await User.findOneAndUpdate({ userId: user.id }, update, { upsert: true, new: true });
+      return interaction.editReply(`✅ RS name **${rsName}** linked! Use \`/myrs\` to see your linked names.`);
+    }
+
+    if (commandName === 'rsunlink') {
+      const rsName = options.getString('name').trim();
+      const record = await User.findOne({ userId: user.id });
+      if (!record || !record.rsNames?.length) return interaction.editReply('You have no linked RS names.');
+      const index = record.rsNames.findIndex(name => name.toLowerCase() === rsName.toLowerCase());
+      if (index === -1) return interaction.editReply(`❌ **${rsName}** is not linked to your account.`);
+      record.rsNames.splice(index, 1);
+      record.rsName = record.rsNames[record.rsNames.length - 1] || null;
+      await record.save();
+      return interaction.editReply(`✅ RS name **${rsName}** unlinked.`);
+    }
+
+    if (commandName === 'myrs') {
+      const record = await getUser(user.id, user.username);
+      const names = record.rsNames?.length ? record.rsNames : (record.rsName ? [record.rsName] : []);
+      if (!names.length) return interaction.editReply('You have not linked any RS names yet. Use `/rslink` to add one.');
+      return interaction.editReply(`Your linked RS name(s): ${names.map(name => `**${name}**`).join(', ')}`);
+    }
+
+    if (commandName === 'rsnames') {
+      if (!isAdmin(member)) return interaction.editReply('❌ Admins only.');
+      const users = await User.find({
+        $or: [{ rsNames: { $exists: true, $not: { $size: 0 } } }, { rsName: { $ne: null } }],
+      }).sort({ username: 1 });
+      if (!users.length) return interaction.editReply('No RS names linked yet.');
+      const lines = users.map(record => {
+        const names = record.rsNames?.length ? record.rsNames : (record.rsName ? [record.rsName] : []);
+        return `• ${names.map(name => `**${name}**`).join(', ')} → ${record.username || record.userId}`;
+      });
+      return replyLongInteraction(interaction, `📋 **Linked RS Names (${users.length} members):**`, lines);
+    }
+
+    if (commandName === 'rsset') {
+      if (!isAdmin(member)) return interaction.editReply('❌ Admins only.');
+      const target = options.getUser('user');
+      const rsName = options.getString('name').trim();
+      const targetUser = await User.findOne({ userId: target.id });
+      const names = targetUser?.rsNames || [];
+      const hasNames = names.length > 0 || Boolean(targetUser?.rsName);
+      const alreadyHas = names.some(name => name.toLowerCase() === rsName.toLowerCase());
+      const fields = { username: target.username };
+      if (!hasNames) {
+        fields.rsName = rsName;
+        if (!targetUser?.joinedClanAt) fields.joinedClanAt = new Date();
+      }
+      const update = { $set: fields };
+      if (!alreadyHas) update.$push = { rsNames: rsName };
+      await User.findOneAndUpdate({ userId: target.id }, update, { upsert: true, new: true });
+      return interaction.editReply(`✅ Linked **${rsName}** to ${target.username}.`);
+    }
+
+    if (commandName === 'droptop') {
+      if (!isAdmin(member) && !isMod(member)) return interaction.editReply('❌ Mods only.');
+      const npcName = options.getString('npc')?.trim() || null;
+      const result = await getDroptrackerTopPlayers(npcName, 10);
+      if (result.error) return interaction.editReply(`❌ ${result.error}`);
+      const players = Array.isArray(result.data) ? result.data : (result.data.players || result.data.members || []);
+      if (!players.length) return interaction.editReply('❌ No players found in Droptracker.');
+      const preview = players.slice(0, 10).map((player, index) => `${index + 1}. ${player.player_name || player.name || player.username || '?'}`).join('\n');
+      await interaction.editReply(`📋 **DropTracker Rankings:**\n${preview}\n\nAwarding XP now...`);
+      await awardDropTopXp(players, interaction.guild, interaction.channel);
+      return true;
+    }
+
+    if (commandName === 'toploot') {
+      const npcName = options.getString('npc')?.trim() || null;
+      const result = await getDroptrackerTopPlayers(npcName, 10);
+      if (result.error) return interaction.editReply(`❌ ${result.error}`);
+      const players = Array.isArray(result.data) ? result.data : (result.data.players || result.data.members || []);
+      if (!players.length) return interaction.editReply('No loot data found.');
+      const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+      const title = npcName ? `🏆 **Top ${npcName} Looters**` : '🏆 **Top Looters (Last 30 Days)**';
+      const lines = players.slice(0, 10).map((player, index) => {
+        const name = player.player_name || player.name || player.username || '?';
+        const gp = formatGp(player.total_value || player.total_gp || player.gp_gained || 0);
+        const drops = player.drop_count || player.total_drops || '';
+        return `${medals[index] || `${index + 1}.`} **${name}** — ${gp} GP${drops ? ` (${drops} drops)` : ''}`;
+      });
+      return interaction.editReply(`${title}\n${lines.join('\n')}`);
+    }
+
+    if (commandName === 'drops') {
+      const npcName = options.getString('npc')?.trim() || null;
+      const result = await getDroptrackerDrops(npcName, 10);
+      if (result.error) return interaction.editReply(`❌ ${result.error}`);
+      const drops = Array.isArray(result.data) ? result.data : (result.data.drops || result.data.items || []);
+      if (!drops.length) return interaction.editReply('No recent drops found.');
+      const title = npcName ? `💰 **Recent ${npcName} Drops**` : '💰 **Recent Drops**';
+      const lines = drops.slice(0, 10).map(drop => {
+        const player = drop.player_name || drop.player || drop.username || '?';
+        const item = drop.item_name || drop.name || '?';
+        const quantity = drop.quantity > 1 ? ` x${drop.quantity}` : '';
+        const gp = formatGp(drop.value || drop.item_value || 0);
+        const npc = drop.npc_name ? ` from ${drop.npc_name}` : '';
+        return `• **${player}** — ${item}${quantity}${npc} (${gp} GP)`;
+      });
+      return interaction.editReply(`${title}\n${lines.join('\n')}`);
+    }
+
+    if (commandName === 'syncdroptracker') {
+      if (!isAdmin(member) && !isMod(member)) return interaction.editReply('❌ Mods only.');
+      const result = await syncDroptrackerMembers();
+      if (result.error) return interaction.editReply(`❌ ${result.error}`);
+      const linkNote = result.linked ? ` (${result.linked} RS name(s) auto-linked from Discord)` : '';
+      return interaction.editReply(`✅ Droptracker sync complete — ${result.updated} user(s) updated out of ${result.total} members${linkNote}.`);
+    }
+
+    if (commandName === 'syncwom') {
+      if (!isAdmin(member) && !isMod(member)) return interaction.editReply('❌ Mods only.');
+      const result = await syncWomMembers();
+      if (result.error) return interaction.editReply(`⚠️ ${result.error} — set your WOM Group ID in the dashboard first.`);
+      return interaction.editReply(`✅ WOM sync complete! **${result.updated}** user(s) updated out of **${result.total}** clan members.`);
+    }
+
+    if (commandName === 'checkranks') {
+      if (!isAdmin(member) && !isMod(member)) return interaction.editReply('❌ Mods only.');
+      const count = await checkRankUps(interaction.guild);
+      return interaction.editReply(`✅ Rank check complete. **${count}** new rank-up notification(s) sent.`);
+    }
+
+    if (commandName === 'help') {
+      const lines = SLASH_COMMANDS.map(command => `\`/${command.name}\` — ${command.description}`);
+      return replyLongInteraction(interaction, '📖 **Visionary Bot Slash Commands**', lines);
+    }
+
+    return interaction.editReply('Unknown command.');
+  } catch (error) {
+    console.error(`/${commandName} failed:`, error);
+    const message = `❌ Command failed: ${error.message || 'unexpected error'}`;
+    if (interaction.deferred || interaction.replied) return interaction.editReply(message).catch(() => {});
+    return interaction.reply({ content: message, ephemeral: true }).catch(() => {});
+  }
+}
+
 // --- Slash Commands ---
 client.on(Events.InteractionCreate, async interaction => {
   // Autocomplete
@@ -1724,6 +2048,9 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (!interaction.isChatInputCommand()) return;
+  await handleConvertedSlashCommand(interaction);
+  return;
+
   const { commandName, options, user, member } = interaction;
 
   // /bingo-submit

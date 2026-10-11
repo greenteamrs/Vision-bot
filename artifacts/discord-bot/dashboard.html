@@ -330,6 +330,79 @@
   .week-grid > div { border-right:1px solid #303134; border-bottom:1px solid #303134; padding:6px; min-height:52px; }
   .week-head { color:#9aa0a6; text-align:center; font-size:.75rem; }
   .time-label { color:#70757a; font-size:.7rem; text-align:right; }
+  /* EVENTS — event operations workspace */
+  .events-shell { --event-accent:#86c7bb; --event-ink:#e7eee9; --event-muted:#91a49b; color:var(--event-ink); }
+  .events-heading { display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 18px; }
+  .events-heading .section-title { margin:0 0 5px; }
+  .events-kicker { color:#80948a;font:700 .68rem ui-monospace,SFMono-Regular,monospace;letter-spacing:.15em;text-transform:uppercase; }
+  .events-heading p { color:#94a79d;font-size:.88rem; }
+  .event-toolbar { display:flex;gap:8px;align-items:center;flex-wrap:wrap; }
+  .event-toolbar select,.events-shell select,.events-shell input,.events-shell textarea {
+    color:#e0ebe5;background:#111b19;border:1px solid #30423c;border-radius:7px;padding:9px 11px;font:inherit;
+  }
+  .events-shell input:focus,.events-shell textarea:focus,.events-shell select:focus { outline:1px solid #86c7bb;border-color:#86c7bb; }
+  .events-shell input[type="color"] { padding:3px;width:44px;height:38px; }
+  .events-shell textarea { min-height:76px;resize:vertical; }
+  .event-layout { display:grid;grid-template-columns:minmax(235px,290px) minmax(0,1fr);gap:17px;align-items:start; }
+  .events-shell .card { background:#18221f;border-color:#2b3a35;border-radius:11px; }
+  .events-shell .card h3 { color:#c9ded4; }
+  .event-list-card { padding:12px!important;position:sticky;top:16px; }
+  .event-list { display:flex;flex-direction:column;gap:5px; }
+  .event-list-item { width:100%;text-align:left;border:1px solid transparent;background:transparent;border-radius:8px;padding:12px;cursor:pointer;color:#dce8e1; }
+  .event-list-item:hover { background:#202e29; }
+  .event-list-item.selected { background:#233831;border-color:#45675c; }
+  .event-list-name { font-weight:650;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .event-list-meta { color:#8da198;font-size:.77rem;margin-top:6px;display:flex;justify-content:space-between;gap:8px; }
+  .event-status { display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:4px 9px;font-size:.72rem;text-transform:capitalize;font-weight:700;letter-spacing:.03em;background:#293832;color:#b1c6ba;white-space:nowrap; }
+  .event-status:before { content:"";width:6px;height:6px;border-radius:50%;background:currentColor; }
+  .event-status.active { color:#8ce0bd;background:#18372d; }
+  .event-status.upcoming { color:#d7bd81;background:#39311f; }
+  .event-status.completed,.event-status.archived { color:#9aa9a1;background:#29312e; }
+  .event-status.draft { color:#a7b2ac;background:#29302d; }
+  .event-detail-head { display:flex;justify-content:space-between;align-items:flex-start;gap:15px;flex-wrap:wrap; }
+  .event-detail-head h2 { font-size:1.38rem;letter-spacing:-.025em;color:#e5eee8;margin:4px 0 7px; }
+  .event-description { color:#a3b4ab;font-size:.9rem;line-height:1.55;max-width:70ch; }
+  .event-top-actions { display:flex;gap:7px;flex-wrap:wrap; }
+  .events-shell .btn-save { background:#276456;color:#effbf6; }
+  .events-shell .btn-save:hover { background:#327764; }
+  .events-shell .btn-edit { color:#b4d9cc;background:#203b33;border-color:#3b6557; }
+  .event-metrics { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:16px 0; }
+  .event-metric { background:#131d1a;border:1px solid #2a3a34;border-radius:8px;padding:12px;min-width:0; }
+  .event-metric span { color:#84988e;font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:5px; }
+  .event-metric strong { font-size:.98rem;color:#dce9e2;overflow:hidden;text-overflow:ellipsis;display:block; }
+  .event-subnav { display:flex;gap:6px;border-bottom:1px solid #2c3a35;margin:4px 0 16px;overflow:auto; }
+  .event-subnav button { border:0;border-bottom:2px solid transparent;background:transparent;color:#82958c;padding:11px 12px;cursor:pointer;white-space:nowrap;font-size:.85rem; }
+  .event-subnav button.active { color:#a8d8c9;border-color:#86c7bb; }
+  .event-panel { display:none; }
+  .event-panel.active { display:block;animation:fadeIn .18s ease-out; }
+  .event-section-title { display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px; }
+  .event-section-title h3 { margin:0!important; }
+  .event-form-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; }
+  .event-form-grid .field label,.events-shell .field label { color:#95a89e; }
+  .event-form-grid .field input,.event-form-grid .field select,.event-form-grid .field textarea { width:100%; }
+  .event-form-grid .wide { grid-column:1/-1; }
+  .event-inline-form { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:14px;background:#131d1a;border:1px solid #2b3b35;border-radius:8px;margin:0 0 14px; }
+  .event-inline-form .wide { grid-column:1/-1; }
+  .event-inline-form .field input,.event-inline-form .field select,.event-inline-form .field textarea { width:100%; }
+  .event-row { display:flex;gap:12px;align-items:center;padding:12px 2px;border-top:1px solid #293832; }
+  .event-row-main { flex:1;min-width:0; }
+  .event-row-main strong { color:#dce9e2;font-size:.9rem; }
+  .event-row-main small { display:block;color:#8da198;margin-top:4px;line-height:1.45; }
+  .event-row-actions { display:flex;gap:6px;align-items:center;flex-wrap:wrap; }
+  .event-empty { text-align:center;padding:35px 18px;color:#8fa197; }
+  .event-empty strong { display:block;color:#c6d7ce;font-size:1rem;margin-bottom:6px; }
+  .event-alert { border:1px solid #633b38;background:#301f1d;color:#e5aaa2;border-radius:8px;padding:12px;margin:10px 0; }
+  .event-loader { display:flex;gap:9px;align-items:center;color:#98aaa1;padding:18px; }
+  .event-loader:before { content:"";width:13px;height:13px;border:2px solid #3e6257;border-top-color:#a5d8c7;border-radius:50%;animation:eventSpin .8s linear infinite; }
+  .event-table-wrap { overflow-x:auto; }
+  .events-shell table { min-width:560px; }
+  .events-shell tbody td { color:#c4d1ca; }
+  .event-proof { color:#a8d8c9;text-decoration:none; }
+  .event-proof:hover { text-decoration:underline; }
+  .event-toolbar button:disabled,.event-row-actions button:disabled { opacity:.45;cursor:wait; }
+  @keyframes eventSpin { to { transform:rotate(360deg); } }
+  @media (max-width:850px) { .event-layout { grid-template-columns:1fr; } .event-list-card { position:static; } .event-list { display:grid;grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:600px) { .event-list { grid-template-columns:1fr; } .event-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .event-form-grid,.event-inline-form { grid-template-columns:1fr; } .event-form-grid .wide,.event-inline-form .wide { grid-column:auto; } .event-row { align-items:flex-start;flex-wrap:wrap; } .event-row-actions { width:100%; } }
   @media (max-width:700px) { main { padding:16px; } nav { width:155px; } .calendar-day { min-height:78px; padding:4px; } .calendar-year { grid-template-columns:repeat(2,1fr); } .calendar-event { font-size:.65rem; } }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 </style>
@@ -379,6 +452,7 @@
       <button onclick="showSection('users', this)">👥 Users</button>
       <button onclick="showSection('droptracker', this)">💰 Droptracker</button>
       <button onclick="showSection('bingo', this)">🎯 Bingo</button>
+      <button onclick="showSection('events', this)">Events</button>
     </nav>
 
     <main>
@@ -724,6 +798,34 @@
         </div>
       </div>
 
+      <!-- EVENTS -->
+      <div class="section events-shell" id="section-events">
+        <div class="events-heading">
+          <div>
+            <div class="events-kicker">Visionary · event operations</div>
+            <div class="section-title">Events</div>
+            <p>Build the challenge, keep the field moving, and settle the results.</p>
+          </div>
+          <div class="event-toolbar">
+            <select id="event-status-filter" aria-label="Filter events" onchange="renderEventList()">
+              <option value="all">All events</option><option value="draft">Draft</option><option value="upcoming">Upcoming</option>
+              <option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option>
+            </select>
+            <button class="btn-edit" onclick="loadEvents(true)">Refresh</button>
+            <button class="btn-save" onclick="openEventEditor()">Create event</button>
+          </div>
+        </div>
+        <div class="event-layout">
+          <aside class="card event-list-card">
+            <div class="event-section-title"><h3>Event register</h3><span id="events-count" style="font-size:.75rem;color:#82958c;"></span></div>
+            <div id="event-list" class="event-list"><div class="event-loader">Loading events</div></div>
+          </aside>
+          <div id="event-workspace">
+            <div class="card event-empty"><strong>Choose an event</strong>Select an event from the register, or create one to begin planning.</div>
+          </div>
+        </div>
+      </div>
+
       <div class="section" id="section-users">
         <div class="section-title">Users</div>
         <div class="search-row">
@@ -827,6 +929,10 @@
   let calendarEvents = [];
   let calendarView = 'month';
   let calendarDate = new Date();
+  let eventsCache = [];
+  let currentEventId = '';
+  let currentEventData = null;
+  let eventWorkspacePanel = 'overview';
 
   // ---- AUTH ----
   async function login() {
@@ -1286,6 +1392,7 @@
     if (name === 'mod-accounts') loadModAccounts();
     if (name === 'ranks') loadRanks();
     if (name === 'bingo') loadBingoState();
+    if (name === 'events') loadEvents();
   }
 
   // ---- CALENDAR ----
@@ -2224,6 +2331,514 @@
     }
     btn.disabled = false;
     btn.textContent = '🔍 Check Now';
+  }
+
+  // ---- EVENTS ----
+  const eventFormats = [
+    ['bingo', 'Team bingo / task board'],
+    ['race', 'Boss or collection race'],
+    ['drop', 'Drop competition'],
+    ['custom', 'Custom task / points']
+  ];
+  const eventStatuses = ['draft', 'upcoming', 'active', 'completed', 'archived'];
+  const eventDateValue = value => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  const eventDateLabel = value => value ? new Intl.DateTimeFormat(undefined, { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }).format(new Date(value)) : 'Not set';
+  const eventTitle = value => String(value || '').replace(/(^|[\s_-])([a-z])/g, (_, p, c) => `${p}${c.toUpperCase()}`);
+  const eventArg = value => `'${String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]/g, ' ')}'`;
+  async function eventResponse(res) {
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) throw new Error(data.error || data.message || `Request failed (${res.status})`);
+    return data;
+  }
+  function eventErrorHtml(message) {
+    return `<div class="event-alert">${esc(message)} <button class="btn-edit" onclick="loadEvents(true)" style="margin-left:8px;">Retry</button></div>`;
+  }
+  async function loadEvents(forceRefresh = false) {
+    const list = document.getElementById('event-list');
+    if (!list) return;
+    if (!eventsCache.length || forceRefresh) list.innerHTML = '<div class="event-loader">Loading events</div>';
+    try {
+      const data = await eventResponse(await api('GET', '/api/events'));
+      eventsCache = Array.isArray(data.events) ? data.events : [];
+      renderEventList();
+      if (currentEventId && eventsCache.some(e => e._id === currentEventId)) {
+        await loadEventDetail(currentEventId);
+      } else if (currentEventId && eventsCache.length) {
+        currentEventId = '';
+        currentEventData = null;
+        document.getElementById('event-workspace').innerHTML = '<div class="card event-empty"><strong>Event unavailable</strong>The selected event is no longer in the register. Select another event.</div>';
+      } else if (!eventsCache.length) {
+        currentEventId = '';
+        currentEventData = null;
+        document.getElementById('event-workspace').innerHTML = '<div class="card event-empty"><strong>No events yet</strong>Create an event to set the format, scoring, goals, and dates for your next clan challenge.</div>';
+      }
+    } catch (error) {
+      eventsCache = [];
+      list.innerHTML = eventErrorHtml(error.message || 'Could not load events.');
+      document.getElementById('events-count').textContent = '';
+    }
+  }
+  function renderEventList() {
+    const list = document.getElementById('event-list');
+    if (!list) return;
+    const filter = document.getElementById('event-status-filter')?.value || 'all';
+    const filtered = eventsCache.filter(event => filter === 'all' || event.status === filter)
+      .sort((a, b) => new Date(a.startsAt || a.createdAt || 0) - new Date(b.startsAt || b.createdAt || 0));
+    document.getElementById('events-count').textContent = `${filtered.length} shown`;
+    list.innerHTML = filtered.length ? filtered.map(event => `
+      <button class="event-list-item ${event._id === currentEventId ? 'selected' : ''}" onclick="selectEvent(${eventArg(event._id)})">
+        <span class="event-list-name">${esc(event.name || 'Untitled event')}</span>
+        <span class="event-list-meta"><span class="event-status ${escAttr(event.status || 'draft')}">${esc(event.status || 'draft')}</span><span>${event.startsAt ? esc(new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric'}).format(new Date(event.startsAt))) : 'Unscheduled'}</span></span>
+      </button>`).join('') : `<div class="event-empty" style="padding:22px 8px;"><strong>${eventsCache.length ? 'No matches' : 'No events recorded'}</strong>${eventsCache.length ? 'Try another lifecycle filter.' : 'Use Create event to start the register.'}</div>`;
+  }
+  async function selectEvent(id) {
+    currentEventId = id;
+    currentEventData = null;
+    eventWorkspacePanel = 'overview';
+    renderEventList();
+    await loadEventDetail(id);
+  }
+  async function loadEventDetail(id = currentEventId) {
+    if (!id) return;
+    const host = document.getElementById('event-workspace');
+    host.innerHTML = '<div class="card event-loader">Loading event operations</div>';
+    try {
+      const data = await eventResponse(await api('GET', `/api/events/${encodeURIComponent(id)}`));
+      currentEventId = id;
+      currentEventData = {
+        event: data.event,
+        submissions: Array.isArray(data.submissions) ? data.submissions : [],
+        leaderboard: Array.isArray(data.leaderboard) ? data.leaderboard : []
+      };
+      renderEventWorkspace();
+      renderEventList();
+    } catch (error) {
+      host.innerHTML = `<div class="card">${eventErrorHtml(error.message || 'Could not load this event.')}</div>`;
+    }
+  }
+  function eventTabs() {
+    return `<div class="event-subnav">
+      ${[['overview','Overview'],['goals','Goals & tasks'],['teams','Teams'],['participants','Participants'],['submissions','Results'],['standings','Standings']].map(([key,label]) =>
+        `<button class="${eventWorkspacePanel === key ? 'active' : ''}" onclick="switchEventPanel('${key}')">${label}${key === 'submissions' && currentEventData?.submissions.filter(s => s.status === 'pending').length ? ` <span style="color:#e2bf78;">${currentEventData.submissions.filter(s => s.status === 'pending').length}</span>` : ''}</button>`
+      ).join('')}
+    </div>`;
+  }
+  function renderEventWorkspace() {
+    const host = document.getElementById('event-workspace');
+    const data = currentEventData;
+    if (!host || !data?.event) return;
+    const event = data.event;
+    const participantCount = event.participants?.length || 0;
+    const teamCount = event.teams?.length || 0;
+    const pending = data.submissions.filter(s => s.status === 'pending').length;
+    const statusClass = event.status || 'draft';
+    host.innerHTML = `<div class="card">
+      <div class="event-detail-head">
+        <div style="min-width:220px;flex:1;">
+          <span class="event-status ${escAttr(statusClass)}">${esc(statusClass)}</span>
+          <h2>${esc(event.name || 'Untitled event')}</h2>
+          <p class="event-description">${esc(event.description || 'No event brief has been added.')}</p>
+        </div>
+        <div class="event-top-actions">
+          <button class="btn-edit" onclick="openEventEditor(${eventArg(event._id)})">Edit configuration</button>
+          <button class="btn-danger" onclick="deleteManagedEvent(${eventArg(event._id)})">Delete</button>
+        </div>
+      </div>
+      <div class="event-metrics">
+        <div class="event-metric"><span>Format</span><strong>${esc(eventFormatLabel(event.format))}</strong></div>
+        <div class="event-metric"><span>Field</span><strong>${participantCount} ${participantCount === 1 ? 'member' : 'members'}${event.participationMode === 'team' ? ` · ${teamCount} teams` : ''}</strong></div>
+        <div class="event-metric"><span>Window opens</span><strong>${esc(eventDateLabel(event.startsAt))}</strong></div>
+        <div class="event-metric"><span>${pending ? 'Needs review' : 'Closes'}</span><strong>${pending ? `${pending} pending` : esc(eventDateLabel(event.endsAt))}</strong></div>
+      </div>
+      ${eventTabs()}
+      ${renderEventPanel()}
+    </div>`;
+  }
+  function eventFormatLabel(format) {
+    return eventFormats.find(([value]) => value === format)?.[1] || eventTitle(format || 'Unspecified');
+  }
+  function switchEventPanel(panel) {
+    eventWorkspacePanel = panel;
+    renderEventWorkspace();
+  }
+  function renderEventPanel() {
+    const data = currentEventData, event = data.event;
+    if (eventWorkspacePanel === 'goals') return renderGoalsPanel(event);
+    if (eventWorkspacePanel === 'teams') return renderTeamsPanel(event);
+    if (eventWorkspacePanel === 'participants') return renderParticipantsPanel(event);
+    if (eventWorkspacePanel === 'submissions') return renderSubmissionsPanel(data.submissions);
+    if (eventWorkspacePanel === 'standings') return renderStandingsPanel(data.leaderboard);
+    return `<div class="event-panel active">
+      <div class="event-section-title"><h3>Operations brief</h3><button class="btn-edit" onclick="loadEventDetail()">Refresh event</button></div>
+      <div class="event-metrics" style="margin:0 0 15px;">
+        <div class="event-metric"><span>Participation</span><strong>${esc(eventTitle(event.participationMode || 'solo'))}</strong></div>
+        <div class="event-metric"><span>Scoring preset</span><strong>${esc(eventTitle(event.scoringMode || 'task-points'))}</strong></div>
+        <div class="event-metric"><span>Goals / tasks</span><strong>${event.goals?.length || 0}</strong></div>
+        <div class="event-metric"><span>Submitted results</span><strong>${data.submissions.length}</strong></div>
+      </div>
+      <p style="color:#91a49b;font-size:.86rem;line-height:1.6;">Configure the event window and scoring, then add goals or teams before opening participation. Pending result evidence is reviewed in Results; verified scores update the standings.</p>
+    </div>`;
+  }
+  function openEventEditor(id = '') {
+    const existing = id ? (currentEventData?.event?._id === id ? currentEventData.event : eventsCache.find(event => event._id === id)) : null;
+    if (id && !existing) return showToast('Select an event before editing.', true);
+    const event = existing || {};
+    const scoringConfig = event.scoringConfig && typeof event.scoringConfig === 'object' ? event.scoringConfig : {};
+    const formatOptions = eventFormats.map(([value,label]) => `<option value="${value}" ${event.format === value ? 'selected' : ''}>${label}</option>`).join('');
+    const statusOptions = eventStatuses.map(value => `<option value="${value}" ${(event.status || 'draft') === value ? 'selected' : ''}>${eventTitle(value)}</option>`).join('');
+    const currentMode = event.scoringMode || 'task-points';
+    const currentParticipation = event.participationMode || 'solo';
+    const scoringDefaults = {
+      pointsPerUnit: scoringConfig.pointsPerUnit ?? 1,
+      firstPlaceBonus: scoringConfig.firstPlaceBonus ?? 0,
+      lineBonus: scoringConfig.lineBonus ?? 0,
+      gridSize: scoringConfig.gridSize ?? 5
+    };
+    document.getElementById('event-workspace').innerHTML = `<div class="card">
+      <div class="event-section-title"><div><div class="events-kicker">${id ? 'Event configuration' : 'New event setup'}</div><h3 style="font-size:1.2rem;margin:4px 0 0!important;">${id ? `Edit ${esc(event.name || 'event')}` : 'Create an event'}</h3></div></div>
+      <form id="managed-event-form" onsubmit="saveManagedEvent(event,${eventArg(id)})">
+        <div class="event-form-grid">
+          <div class="field"><label for="ev-name">Event name</label><input id="ev-name" required maxlength="100" value="${escAttr(event.name || '')}" placeholder="Winter bossing league"></div>
+          <div class="field"><label for="ev-format">Format</label><select id="ev-format">${formatOptions}</select></div>
+          <div class="field wide"><label for="ev-description">Brief</label><textarea id="ev-description" maxlength="2000" placeholder="What are members competing to do?">${esc(event.description || '')}</textarea></div>
+          <div class="field"><label for="ev-status">Lifecycle</label><select id="ev-status">${statusOptions}</select></div>
+          <div class="field"><label for="ev-participation">Participation</label><select id="ev-participation"><option value="solo" ${currentParticipation === 'solo' ? 'selected' : ''}>Solo</option><option value="team" ${currentParticipation === 'team' ? 'selected' : ''}>Team</option></select></div>
+          <div class="field"><label for="ev-start">Starts</label><input id="ev-start" type="datetime-local" required value="${eventDateValue(event.startsAt)}"></div>
+          <div class="field"><label for="ev-end">Ends</label><input id="ev-end" type="datetime-local" required value="${eventDateValue(event.endsAt)}"></div>
+          <div class="field wide"><label for="ev-scoring-mode">Scoring preset</label><select id="ev-scoring-mode" onchange="setScoringPreset(this.value)">
+            <option value="task-points" ${currentMode === 'task-points' ? 'selected' : ''}>Task points</option>
+            <option value="points-per-unit" ${currentMode === 'points-per-unit' ? 'selected' : ''}>Points per unit</option>
+            <option value="highest-value" ${currentMode === 'highest-value' ? 'selected' : ''}>Highest value</option>
+            <option value="first-to-target" ${currentMode === 'first-to-target' ? 'selected' : ''}>First to target</option>
+          </select></div>
+          <div class="field"><label for="ev-points-per-unit">Points per unit</label><input id="ev-points-per-unit" type="number" step="any" value="${escAttr(scoringDefaults.pointsPerUnit)}"></div>
+          <div class="field"><label for="ev-first-place-bonus">First-place bonus</label><input id="ev-first-place-bonus" type="number" step="any" value="${escAttr(scoringDefaults.firstPlaceBonus)}"></div>
+          <div class="field"><label for="ev-line-bonus">Line bonus</label><input id="ev-line-bonus" type="number" step="any" value="${escAttr(scoringDefaults.lineBonus)}"></div>
+          <div class="field"><label for="ev-grid-size">Grid size</label><input id="ev-grid-size" type="number" step="1" min="1" value="${escAttr(scoringDefaults.gridSize)}"></div>
+        </div>
+        <p style="color:#81958b;font-size:.76rem;margin-top:12px;">Adjust the supported scoring values for this preset. Bingo task boards use grid size and line bonus.</p>
+        <div class="save-row">
+          <button class="btn-save" type="submit">${id ? 'Save configuration' : 'Create event'}</button>
+          <button class="btn-cancel" type="button" onclick="${id ? 'loadEventDetail()' : 'cancelEventCreate()'}">Cancel</button>
+        </div>
+      </form>
+    </div>`;
+  }
+  function setScoringPreset(mode) {
+    const modeEl = document.getElementById('ev-scoring-mode');
+    if (!modeEl) return;
+    modeEl.value = mode;
+    const presets = {
+      'task-points': { pointsPerUnit: 1, firstPlaceBonus: 0, lineBonus: 0, gridSize: 5 },
+      'points-per-unit': { pointsPerUnit: 1, firstPlaceBonus: 0, lineBonus: 0, gridSize: 5 },
+      'highest-value': { pointsPerUnit: 1, firstPlaceBonus: 0, lineBonus: 0, gridSize: 5 },
+      'first-to-target': { pointsPerUnit: 1, firstPlaceBonus: 0, lineBonus: 0, gridSize: 5 }
+    };
+    const values = presets[mode];
+    if (!values) return;
+    document.getElementById('ev-points-per-unit').value = values.pointsPerUnit;
+    document.getElementById('ev-first-place-bonus').value = values.firstPlaceBonus;
+    document.getElementById('ev-line-bonus').value = values.lineBonus;
+    document.getElementById('ev-grid-size').value = values.gridSize;
+  }
+  function cancelEventCreate() {
+    if (currentEventId) loadEventDetail();
+    else document.getElementById('event-workspace').innerHTML = '<div class="card event-empty"><strong>Choose an event</strong>Select an event from the register, or create one to begin planning.</div>';
+  }
+  async function saveManagedEvent(e, id) {
+    e.preventDefault();
+    const startValue = document.getElementById('ev-start').value;
+    const endValue = document.getElementById('ev-end').value;
+    if (!startValue || !endValue) return showToast('Start and end dates are required.', true);
+    if (new Date(endValue) <= new Date(startValue)) return showToast('The end must be after the start.', true);
+    const pointsPerUnit = Number(document.getElementById('ev-points-per-unit').value);
+    const firstPlaceBonus = Number(document.getElementById('ev-first-place-bonus').value);
+    const lineBonus = Number(document.getElementById('ev-line-bonus').value);
+    const gridSize = Number(document.getElementById('ev-grid-size').value);
+    if (![pointsPerUnit, firstPlaceBonus, lineBonus, gridSize].every(Number.isFinite) || !Number.isInteger(gridSize) || gridSize < 1) {
+      return showToast('Enter valid numeric scoring values and a whole-number grid size.', true);
+    }
+    const scoringConfig = { pointsPerUnit, firstPlaceBonus, lineBonus, gridSize };
+    const body = {
+      name: document.getElementById('ev-name').value.trim(),
+      description: document.getElementById('ev-description').value.trim(),
+      format: document.getElementById('ev-format').value,
+      status: document.getElementById('ev-status').value,
+      startsAt: new Date(startValue).toISOString(),
+      endsAt: new Date(endValue).toISOString(),
+      participationMode: document.getElementById('ev-participation').value,
+      scoringMode: document.getElementById('ev-scoring-mode').value,
+      scoringConfig
+    };
+    const submit = e.submitter;
+    if (submit) { submit.disabled = true; submit.textContent = 'Saving…'; }
+    try {
+      if (id) {
+        await eventResponse(await api('PATCH', `/api/events/${encodeURIComponent(id)}`, body));
+        currentEventId = id;
+      } else {
+        const result = await eventResponse(await api('POST', '/api/events', { ...body, goals: [] }));
+        currentEventId = result.event?._id || result._id || '';
+      }
+      showToast(id ? 'Event configuration saved.' : 'Event created.');
+      await loadEvents(true);
+      if (!currentEventId) {
+        const latest = eventsCache.find(event => event.name === body.name);
+        if (latest) currentEventId = latest._id;
+      }
+      if (currentEventId) await loadEventDetail(currentEventId);
+    } catch (error) {
+      showToast(error.message || 'Could not save the event.', true);
+      if (submit) { submit.disabled = false; submit.textContent = id ? 'Save configuration' : 'Create event'; }
+    }
+  }
+  async function deleteManagedEvent(id) {
+    const event = currentEventData?.event;
+    if (!confirm(`Delete "${event?.name || 'this event'}" and its event data? This cannot be undone.`)) return;
+    try {
+      await eventResponse(await api('DELETE', `/api/events/${encodeURIComponent(id)}`));
+      showToast('Event deleted.');
+      currentEventId = '';
+      currentEventData = null;
+      await loadEvents(true);
+    } catch (error) { showToast(error.message || 'Could not delete event.', true); }
+  }
+  function renderGoalsPanel(event) {
+    const goals = event.goals || [];
+    return `<div class="event-panel active">
+      <div class="event-section-title"><h3>Goals & tasks <span style="font-size:.75rem;color:#82958c;">${goals.length}</span></h3></div>
+      <form class="event-inline-form" onsubmit="createEventGoal(event)">
+        <div class="field"><label>Task name</label><input name="name" required maxlength="120" placeholder="First Theatre of Blood clear"></div>
+        <div class="field"><label>Kind</label><select name="kind" required><option value="task">Task</option><option value="counter">Counter</option><option value="drop">Drop</option><option value="collection">Collection</option></select></div>
+        <div class="field"><label>Target value</label><input name="targetValue" type="number" step="any" value="1"></div>
+        <div class="field"><label>Unit</label><input name="unit" placeholder="kills, items, points"></div>
+        <div class="field"><label>Points</label><input name="points" type="number" step="any" value="1"></div>
+        <div class="field"><label>Verification</label><select name="verification" required><option value="proof">Proof review</option><option value="droptracker">Droptracker match</option></select></div>
+        <div class="field wide"><label>Description</label><input name="description" maxlength="500" placeholder="Task instructions"></div>
+        <div class="field"><label>NPC name · drop criteria</label><input name="npcName" placeholder="Boss or NPC"></div>
+        <div class="field"><label>Item name · drop criteria</label><input name="itemName" placeholder="Drop item"></div>
+        <div class="field"><label>Minimum value · drop criteria</label><input name="minValue" type="number" step="any" placeholder="Optional"></div>
+        <div class="field"><label>Row · bingo task</label><input name="row" type="number" step="1" min="1" placeholder="Optional integer"></div>
+        <div class="field"><label>Column · bingo task</label><input name="column" type="number" step="1" min="1" placeholder="Optional integer"></div>
+        <p class="wide" style="color:#81958b;font-size:.76rem;">Droptracker can match automatically when configured. Members can still submit proof for moderator review. NPC, item, and minimum value describe drop criteria; row and column are optional bingo coordinates.</p>
+        <div class="wide"><button class="btn-save" type="submit">Add goal</button></div>
+      </form>
+      <div id="event-goal-edit"></div>
+      ${goals.length ? goals.map(goal => `<div class="event-row">
+        <div class="event-row-main"><strong>${esc(goal.name)}</strong><small>${esc(goal.description || 'No additional instructions')} · ${esc(String(goal.targetValue ?? 1))} ${esc(goal.unit || goal.kind || 'target')} · ${esc(String(goal.points ?? 0))} pts · ${esc(goal.verification || 'proof')} · ${esc(goalCriteriaLabel(goal.criteria))}</small></div>
+        <div class="event-row-actions"><button class="btn-edit" onclick="openGoalEditor(${eventArg(goal._id)})">Edit</button><button class="btn-danger" onclick="deleteEventGoal(${eventArg(goal._id)})">Delete</button></div>
+      </div>`).join('') : '<div class="event-empty"><strong>No goals configured</strong>Add the tasks that members need to complete and submit.</div>'}
+    </div>`;
+  }
+  function goalCriteriaLabel(criteria) {
+    if (!criteria || typeof criteria !== 'object') return 'No criteria';
+    const labels = [];
+    if (criteria.npcName) labels.push(`NPC ${criteria.npcName}`);
+    if (criteria.itemName) labels.push(`Item ${criteria.itemName}`);
+    if (criteria.minValue != null && criteria.minValue !== '') labels.push(`Min ${criteria.minValue}`);
+    if (criteria.row != null && criteria.row !== '') labels.push(`Row ${criteria.row}`);
+    if (criteria.column != null && criteria.column !== '') labels.push(`Column ${criteria.column}`);
+    return labels.length ? labels.join(' · ') : 'No criteria';
+  }
+  function openGoalEditor(goalId) {
+    const goal = currentEventData?.event.goals?.find(item => item._id === goalId);
+    const host = document.getElementById('event-goal-edit');
+    if (!goal || !host) return;
+    const criteria = goal.criteria && typeof goal.criteria === 'object' ? goal.criteria : {};
+    host.innerHTML = `<form class="event-inline-form" onsubmit="saveEventGoal(event,${eventArg(goalId)})">
+      <div class="field"><label>Task name</label><input name="name" required value="${escAttr(goal.name || '')}"></div>
+      <div class="field"><label>Kind</label><select name="kind" required>${[['task','Task'],['counter','Counter'],['drop','Drop'],['collection','Collection']].map(([value,label]) => `<option value="${value}" ${goal.kind === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+      <div class="field"><label>Target value</label><input name="targetValue" type="number" step="any" value="${escAttr(goal.targetValue ?? '')}"></div>
+      <div class="field"><label>Unit</label><input name="unit" value="${escAttr(goal.unit || '')}"></div>
+      <div class="field"><label>Points</label><input name="points" type="number" step="any" value="${escAttr(goal.points ?? '')}"></div>
+      <div class="field"><label>Verification</label><select name="verification" required><option value="proof" ${goal.verification === 'proof' || !goal.verification ? 'selected' : ''}>Proof review</option><option value="droptracker" ${goal.verification === 'droptracker' ? 'selected' : ''}>Droptracker match</option></select></div>
+      <div class="field wide"><label>Description</label><input name="description" value="${escAttr(goal.description || '')}"></div>
+      <div class="field"><label>NPC name · drop criteria</label><input name="npcName" value="${escAttr(criteria.npcName || '')}"></div>
+      <div class="field"><label>Item name · drop criteria</label><input name="itemName" value="${escAttr(criteria.itemName || '')}"></div>
+      <div class="field"><label>Minimum value · drop criteria</label><input name="minValue" type="number" step="any" value="${escAttr(criteria.minValue ?? '')}"></div>
+      <div class="field"><label>Row · bingo task</label><input name="row" type="number" step="1" min="1" value="${escAttr(criteria.row ?? '')}" placeholder="Optional integer"></div>
+      <div class="field"><label>Column · bingo task</label><input name="column" type="number" step="1" min="1" value="${escAttr(criteria.column ?? '')}" placeholder="Optional integer"></div>
+      <div class="wide"><button class="btn-save" type="submit">Save goal</button> <button class="btn-cancel" type="button" onclick="document.getElementById('event-goal-edit').innerHTML=''">Cancel</button></div>
+    </form>`;
+  }
+  async function createEventGoal(e) {
+    e.preventDefault();
+    let body;
+    try { body = eventGoalFormBody(new FormData(e.currentTarget)); }
+    catch (error) { return showToast(error.message, true); }
+    await runEventMutation(() => api('POST', `/api/events/${encodeURIComponent(currentEventId)}/goals`, body), 'Goal added.');
+  }
+  function eventGoalFormBody(form) {
+    const numeric = key => form.get(key) === '' ? 0 : Number(form.get(key));
+    const optionalNumber = key => {
+      const raw = String(form.get(key) ?? '').trim();
+      return raw === '' ? null : Number(raw);
+    };
+    const optionalInteger = key => {
+      const raw = String(form.get(key) ?? '').trim();
+      if (raw === '') return undefined;
+      const value = Number(raw);
+      return Number.isInteger(value) ? value : NaN;
+    };
+    const row = optionalInteger('row'), column = optionalInteger('column');
+    const minValue = optionalNumber('minValue');
+    if ((row !== undefined && !Number.isInteger(row)) || (column !== undefined && !Number.isInteger(column)) ||
+        (minValue !== null && !Number.isFinite(minValue))) {
+      throw new Error('Criteria values must be valid numbers; bingo row and column must be whole numbers.');
+    }
+    const criteria = {
+      npcName:String(form.get('npcName') || '').trim(),
+      itemName:String(form.get('itemName') || '').trim(),
+      minValue
+    };
+    if (row !== undefined) criteria.row = row;
+    if (column !== undefined) criteria.column = column;
+    return { name:String(form.get('name') || '').trim(), description:String(form.get('description') || '').trim(), kind:String(form.get('kind') || '').trim(), targetValue:numeric('targetValue'), unit:String(form.get('unit') || '').trim(), points:numeric('points'), verification:String(form.get('verification') || '').trim(), criteria };
+  }
+  async function saveEventGoal(e, goalId) {
+    e.preventDefault();
+    let body;
+    try { body = eventGoalFormBody(new FormData(e.currentTarget)); }
+    catch (error) { return showToast(error.message, true); }
+    await runEventMutation(() => api('PATCH', `/api/events/${encodeURIComponent(currentEventId)}/goals/${encodeURIComponent(goalId)}`, body), 'Goal updated.');
+  }
+  async function deleteEventGoal(goalId) {
+    const goal = currentEventData?.event.goals?.find(item => item._id === goalId);
+    if (!confirm(`Delete the goal "${goal?.name || 'this goal'}"?`)) return;
+    await runEventMutation(() => api('DELETE', `/api/events/${encodeURIComponent(currentEventId)}/goals/${encodeURIComponent(goalId)}`), 'Goal deleted.');
+  }
+  function renderTeamsPanel(event) {
+    const teams = event.teams || [];
+    return `<div class="event-panel active">
+      <div class="event-section-title"><h3>Teams</h3></div>
+      <form class="event-inline-form" onsubmit="createEventTeam(event)">
+        <div class="field"><label>Team name</label><input name="name" required maxlength="80" placeholder="The Fremennik Four"></div>
+        <div class="field"><label>Team colour</label><input name="color" type="color" value="#86c7bb"></div>
+        <div class="wide"><button class="btn-save" type="submit">Create team</button></div>
+      </form>
+      <div id="event-team-edit"></div>
+      ${teams.length ? teams.map(team => `<div class="event-row">
+        <span style="width:13px;height:13px;border-radius:4px;background:${/^#[0-9a-f]{6}$/i.test(team.color || '') ? team.color : '#60756b'};flex:none;"></span>
+        <div class="event-row-main"><strong>${esc(team.name)}</strong><small>${(event.participants || []).filter(person => person.teamId === team._id).length} enrolled members</small></div>
+        <div class="event-row-actions"><button class="btn-edit" onclick="openTeamEditor(${eventArg(team._id)})">Edit</button><button class="btn-danger" onclick="deleteEventTeam(${eventArg(team._id)})">Delete</button></div>
+      </div>`).join('') : '<div class="event-empty"><strong>No teams yet</strong>Create teams here, then assign enrolled members from Participants.</div>'}
+    </div>`;
+  }
+  function openTeamEditor(teamId) {
+    const team = currentEventData?.event.teams?.find(item => item._id === teamId);
+    const host = document.getElementById('event-team-edit');
+    if (!team || !host) return;
+    host.innerHTML = `<form class="event-inline-form" onsubmit="saveEventTeam(event,${eventArg(teamId)})">
+      <div class="field"><label>Team name</label><input name="name" required value="${escAttr(team.name || '')}"></div>
+      <div class="field"><label>Team colour</label><input name="color" type="color" value="${/^#[0-9a-f]{6}$/i.test(team.color || '') ? team.color : '#86c7bb'}"></div>
+      <div class="wide"><button class="btn-save" type="submit">Save team</button> <button class="btn-cancel" type="button" onclick="document.getElementById('event-team-edit').innerHTML=''">Cancel</button></div>
+    </form>`;
+  }
+  async function createEventTeam(e) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    await runEventMutation(() => api('POST', `/api/events/${encodeURIComponent(currentEventId)}/teams`, { name:String(form.get('name')).trim(), color:String(form.get('color')) }), 'Team created.');
+  }
+  async function saveEventTeam(e, teamId) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    await runEventMutation(() => api('PATCH', `/api/events/${encodeURIComponent(currentEventId)}/teams/${encodeURIComponent(teamId)}`, { name:String(form.get('name')).trim(), color:String(form.get('color')) }), 'Team updated.');
+  }
+  async function deleteEventTeam(teamId) {
+    const team = currentEventData?.event.teams?.find(item => item._id === teamId);
+    if (!confirm(`Delete team "${team?.name || 'this team'}"?`)) return;
+    await runEventMutation(() => api('DELETE', `/api/events/${encodeURIComponent(currentEventId)}/teams/${encodeURIComponent(teamId)}`), 'Team deleted.');
+  }
+  function renderParticipantsPanel(event) {
+    const people = event.participants || [], teams = event.teams || [];
+    return `<div class="event-panel active">
+      <div class="event-section-title"><h3>Enrolled participants <span style="font-size:.75rem;color:#82958c;">${people.length}</span></h3></div>
+      ${people.length ? `<div class="event-table-wrap"><table><thead><tr><th>Member</th><th>Joined</th><th>Team assignment</th></tr></thead><tbody>${people.map(person => `<tr>
+        <td>${esc(person.username || person.userId)}</td>
+        <td>${esc(person.joinedAt ? eventDateLabel(person.joinedAt) : '—')}</td>
+        <td><select aria-label="Team for ${escAttr(person.username || person.userId)}" onchange="assignEventParticipant(${eventArg(person.userId)},this.value)">
+          <option value="" ${!person.teamId ? 'selected' : ''}>No team</option>
+          ${teams.map(team => `<option value="${escAttr(team._id)}" ${person.teamId === team._id ? 'selected' : ''}>${esc(team.name)}</option>`).join('')}
+        </select></td>
+      </tr>`).join('')}</tbody></table></div>` : '<div class="event-empty"><strong>No participants enrolled</strong>Members who join through Discord will appear here.</div>'}
+    </div>`;
+  }
+  async function assignEventParticipant(userId, teamId) {
+    await runEventMutation(() => api('PATCH', `/api/events/${encodeURIComponent(currentEventId)}/participants/${encodeURIComponent(userId)}`, { teamId:teamId || null }), 'Participant assignment updated.');
+  }
+  function renderSubmissionsPanel(submissions) {
+    const pendingCount = submissions.filter(item => item.status === 'pending').length;
+    const filter = document.getElementById('event-submission-filter')?.value || 'all';
+    const filtered = submissions.filter(item => filter === 'all' || item.status === filter);
+    return `<div class="event-panel active">
+      <div class="event-section-title"><div><h3>Submitted results <span style="font-size:.75rem;color:#82958c;">${pendingCount} pending</span></h3></div>
+        <div style="display:flex;gap:7px;align-items:center;"><select id="event-submission-filter" aria-label="Filter submissions" onchange="renderEventWorkspace()">
+          ${['all','pending','approved','rejected'].map(value => `<option value="${value}" ${filter === value ? 'selected' : ''}>${eventTitle(value)}</option>`).join('')}
+        </select><button class="btn-edit" onclick="loadEventDetail()">Refresh</button></div>
+      </div>
+      ${filtered.length ? filtered.map(item => {
+        let proof = '';
+        try { const parsed = new URL(item.proofUrl); if (parsed.protocol === 'http:' || parsed.protocol === 'https:') proof = parsed.href; } catch (_) {}
+        return `<div class="event-row" style="align-items:flex-start;">
+          <div class="event-row-main">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong>${esc(item.username || item.submittedById)}</strong><span class="event-status ${escAttr(item.status || 'pending')}">${esc(item.status || 'pending')}</span></div>
+            <small>${esc(item.goalName || 'Result')} · ${esc(String(item.value ?? '—'))}${item.teamName ? ` · ${esc(item.teamName)}` : ''} · ${esc(item.createdAt ? eventDateLabel(item.createdAt) : 'Date not recorded')}</small>
+            ${item.note ? `<small>Note: ${esc(item.note)}</small>` : ''}
+            ${proof ? `<small><a class="event-proof" href="${escAttr(proof)}" target="_blank" rel="noopener noreferrer">Open evidence</a></small>` : item.proofUrl ? '<small>Evidence link is not a valid web URL.</small>' : '<small>No evidence link provided.</small>'}
+            ${item.reviewNote ? `<small>Moderator note: ${esc(item.reviewNote)}</small>` : ''}
+            ${item.pointsAwarded != null ? `<small>Points awarded: ${esc(String(item.pointsAwarded))}</small>` : ''}
+            ${item.status === 'pending' ? `<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:9px;"><input id="event-review-note-${escAttr(item._id)}" aria-label="Review note" placeholder="Optional moderator note" style="max-width:250px;padding:7px 9px;"><button class="btn-edit" onclick="reviewEventSubmission(${eventArg(item._id)},'approve')">Approve</button><button class="btn-danger" onclick="reviewEventSubmission(${eventArg(item._id)},'reject')">Reject</button></div>` : ''}
+          </div>
+        </div>`;
+      }).join('') : `<div class="event-empty"><strong>${submissions.length ? 'No results in this view' : 'No submissions yet'}</strong>${submissions.length ? 'Choose another review status.' : 'Member submissions and evidence will appear here.'}</div>`}
+    </div>`;
+  }
+  async function reviewEventSubmission(submissionId, decision) {
+    const note = document.getElementById(`event-review-note-${submissionId}`)?.value.trim() || '';
+    if (decision === 'reject' && !confirm('Reject this submitted result?')) return;
+    await runEventMutation(() => api('POST', `/api/events/${encodeURIComponent(currentEventId)}/submissions/${encodeURIComponent(submissionId)}/review`, { decision, note }), decision === 'approve' ? 'Result approved.' : 'Result rejected.');
+  }
+  function renderStandingsPanel(leaderboard) {
+    const event = currentEventData.event;
+    const type = event.participationMode === 'team' ? 'team' : 'solo';
+    const options = leaderboard.map(item => `<option value="${escAttr(item.targetId)}" data-type="${escAttr(item.targetType || type)}">${esc(item.name)}</option>`).join('');
+    return `<div class="event-panel active">
+      <div class="event-section-title"><h3>Standings</h3><button class="btn-edit" onclick="loadEventDetail()">Refresh</button></div>
+      ${leaderboard.length ? `<div class="event-table-wrap"><table><thead><tr><th>Place</th><th>${type === 'team' ? 'Team' : 'Member'}</th><th>Points</th><th>Goals</th><th>Submissions</th></tr></thead><tbody>${leaderboard.map((entry,index) => `<tr>
+        <td>${String(index + 1).padStart(2,'0')}</td><td>${esc(entry.name)}${entry.color ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${/^#[0-9a-f]{6}$/i.test(entry.color) ? entry.color : '#789'};margin-left:7px;"></span>` : ''}</td>
+        <td><strong>${esc(String(entry.points ?? 0))}</strong></td><td>${esc(String(entry.completedGoals ?? 0))}</td><td>${esc(String(entry.submissions ?? 0))}</td>
+      </tr>`).join('')}</tbody></table></div>` : '<div class="event-empty"><strong>Standings will appear here</strong>No score entries have been recorded for this event.</div>'}
+      <form class="event-inline-form" onsubmit="adjustEventScore(event)">
+        <div class="field"><label>Participant or team</label><select name="targetId" required ${leaderboard.length ? '' : 'disabled'}>${leaderboard.length ? options : '<option value="">No score targets available</option>'}</select></div>
+        <div class="field"><label>Score target type</label><select name="targetType"><option value="solo">Solo</option><option value="team" ${type === 'team' ? 'selected' : ''}>Team</option></select></div>
+        <div class="field"><label>Points adjustment</label><input name="points" type="number" step="any" required placeholder="12 or -3"></div>
+        <div class="field"><label>Reason</label><input name="reason" required maxlength="300" placeholder="Reason for moderator adjustment"></div>
+        <div class="wide"><button class="btn-save" type="submit" ${leaderboard.length ? '' : 'disabled'}>Apply adjustment</button></div>
+      </form>
+    </div>`;
+  }
+  async function adjustEventScore(e) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const body = { targetId:String(form.get('targetId')), targetType:String(form.get('targetType')), points:Number(form.get('points')), reason:String(form.get('reason')).trim() };
+    if (!Number.isFinite(body.points)) return showToast('Enter a valid points adjustment.', true);
+    await runEventMutation(() => api('POST', `/api/events/${encodeURIComponent(currentEventId)}/score-adjustments`, body), 'Moderator score adjustment recorded.');
+  }
+  async function runEventMutation(request, successMessage) {
+    try {
+      await eventResponse(await request());
+      showToast(successMessage);
+      await loadEvents(true);
+      if (currentEventId) await loadEventDetail(currentEventId);
+    } catch (error) {
+      showToast(error.message || 'Event change could not be saved.', true);
+    }
   }
 </script>
 </body>

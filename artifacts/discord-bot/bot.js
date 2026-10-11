@@ -7,6 +7,21 @@ const crypto = require('crypto');
 const cron = require('node-cron');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const {
+  OsrsEvent,
+  EventSubmission,
+  EVENT_FORMATS,
+  EVENT_STATUSES,
+  PARTICIPATION_MODES,
+  SCORING_MODES,
+  GOAL_KINDS,
+  VERIFICATION_MODES,
+  normalizeGoal,
+  normalizeEventInput,
+  goalById,
+  leaderboardFor,
+} = require('./events-domain');
+const { createEventService } = require('./event-service');
 
 
 // --- MongoDB: User Schema ---
@@ -238,6 +253,22 @@ const SLASH_COMMANDS = [
   new SlashCommandBuilder().setName('syncdroptracker').setDescription('Sync members from Droptracker (mods)'),
   new SlashCommandBuilder().setName('syncwom').setDescription('Sync clan join dates from Wise Old Man (mods)'),
   new SlashCommandBuilder().setName('checkranks').setDescription('Run a rank-up check now (mods)'),
+  new SlashCommandBuilder().setName('event').setDescription('Join and track OSRS clan events')
+    .addSubcommand(sub => sub.setName('list').setDescription('List upcoming and active events'))
+    .addSubcommand(sub => sub.setName('join').setDescription('Join an event or choose a team')
+      .addStringOption(option => option.setName('event').setDescription('Event to join').setRequired(true).setAutocomplete(true))
+      .addStringOption(option => option.setName('team').setDescription('Team to join for a team event').setAutocomplete(true)))
+    .addSubcommand(sub => sub.setName('submit').setDescription('Submit event progress or proof')
+      .addStringOption(option => option.setName('event').setDescription('Event for this result').setRequired(true).setAutocomplete(true))
+      .addStringOption(option => option.setName('goal').setDescription('Goal or task completed').setRequired(true).setAutocomplete(true))
+      .addNumberOption(option => option.setName('value').setDescription('Amount completed, when relevant').setMinValue(0).setMaxValue(1000000000))
+      .addStringOption(option => option.setName('proof').setDescription('Evidence URL, if applicable').setMaxLength(500))
+      .addAttachmentOption(option => option.setName('evidence').setDescription('Screenshot or proof attachment'))
+      .addStringOption(option => option.setName('note').setDescription('Optional details for the reviewer').setMaxLength(500)))
+    .addSubcommand(sub => sub.setName('progress').setDescription('Show your event participation and scores')
+      .addStringOption(option => option.setName('event').setDescription('Event to check').setRequired(true).setAutocomplete(true)))
+    .addSubcommand(sub => sub.setName('leaderboard').setDescription('Show an event leaderboard')
+      .addStringOption(option => option.setName('event').setDescription('Event leaderboard to view').setRequired(true).setAutocomplete(true))),
   new SlashCommandBuilder().setName('help').setDescription('Show available bot slash commands'),
 ].map(command => command.toJSON());
 
@@ -684,6 +715,14 @@ async function getDroptrackerDrops(npcName, limit = 10) {
   return dtFetch(path);
 }
 
+const eventService = createEventService({
+  client,
+  User,
+  getDroptrackerDrops,
+  readBody,
+  sendJson,
+});
+
 function formatGp(n) {
   if (!n && n !== 0) return '?';
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}b`;
@@ -956,6 +995,12 @@ client.once('ready', async () => {
   for (const [guildId] of client.guilds.cache) {
     await registerSlashCommands(client.user.id, guildId);
   }
+
+  cron.schedule('*/5 * * * *', () => {
+    eventService.syncDroptrackerEvent().catch(error => {
+      console.error('[Events] Droptracker verification failed:', error.message);
+    });
+  });
 
   const channelId = process.env.DAILY_CHANNEL_ID;
   if (!channelId) {
@@ -1963,6 +2008,8 @@ client.on(Events.InteractionCreate, async interaction => {
     const { commandName, options } = interaction;
     const focused = options.getFocused(true);
 
+    if (commandName === 'event') return eventService.handleAutocomplete(interaction);
+
     if (commandName === 'bingo-approve' || commandName === 'bingo-reject') {
       if (focused.name === 'submission') {
         const subs = await BingoSubmission.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(25);
@@ -2055,6 +2102,10 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName === 'event') {
+    await eventService.handleCommand(interaction);
+    return;
+  }
   await handleConvertedSlashCommand(interaction);
   return;
 

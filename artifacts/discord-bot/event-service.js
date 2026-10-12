@@ -1,11 +1,7 @@
 const crypto = require('crypto');
-const mongoose = require('mongoose');
 const {
   OsrsEvent,
   EventSubmission,
-  EVENT_STATUSES,
-  SCORING_MODES,
-  PARTICIPATION_MODES,
   normalizeEventInput,
   normalizeGoal,
   goalById,
@@ -29,6 +25,17 @@ function safeHttpUrl(value) {
   } catch (_) {
     return '';
   }
+}
+
+function parseDropTimestamp(value) {
+  if (typeof value === 'number' || /^\d{10,13}$/.test(String(value || ''))) {
+    const numeric = Number(value);
+    const milliseconds = Math.abs(numeric) < 1_000_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function nameAlreadyUsed(list, name, exceptId = '') {
@@ -68,10 +75,12 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
       const progressKey = `${goal._id}:${targetKey}`;
       const targetTotal = targetProgress.get(progressKey) || 0;
       const submittedValue = Math.max(0, Number(submission.value || 0));
+      const cumulative = targetTotal + submittedValue;
+      targetProgress.set(progressKey, cumulative);
 
       if (event.scoringMode === 'task-points') {
         const taskKey = `${goal._id}:${targetKey}`;
-        if (!awardedTaskGoals.has(taskKey)) {
+        if (cumulative >= Number(goal.targetValue || 1) && !awardedTaskGoals.has(taskKey)) {
           pointsAwarded = Number(goal.points || 0);
           awardedTaskGoals.add(taskKey);
         }
@@ -79,12 +88,10 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
         const unitPoints = event.scoringConfig?.pointsPerUnit ?? goal.points ?? 1;
         pointsAwarded = submittedValue * Number(unitPoints);
       } else if (event.scoringMode === 'first-to-target') {
-        const cumulative = targetTotal + submittedValue;
         if (cumulative >= Number(goal.targetValue || 1) && !firstToTargetWinner.has(String(goal._id))) {
           pointsAwarded = Number(goal.points || 0);
           firstToTargetWinner.add(String(goal._id));
         }
-        targetProgress.set(progressKey, cumulative);
       }
 
       if (submission.pointsAwarded !== pointsAwarded) {
@@ -146,6 +153,12 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
       if (!event) { sendJson(res, 404, { error: 'Event not found.' }); return true; }
       try {
         const update = normalizeEventInput(await readBody(req), { partial: true });
+        if (update.participationMode && update.participationMode !== event.participationMode) {
+          const hasResults = await EventSubmission.exists({ eventId: event._id });
+          if (event.participants.length || hasResults) {
+            throw new Error('Participation mode cannot change after members have joined or results have been recorded.');
+          }
+        }
         Object.assign(event, update);
         await event.save();
         await refreshAwards(event);
@@ -266,6 +279,15 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
         const participant = event.participants.find(item => item.userId === participantMatch[1]);
         if (!participant) { sendJson(res, 404, { error: 'Participant not found.' }); return true; }
         const body = await readBody(req);
+        const hasResults = await EventSubmission.exists({
+          eventId: event._id,
+          submittedById: participant.userId,
+          kind: 'goal',
+        });
+        const nextTeamId = body.teamId == null || body.teamId === '' ? '' : String(body.teamId);
+        if (hasResults && nextTeamId !== participant.teamId) {
+          throw new Error('A member with recorded results cannot be moved to another team; this keeps past scores with the team that earned them.');
+        }
         if (body.teamId == null || body.teamId === '') {
           participant.teamId = '';
         } else {
@@ -274,11 +296,6 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
           participant.teamId = String(team._id);
         }
         await event.save();
-        await EventSubmission.updateMany(
-          { eventId: event._id, submittedById: participant.userId, kind: 'goal' },
-          { $set: { teamId: participant.teamId, teamName: event.teams.id(participant.teamId)?.name || '' } }
-        );
-        await refreshAwards(event);
         sendJson(res, 200, { participant });
       } catch (error) { routeError(res, error); }
       return true;
@@ -308,14 +325,17 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
         const goal = goalById(event, submission.goalId);
         if (!goal) throw new Error('The goal for this result no longer exists.');
         if (event.scoringMode === 'task-points') {
-          const duplicate = await EventSubmission.exists({
+          const previous = await EventSubmission.find({
             eventId: event._id,
             goalId: submission.goalId,
             targetId: submission.targetId,
             status: { $in: ['approved', 'verified'] },
             _id: { $ne: submission._id },
-          });
-          if (duplicate) throw new Error('This goal already has an approved result for that participant or team.');
+          }).select('value').lean();
+          const previousProgress = previous.reduce((sum, result) => sum + Math.max(0, Number(result.value || 0)), 0);
+          if (previousProgress >= Number(goal.targetValue || 1)) {
+            throw new Error('This goal has already reached its target for that participant or team.');
+          }
         }
         submission.status = 'approved';
         submission.reviewedBy = 'Dashboard moderator';
@@ -448,7 +468,17 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
         }
         let participant = event.participants.find(person => person.userId === user.id);
         if (participant) {
-          if (event.participationMode === 'team' && teamId) participant.teamId = teamId;
+          if (event.participationMode === 'team' && teamId && teamId !== participant.teamId) {
+            const hasResults = await EventSubmission.exists({
+              eventId: event._id,
+              submittedById: user.id,
+              kind: 'goal',
+            });
+            if (hasResults) {
+              return interaction.editReply('You cannot change teams after submitting an event result; ask a moderator if this assignment is incorrect.');
+            }
+            participant.teamId = teamId;
+          }
           participant.username = user.username;
           await event.save();
           const team = participant.teamId ? event.teams.id(participant.teamId) : null;
@@ -464,37 +494,44 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
         return interaction.editReply(`You joined **${event.name}**${team ? ` with **${team.name}**` : ''}.`);
       }
 
-      const participant = event.participants.find(person => person.userId === user.id);
-      if (!participant) return interaction.editReply(`Join **${event.name}** with \`/event join\` before using this event command.`);
-      const target = makeTarget(event, participant);
-      if (!target) return interaction.editReply('Your event team assignment is missing. Ask a moderator to assign you to a team.');
-
       if (subcommand === 'leaderboard') {
         const submissions = await EventSubmission.find({ eventId: event._id }).sort({ createdAt: -1 }).limit(5000).lean();
         const leaderboard = leaderboardFor(event, submissions);
-        if (!leaderboard.length) return interaction.editReply(`**${event.name}** has no approved scores yet.`);
+        if (!leaderboard.length) return interaction.editReply(`**${event.name}** has no entries yet.`);
         const lines = leaderboard.slice(0, 20).map((entry, index) =>
           `${index + 1}. **${entry.name}** — ${entry.points} pts · ${entry.completedGoals} goals`
         );
         return interaction.editReply(`**${event.name} leaderboard**\n${lines.join('\n')}`);
       }
 
+      const participant = event.participants.find(person => person.userId === user.id);
+      if (!participant) return interaction.editReply(`Join **${event.name}** with \`/event join\` before using this event command.`);
+      const target = makeTarget(event, participant);
+      if (!target) return interaction.editReply('Your event team assignment is missing. Ask a moderator to assign you to a team.');
+
       if (subcommand === 'progress') {
         const [submissions, team] = await Promise.all([
-          EventSubmission.find({ eventId: event._id, targetId: target.targetId }).sort({ createdAt: -1 }).limit(100).lean(),
+          EventSubmission.find({ eventId: event._id, targetId: target.targetId }).sort({ createdAt: -1 }).limit(5000).lean(),
           target.teamId ? event.teams.id(target.teamId) : null,
         ]);
         const approved = submissions.filter(item => ['approved', 'verified'].includes(item.status));
         const pending = submissions.filter(item => item.status === 'pending').length;
         const score = leaderboardFor(event, submissions).find(item => item.targetId === target.targetId)?.points || 0;
-        return interaction.editReply(`**${event.name} progress — ${team?.name || user.username}**\n${score} points · ${approved.length} verified result(s) · ${pending} awaiting review\n${event.goals.map(goal => `• ${goal.name} — ${approved.some(item => item.goalId === String(goal._id)) ? 'complete' : 'not completed'}`).join('\n') || 'No goals have been configured yet.'}`);
+        const goalLines = event.goals.map(goal => {
+          const values = approved.filter(item => item.goalId === String(goal._id)).map(item => Math.max(0, Number(item.value || 0)));
+          const progress = event.scoringMode === 'highest-value'
+            ? Math.max(0, ...values)
+            : values.reduce((sum, value) => sum + value, 0);
+          const targetValue = Number(goal.targetValue || 1);
+          return `• ${goal.name} — ${progress}/${targetValue}${progress >= targetValue ? ' complete' : ''}`;
+        });
+        return interaction.editReply(`**${event.name} progress — ${team?.name || user.username}**\n${score} points · ${approved.length} verified result(s) · ${pending} awaiting review\n${goalLines.join('\n') || 'No goals have been configured yet.'}`);
       }
 
       if (subcommand === 'submit') {
         if (!eventIsInWindow(event)) return interaction.editReply('This event is not active now, so new results are closed.');
         const goal = goalById(event, options.getString('goal'));
         if (!goal) return interaction.editReply('That goal could not be found in this event.');
-        if (goal.verification === 'manual') return interaction.editReply('This goal is entered by moderators. Ask a moderator to record your result.');
         const proof = safeHttpUrl(options.getString('proof')) || safeHttpUrl(options.getAttachment('evidence')?.url);
         if (goal.verification === 'proof' && !proof) {
           return interaction.editReply('This goal requires evidence. Attach a screenshot or provide a proof URL.');
@@ -506,14 +543,26 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
         if (!Number.isFinite(value) || value <= 0 || value > MAX_RESULT_VALUE) {
           return interaction.editReply('The result value must be greater than 0 and no more than 1,000,000,000.');
         }
-        const duplicate = await EventSubmission.exists({
+        const pendingDuplicate = await EventSubmission.exists({
           eventId: event._id,
           goalId: String(goal._id),
           targetId: target.targetId,
-          status: { $in: ['pending', 'approved', 'verified'] },
+          status: 'pending',
         });
-        if (duplicate && event.scoringMode === 'task-points') {
-          return interaction.editReply('A result for this goal is already submitted or approved for you or your team.');
+        if (pendingDuplicate) {
+          return interaction.editReply('A result for this goal is already awaiting review for you or your team.');
+        }
+        if (event.scoringMode === 'task-points') {
+          const previous = await EventSubmission.find({
+            eventId: event._id,
+            goalId: String(goal._id),
+            targetId: target.targetId,
+            status: { $in: ['approved', 'verified'] },
+          }).select('value').lean();
+          const previousProgress = previous.reduce((sum, result) => sum + Math.max(0, Number(result.value || 0)), 0);
+          if (previousProgress >= Number(goal.targetValue || 1)) {
+            return interaction.editReply('This goal has already reached its target for you or your team.');
+          }
         }
         const submission = await EventSubmission.create({
           eventId: event._id,
@@ -545,9 +594,15 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     const subcommand = interaction.options.getSubcommand();
     try {
       if (focused.name === 'event') {
+        const statuses = subcommand === 'join'
+          ? ['upcoming', 'active']
+          : subcommand === 'submit'
+            ? ['active']
+            : ['upcoming', 'active', 'completed'];
+        const query = { status: { $in: statuses } };
+        if (subcommand === 'join' || subcommand === 'submit') query.endsAt = { $gte: new Date() };
         const events = await OsrsEvent.find({
-          status: { $in: ['upcoming', 'active'] },
-          endsAt: { $gte: new Date() },
+          ...query,
         }).sort({ startsAt: 1 }).limit(100).lean();
         const needle = String(focused.value || '').toLowerCase();
         return interaction.respond(events
@@ -598,19 +653,23 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     });
     let synced = 0;
     for (const currentEvent of events) {
+      let eventSynced = 0;
       const participants = currentEvent.participants || [];
       const users = await User.find({ userId: { $in: participants.map(person => person.userId) } })
         .select('userId rsName rsNames').lean();
       const linkedNames = new Map(users.map(user => [user.userId, [user.rsName, ...(user.rsNames || [])].filter(Boolean)]));
       for (const goal of currentEvent.goals.filter(item => item.verification === 'droptracker' && item.kind === 'drop')) {
         const result = await getDroptrackerDrops(goal.criteria?.npcName || null, 100);
-        if (result.error) continue;
+        if (result.error) {
+          console.warn(`[Events] Droptracker check skipped for "${currentEvent.name}" / "${goal.name}": ${result.error}`);
+          continue;
+        }
         const body = result.data;
         const drops = Array.isArray(body) ? body : (body?.drops || body?.items || []);
         for (const drop of drops) {
           const timestamp = drop.created_at || drop.timestamp || drop.time;
-          const droppedAt = timestamp ? new Date(timestamp) : null;
-          if (!droppedAt || Number.isNaN(droppedAt.getTime())) continue;
+          const droppedAt = timestamp ? parseDropTimestamp(timestamp) : null;
+          if (!droppedAt) continue;
           if (droppedAt < currentEvent.startsAt || droppedAt > currentEvent.endsAt) continue;
           const npcName = String(drop.npc_name || '').trim();
           const itemName = String(drop.item_name || drop.name || '').trim();
@@ -653,12 +712,13 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
               reviewedBy: 'Droptracker',
             });
             synced++;
+            eventSynced++;
           } catch (error) {
             if (error.code !== 11000) console.error('Droptracker event result error:', error.message);
           }
         }
       }
-      if (synced) await refreshAwards(currentEvent);
+      if (eventSynced) await refreshAwards(currentEvent);
     }
     return { synced };
   }

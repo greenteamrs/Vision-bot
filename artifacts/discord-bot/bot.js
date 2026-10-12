@@ -261,7 +261,7 @@ const SLASH_COMMANDS = [
     .addSubcommand(sub => sub.setName('submit').setDescription('Submit event progress or proof')
       .addStringOption(option => option.setName('event').setDescription('Event for this result').setRequired(true).setAutocomplete(true))
       .addStringOption(option => option.setName('goal').setDescription('Goal or task completed').setRequired(true).setAutocomplete(true))
-      .addNumberOption(option => option.setName('value').setDescription('Amount completed, when relevant').setMinValue(0).setMaxValue(1000000000))
+      .addNumberOption(option => option.setName('value').setDescription('Amount completed, when relevant').setMinValue(0.000001).setMaxValue(1000000000))
       .addStringOption(option => option.setName('proof').setDescription('Evidence URL, if applicable').setMaxLength(500))
       .addAttachmentOption(option => option.setName('evidence').setDescription('Screenshot or proof attachment'))
       .addStringOption(option => option.setName('note').setDescription('Optional details for the reviewer').setMaxLength(500)))
@@ -2432,6 +2432,14 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/api/')) {
     if (!checkAuth(req)) {
       sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    try {
+      if (await eventService.handleApi(req, res, pathname, params)) return;
+    } catch (error) {
+      console.error('[Events] Dashboard API request failed:', error.message);
+      sendJson(res, 500, { error: 'The event request could not be completed.' });
       return;
     }
 

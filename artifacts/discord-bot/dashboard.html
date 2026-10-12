@@ -2520,7 +2520,7 @@
           <div class="field"><label for="ev-points-per-unit">Points per unit</label><input id="ev-points-per-unit" type="number" step="any" value="${escAttr(scoringDefaults.pointsPerUnit)}"></div>
           <div class="field"><label for="ev-first-place-bonus">First-place bonus</label><input id="ev-first-place-bonus" type="number" step="any" value="${escAttr(scoringDefaults.firstPlaceBonus)}"></div>
           <div class="field"><label for="ev-line-bonus">Line bonus</label><input id="ev-line-bonus" type="number" step="any" value="${escAttr(scoringDefaults.lineBonus)}"></div>
-          <div class="field"><label for="ev-grid-size">Grid size</label><input id="ev-grid-size" type="number" step="1" min="1" value="${escAttr(scoringDefaults.gridSize)}"></div>
+          <div class="field"><label for="ev-grid-size">Grid size</label><input id="ev-grid-size" type="number" step="1" min="2" max="20" value="${escAttr(scoringDefaults.gridSize)}"></div>
         </div>
         <p style="color:#81958b;font-size:.76rem;margin-top:12px;">Adjust the supported scoring values for this preset. Bingo task boards use grid size and line bonus.</p>
         <div class="save-row">
@@ -2561,7 +2561,7 @@
     const firstPlaceBonus = Number(document.getElementById('ev-first-place-bonus').value);
     const lineBonus = Number(document.getElementById('ev-line-bonus').value);
     const gridSize = Number(document.getElementById('ev-grid-size').value);
-    if (![pointsPerUnit, firstPlaceBonus, lineBonus, gridSize].every(Number.isFinite) || !Number.isInteger(gridSize) || gridSize < 1) {
+    if (![pointsPerUnit, firstPlaceBonus, lineBonus, gridSize].every(Number.isFinite) || !Number.isInteger(gridSize) || gridSize < 2 || gridSize > 20) {
       return showToast('Enter valid numeric scoring values and a whole-number grid size.', true);
     }
     const scoringConfig = { pointsPerUnit, firstPlaceBonus, lineBonus, gridSize };
@@ -2779,7 +2779,7 @@
     return `<div class="event-panel active">
       <div class="event-section-title"><div><h3>Submitted results <span style="font-size:.75rem;color:#82958c;">${pendingCount} pending</span></h3></div>
         <div style="display:flex;gap:7px;align-items:center;"><select id="event-submission-filter" aria-label="Filter submissions" onchange="renderEventWorkspace()">
-          ${['all','pending','approved','rejected'].map(value => `<option value="${value}" ${filter === value ? 'selected' : ''}>${eventTitle(value)}</option>`).join('')}
+          ${['all','pending','verified','approved','rejected'].map(value => `<option value="${value}" ${filter === value ? 'selected' : ''}>${eventTitle(value)}</option>`).join('')}
         </select><button class="btn-edit" onclick="loadEventDetail()">Refresh</button></div>
       </div>
       ${filtered.length ? filtered.map(item => {

@@ -5,7 +5,7 @@ const EVENT_STATUSES = ['draft', 'upcoming', 'active', 'completed', 'archived'];
 const PARTICIPATION_MODES = ['solo', 'team'];
 const SCORING_MODES = ['task-points', 'points-per-unit', 'highest-value', 'first-to-target'];
 const GOAL_KINDS = ['task', 'counter', 'drop', 'collection'];
-const VERIFICATION_MODES = ['proof', 'droptracker', 'manual'];
+const VERIFICATION_MODES = ['proof', 'droptracker'];
 
 const eventGoalSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 100 },
@@ -102,30 +102,47 @@ function normalizeGoal(input = {}) {
   const name = String(input.name || '').trim();
   if (!name) throw new Error('Each goal needs a name.');
   if (name.length > 100) throw new Error('Goal names must be 100 characters or fewer.');
+  const inputCriteria = input.criteria && typeof input.criteria === 'object' && !Array.isArray(input.criteria)
+    ? input.criteria
+    : {};
   const criteria = input.criteria && typeof input.criteria === 'object' && !Array.isArray(input.criteria)
     ? {
         npcName: String(input.criteria.npcName || '').trim().slice(0, 100),
         itemName: String(input.criteria.itemName || '').trim().slice(0, 100),
-        minValue: input.criteria.minValue === undefined || input.criteria.minValue === ''
+        minValue: input.criteria.minValue == null || input.criteria.minValue === ''
           ? 0
           : finiteNumber(input.criteria.minValue, 'Drop value filter'),
+        row: null,
+        column: null,
       }
     : {};
 
-  const row = input.row === '' || input.row === undefined || input.row === null ? null : finiteNumber(input.row, 'Goal row', { min: 1, max: 20 });
-  const col = input.col === '' || input.col === undefined || input.col === null ? null : finiteNumber(input.col, 'Goal column', { min: 1, max: 20 });
+  const rowInput = input.row ?? inputCriteria.row;
+  const colInput = input.col ?? input.column ?? inputCriteria.column ?? inputCriteria.col;
+  const row = rowInput === '' || rowInput === undefined || rowInput === null ? null : finiteNumber(rowInput, 'Goal row', { min: 1, max: 20 });
+  const col = colInput === '' || colInput === undefined || colInput === null ? null : finiteNumber(colInput, 'Goal column', { min: 1, max: 20 });
   if ((row !== null && !Number.isInteger(row)) || (col !== null && !Number.isInteger(col))) {
     throw new Error('Bingo row and column must be whole numbers.');
+  }
+  if (criteria && (row !== null || col !== null)) {
+    criteria.row = row;
+    criteria.column = col;
+  }
+
+  const kind = validEnum(input.kind || 'task', GOAL_KINDS, 'goal type');
+  const verification = validEnum(input.verification || 'proof', VERIFICATION_MODES, 'verification method');
+  if (verification === 'droptracker' && (kind !== 'drop' || (!criteria.npcName && !criteria.itemName))) {
+    throw new Error('Droptracker verification requires a drop goal with an NPC or item name to match.');
   }
 
   return {
     name,
     description: String(input.description || '').trim().slice(0, 500),
-    kind: validEnum(input.kind || 'task', GOAL_KINDS, 'goal type'),
+    kind,
     targetValue: finiteNumber(input.targetValue ?? 1, 'Goal target', { min: 0.000001 }),
     unit: String(input.unit || '').trim().slice(0, 30),
     points: finiteNumber(input.points ?? 1, 'Goal points'),
-    verification: validEnum(input.verification || 'proof', VERIFICATION_MODES, 'verification method'),
+    verification,
     criteria,
     row,
     col,
@@ -189,25 +206,42 @@ function leaderboardFor(event, submissions) {
   const targets = new Map();
   const goalsById = new Map(event.goals.map(goal => [String(goal._id), goal]));
   const teamsById = new Map(event.teams.map(team => [String(team._id), team]));
-
-  for (const submission of submissions) {
-    if (!['approved', 'verified'].includes(submission.status)) continue;
-    const key = `${submission.targetType}:${submission.targetId}`;
+  const ensureTarget = (targetType, targetId, name, color = '') => {
+    const key = `${targetType}:${targetId}`;
     if (!targets.has(key)) {
-      const team = submission.targetType === 'team' ? teamsById.get(String(submission.targetId)) : null;
       targets.set(key, {
-        targetId: submission.targetId,
-        targetType: submission.targetType,
-        name: team?.name || submission.username || submission.targetId,
-        color: team?.color || '',
+        targetId: String(targetId),
+        targetType,
+        name: name || String(targetId),
+        color,
         points: 0,
         completedGoals: 0,
         submissions: 0,
         goalIds: new Set(),
         bestByGoal: new Map(),
+        goalProgress: new Map(),
       });
     }
-    const entry = targets.get(key);
+    return targets.get(key);
+  };
+
+  if (event.participationMode === 'team') {
+    for (const team of event.teams) ensureTarget('team', team._id, team.name, team.color || '');
+  } else {
+    for (const participant of event.participants || []) {
+      ensureTarget('solo', participant.userId, participant.username || participant.userId);
+    }
+  }
+
+  for (const submission of submissions) {
+    if (!['approved', 'verified'].includes(submission.status)) continue;
+    const team = submission.targetType === 'team' ? teamsById.get(String(submission.targetId)) : null;
+    const entry = ensureTarget(
+      submission.targetType,
+      submission.targetId,
+      team?.name || submission.username || submission.targetId,
+      team?.color || '',
+    );
     entry.submissions++;
     if (submission.kind === 'adjustment') {
       entry.points += Number(submission.pointsAwarded || 0);
@@ -215,10 +249,18 @@ function leaderboardFor(event, submissions) {
     }
     const goalKey = String(submission.goalId);
     const goal = goalsById.get(goalKey);
-    if (goal) entry.goalIds.add(goalKey);
     const score = Number(submission.pointsAwarded || 0);
+    const value = Math.max(0, Number(submission.value || 0));
+    if (goal) {
+      const previous = entry.goalProgress.get(goalKey) || 0;
+      const progress = event.scoringMode === 'highest-value'
+        ? Math.max(previous, value)
+        : previous + value;
+      entry.goalProgress.set(goalKey, progress);
+      if (progress >= Number(goal.targetValue || 1)) entry.goalIds.add(goalKey);
+    }
     if (event.scoringMode === 'highest-value') {
-      entry.bestByGoal.set(goalKey, Math.max(entry.bestByGoal.get(goalKey) || 0, Number(submission.value || 0)));
+      entry.bestByGoal.set(goalKey, Math.max(entry.bestByGoal.get(goalKey) || 0, value));
     } else {
       entry.points += score;
     }
@@ -251,12 +293,13 @@ function leaderboardFor(event, submissions) {
 
     delete entry.goalIds;
     delete entry.bestByGoal;
+    delete entry.goalProgress;
   }
 
   const leaderboard = [...targets.values()].sort((a, b) =>
     b.points - a.points || b.completedGoals - a.completedGoals || a.name.localeCompare(b.name)
   );
-  if (leaderboard.length && Number(event.scoringConfig?.firstPlaceBonus) > 0) {
+  if (leaderboard.length && leaderboard[0].submissions > 0 && Number(event.scoringConfig?.firstPlaceBonus) > 0) {
     leaderboard[0].points += Number(event.scoringConfig.firstPlaceBonus);
   }
   return leaderboard;

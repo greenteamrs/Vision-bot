@@ -1,1 +1,2 @@
 - [WOM rank matching](wom-rank-mapping.md) — eligibility stays threshold-based, while the dashboard rank name matches the synced WOM rank.
+- [OSRS event system](osrs-events.md) — dashboard manages events; Discord is for member participation, across multiple active formats.

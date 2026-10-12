@@ -22,6 +22,11 @@ const {
   leaderboardFor,
 } = require('./events-domain');
 const { createEventService } = require('./event-service');
+const {
+  createDashboardToken,
+  constantTimeTextEqual,
+  verifyDashboardToken,
+} = require('./dashboard-auth');
 
 
 // --- MongoDB: User Schema ---
@@ -2356,11 +2361,31 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 });
 
 // --- Dashboard HTTP Server ---
+const dashboardLoginFailures = new Map();
+const DASHBOARD_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const DASHBOARD_LOGIN_MAX_ATTEMPTS = 5;
+
+function isDashboardLoginRateLimited(ip, now = Date.now()) {
+  for (const [key, attempt] of dashboardLoginFailures) {
+    if (attempt.resetAt <= now) dashboardLoginFailures.delete(key);
+  }
+  const attempt = dashboardLoginFailures.get(ip);
+  return !!attempt && attempt.count >= DASHBOARD_LOGIN_MAX_ATTEMPTS && attempt.resetAt > now;
+}
+
+function recordDashboardLoginFailure(ip, now = Date.now()) {
+  const attempt = dashboardLoginFailures.get(ip);
+  if (!attempt || attempt.resetAt <= now) {
+    dashboardLoginFailures.set(ip, { count: 1, resetAt: now + DASHBOARD_LOGIN_WINDOW_MS });
+    return;
+  }
+  attempt.count++;
+}
+
 function checkAuth(req) {
-  const pwd = process.env.DASHBOARD_PASSWORD;
-  if (!pwd) return true;
-  const auth = req.headers['authorization'];
-  return auth === `Bearer ${pwd}`;
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  return !!verifyDashboardToken(token, process.env.SESSION_SECRET);
 }
 
 function readBody(req) {
@@ -2428,10 +2453,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/api/auth/login' && req.method === 'POST') {
+    const ip = req.socket.remoteAddress || 'unknown';
+    if (isDashboardLoginRateLimited(ip)) {
+      sendJson(res, 429, { error: 'Too many login attempts. Try again in 15 minutes.' });
+      return;
+    }
+    if (!process.env.DASHBOARD_PASSWORD || !process.env.SESSION_SECRET) {
+      sendJson(res, 503, { error: 'Dashboard login is not configured.' });
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const username = String(body.username || '').trim().toLowerCase();
+      const passwordMatches = constantTimeTextEqual(body.password || '', process.env.DASHBOARD_PASSWORD);
+      if (username !== 'admin' || !passwordMatches) {
+        recordDashboardLoginFailure(ip);
+        sendJson(res, 401, { error: 'Invalid username or password.' });
+        return;
+      }
+      dashboardLoginFailures.delete(ip);
+      const token = createDashboardToken({
+        username: 'admin',
+        sessionSecret: process.env.SESSION_SECRET,
+      });
+      sendJson(res, 200, {
+        token,
+        user: { username: 'admin', role: 'admin' },
+        mustSetPassword: false,
+      });
+    } catch (_) {
+      sendJson(res, 400, { error: 'Invalid login request.' });
+    }
+    return;
+  }
+
   // Auth check for all /api/* routes
   if (pathname.startsWith('/api/')) {
     if (!checkAuth(req)) {
       sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    if (pathname === '/api/auth/me' && req.method === 'GET') {
+      sendJson(res, 200, { user: { username: 'admin', role: 'admin' } });
       return;
     }
 

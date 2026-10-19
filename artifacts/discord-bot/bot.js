@@ -23,8 +23,7 @@ const {
 } = require('./events-domain');
 const { createEventService } = require('./event-service');
 const {
-  createDashboardToken,
-  constantTimeTextEqual,
+  authenticateDashboardLogin,
   verifyDashboardToken,
 } = require('./dashboard-auth');
 
@@ -266,7 +265,7 @@ const SLASH_COMMANDS = [
     .addSubcommand(sub => sub.setName('submit').setDescription('Submit event progress or proof')
       .addStringOption(option => option.setName('event').setDescription('Event for this result').setRequired(true).setAutocomplete(true))
       .addStringOption(option => option.setName('goal').setDescription('Goal or task completed').setRequired(true).setAutocomplete(true))
-      .addNumberOption(option => option.setName('value').setDescription('Amount completed, when relevant').setMinValue(0.000001).setMaxValue(1000000000))
+      .addNumberOption(option => option.setName('value').setDescription('Amount completed, when relevant').setMinValue(0).setMaxValue(1000000000))
       .addStringOption(option => option.setName('proof').setDescription('Evidence URL, if applicable').setMaxLength(500))
       .addAttachmentOption(option => option.setName('evidence').setDescription('Screenshot or proof attachment'))
       .addStringOption(option => option.setName('note').setDescription('Optional details for the reviewer').setMaxLength(500)))
@@ -2459,28 +2458,24 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 429, { error: 'Too many login attempts. Try again in 15 minutes.' });
       return;
     }
-    if (!process.env.DASHBOARD_PASSWORD || !process.env.SESSION_SECRET) {
-      sendJson(res, 503, { error: 'Dashboard login is not configured.' });
-      return;
-    }
     try {
       const body = await readBody(req);
-      const username = String(body.username || '').trim().toLowerCase();
-      const passwordMatches = constantTimeTextEqual(body.password || '', process.env.DASHBOARD_PASSWORD);
-      if (username !== 'admin' || !passwordMatches) {
-        recordDashboardLoginFailure(ip);
-        sendJson(res, 401, { error: 'Invalid username or password.' });
+      const login = authenticateDashboardLogin({
+        username: body.username,
+        password: body.password,
+        dashboardPassword: process.env.DASHBOARD_PASSWORD,
+        sessionSecret: process.env.SESSION_SECRET,
+      });
+      if (login.status !== 200) {
+        if (login.status === 401) recordDashboardLoginFailure(ip);
+        sendJson(res, login.status, { error: login.error });
         return;
       }
       dashboardLoginFailures.delete(ip);
-      const token = createDashboardToken({
-        username: 'admin',
-        sessionSecret: process.env.SESSION_SECRET,
-      });
       sendJson(res, 200, {
-        token,
-        user: { username: 'admin', role: 'admin' },
-        mustSetPassword: false,
+        token: login.token,
+        user: login.user,
+        mustSetPassword: login.mustSetPassword,
       });
     } catch (_) {
       sendJson(res, 400, { error: 'Invalid login request.' });
@@ -2500,13 +2495,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    try {
-      if (await eventService.handleApi(req, res, pathname, params)) return;
-    } catch (error) {
-      console.error('[Events] Dashboard API request failed:', error.message);
-      sendJson(res, 500, { error: 'The event request could not be completed.' });
-      return;
-    }
+    if (await eventService.handleApi(req, res, pathname, params)) return;
 
     // GET /api/settings
     if (pathname === '/api/settings' && req.method === 'GET') {

@@ -21,6 +21,28 @@ function createDashboardToken({ username = 'admin', sessionSecret, now = Date.no
   return `${payload}.${signature}`;
 }
 
+function authenticateDashboardLogin({
+  username,
+  password,
+  dashboardPassword,
+  sessionSecret,
+  now = Date.now(),
+}) {
+  if (!dashboardPassword || !sessionSecret) {
+    return { status: 503, error: 'Dashboard login is not configured.' };
+  }
+  const normalizedUsername = String(username || '').trim().toLowerCase();
+  if (normalizedUsername !== 'admin' || !constantTimeTextEqual(password || '', dashboardPassword)) {
+    return { status: 401, error: 'Invalid username or password.' };
+  }
+  return {
+    status: 200,
+    token: createDashboardToken({ username: 'admin', sessionSecret, now }),
+    user: { username: 'admin', role: 'admin' },
+    mustSetPassword: false,
+  };
+}
+
 function verifyDashboardToken(token, sessionSecret, now = Date.now()) {
   if (!sessionSecret || typeof token !== 'string') return null;
   const parts = token.split('.');
@@ -51,6 +73,7 @@ function verifyDashboardToken(token, sessionSecret, now = Date.now()) {
 
 module.exports = {
   SESSION_TTL_SECONDS,
+  authenticateDashboardLogin,
   constantTimeTextEqual,
   createDashboardToken,
   verifyDashboardToken,

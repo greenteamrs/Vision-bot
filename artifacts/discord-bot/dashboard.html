@@ -947,6 +947,7 @@
         return;
       }
       AUTH_TOKEN = data.token;
+      document.getElementById('password-input').value = '';
       if (data.mustSetPassword) {
         document.getElementById('login-form').style.display = 'none';
         document.getElementById('set-password-form').style.display = 'block';

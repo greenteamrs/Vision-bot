@@ -28,7 +28,8 @@ function authenticateDashboardLogin({
   sessionSecret,
   now = Date.now(),
 }) {
-  if (!dashboardPassword || !sessionSecret) {
+  const signingSecret = sessionSecret || dashboardPassword;
+  if (!dashboardPassword || !signingSecret) {
     return { status: 503, error: 'Dashboard login is not configured.' };
   }
   const normalizedUsername = String(username || '').trim().toLowerCase();
@@ -37,7 +38,7 @@ function authenticateDashboardLogin({
   }
   return {
     status: 200,
-    token: createDashboardToken({ username: 'admin', sessionSecret, now }),
+    token: createDashboardToken({ username: 'admin', sessionSecret: signingSecret, now }),
     user: { username: 'admin', role: 'admin' },
     mustSetPassword: false,
   };

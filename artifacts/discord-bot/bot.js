@@ -2384,7 +2384,8 @@ function recordDashboardLoginFailure(ip, now = Date.now()) {
 function checkAuth(req) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  return !!verifyDashboardToken(token, process.env.SESSION_SECRET);
+  const signingSecret = process.env.SESSION_SECRET || process.env.DASHBOARD_PASSWORD;
+  return !!verifyDashboardToken(token, signingSecret);
 }
 
 function readBody(req) {
@@ -2996,6 +2997,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`HTTP server running on port ${PORT}`);
   console.log(`Dashboard: http://localhost:${PORT}/dashboard`);
+  console.log(`Dashboard admin password configured: ${Boolean(process.env.DASHBOARD_PASSWORD)}`);
 });
 
 // --- Start Bot ---

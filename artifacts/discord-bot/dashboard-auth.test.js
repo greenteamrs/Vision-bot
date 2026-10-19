@@ -53,7 +53,21 @@ test('rejects invalid usernames and passwords with the same login error', () => 
   assert.equal(invalidUsername.error, invalidPassword.error);
 });
 
-test('does not permit login when required server secrets are missing', () => {
+test('uses the dashboard password for signing when the session secret is unavailable', () => {
+  const now = 1_800_000_000_000;
+  const password = 'test-password';
+  const result = authenticateDashboardLogin({
+    username: 'admin',
+    password,
+    dashboardPassword: password,
+    sessionSecret: '',
+    now,
+  });
+  assert.equal(result.status, 200);
+  assert.ok(verifyDashboardToken(result.token, password, now));
+});
+
+test('rejects login when the dashboard password is missing', () => {
   const result = authenticateDashboardLogin({
     username: 'admin',
     password: 'anything',

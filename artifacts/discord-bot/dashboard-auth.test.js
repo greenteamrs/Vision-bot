@@ -6,6 +6,11 @@ const {
   authenticateDashboardLogin,
   constantTimeTextEqual,
   createDashboardToken,
+  generateSetupCode,
+  hashModeratorPassword,
+  hashSetupCode,
+  verifyModeratorPassword,
+  verifySetupCode,
   verifyDashboardToken,
 } = require('./dashboard-auth');
 
@@ -90,4 +95,57 @@ test('rejects expired, tampered, and wrong-secret sessions', () => {
 test('compares configured passwords without a length-dependent comparison', () => {
   assert.equal(constantTimeTextEqual('test-password', 'test-password'), true);
   assert.equal(constantTimeTextEqual('wrong', 'test-password'), false);
+});
+
+test('stores moderator passwords as salted scrypt hashes', async () => {
+  const password = 'moderator-password';
+  const storedHash = await hashModeratorPassword(password);
+  assert.match(storedHash, /^scrypt\$/);
+  assert.equal(storedHash.includes(password), false);
+  assert.equal(await verifyModeratorPassword(password, storedHash), true);
+  assert.equal(await verifyModeratorPassword('wrong-password', storedHash), false);
+  assert.equal(await verifyModeratorPassword(password, 'invalid-hash'), false);
+});
+
+test('stores only a one-way hash of each setup code', () => {
+  const setupCode = generateSetupCode();
+  const storedHash = hashSetupCode(setupCode);
+  assert.notEqual(setupCode, storedHash);
+  assert.equal(verifySetupCode(setupCode, storedHash), true);
+  assert.equal(verifySetupCode('wrong-code', storedHash), false);
+});
+
+test('supports scoped moderator sessions and password-setup sessions', () => {
+  const sessionSecret = crypto.randomBytes(32).toString('hex');
+  const now = 1_800_000_000_000;
+  const moderatorToken = createDashboardToken({
+    username: 'alex_mod',
+    role: 'mod',
+    accountId: '507f1f77bcf86cd799439011',
+    sessionVersion: 2,
+    sessionSecret,
+    now,
+  });
+  assert.equal(verifyDashboardToken(moderatorToken, sessionSecret, now).role, 'mod');
+  assert.equal(verifyDashboardToken(moderatorToken, sessionSecret, now).sessionVersion, 2);
+
+  const setupToken = createDashboardToken({
+    username: 'alex_mod',
+    role: 'mod',
+    accountId: '507f1f77bcf86cd799439011',
+    sessionVersion: 2,
+    purpose: 'password-setup',
+    sessionSecret,
+    now,
+  });
+  assert.equal(verifyDashboardToken(setupToken, sessionSecret, now).purpose, 'password-setup');
+});
+
+test('rejects moderator tokens without a database account identity', () => {
+  const token = createDashboardToken({
+    username: 'alex_mod',
+    role: 'mod',
+    sessionSecret: crypto.randomBytes(32).toString('hex'),
+  });
+  assert.equal(verifyDashboardToken(token, crypto.randomBytes(32).toString('hex')), null);
 });

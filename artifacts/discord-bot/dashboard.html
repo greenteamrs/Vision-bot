@@ -414,7 +414,7 @@
   <div class="login-box">
     <h1>⚔️ Visionary Bot</h1>
     <div id="login-form">
-      <p>Sign in to the moderator dashboard</p>
+      <p>Sign in to the moderator dashboard. For first login or a reset, enter your one-time setup code as the password.</p>
       <input type="text" id="username-input" placeholder="Username" autocomplete="username" />
       <input type="password" id="password-input" placeholder="Password or setup code" autocomplete="current-password" />
       <button class="btn-primary" onclick="login()">Sign In</button>
@@ -977,6 +977,9 @@
       document.getElementById('login-error').textContent = data.error || 'Could not save password.';
       return;
     }
+    if (data.token) AUTH_TOKEN = data.token;
+    document.getElementById('new-password-input').value = '';
+    document.getElementById('confirm-password-input').value = '';
     const me = await api('GET', '/api/auth/me');
     const meData = await me.json();
     enterDashboard(meData.user);
@@ -1034,7 +1037,7 @@
   }
 
   async function resetModAccount(id, username) {
-    if (!confirm(`Reset the password for ${username}? They will choose a new password at next login.`)) return;
+    if (!confirm(`Reset the password for ${username}? They will need a new one-time setup code to choose a password.`)) return;
     const res = await api('POST', `/api/mod-accounts/${id}/reset`);
     const data = await res.json();
     if (!res.ok) return showToast(data.error || 'Could not reset account.', true);

@@ -23,7 +23,15 @@ const {
 } = require('./events-domain');
 const { createEventService } = require('./event-service');
 const {
+  SETUP_CODE_TTL_MS,
+  SETUP_SESSION_TTL_SECONDS,
   authenticateDashboardLogin,
+  createDashboardToken,
+  generateSetupCode,
+  hashModeratorPassword,
+  hashSetupCode,
+  verifyModeratorPassword,
+  verifySetupCode,
   verifyDashboardToken,
 } = require('./dashboard-auth');
 
@@ -105,6 +113,7 @@ const dashboardAccountSchema = new mongoose.Schema({
   mustSetPassword: { type: Boolean, default: true },
   resetTokenHash: { type: String, default: '' },
   resetTokenExpiresAt: { type: Date, default: null },
+  sessionVersion: { type: Number, default: 0 },
   role: { type: String, enum: ['mod'], default: 'mod' },
 }, { timestamps: true });
 const DashboardAccount = mongoose.model('DashboardAccount', dashboardAccountSchema);
@@ -2385,7 +2394,31 @@ function checkAuth(req) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   const signingSecret = process.env.SESSION_SECRET || process.env.DASHBOARD_PASSWORD;
-  return !!verifyDashboardToken(token, signingSecret);
+  return verifyDashboardToken(token, signingSecret);
+}
+
+function dashboardSigningSecret() {
+  return process.env.SESSION_SECRET || process.env.DASHBOARD_PASSWORD || '';
+}
+
+function createModeratorToken(account, options = {}) {
+  return createDashboardToken({
+    username: account.username,
+    role: 'mod',
+    accountId: String(account._id),
+    sessionVersion: Number(account.sessionVersion || 0),
+    purpose: options.purpose || 'session',
+    ttlSeconds: options.ttlSeconds,
+    sessionSecret: dashboardSigningSecret(),
+  });
+}
+
+function normalizeDashboardUsername(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isValidModeratorUsername(username) {
+  return username !== 'admin' && /^[a-z0-9][a-z0-9._-]{2,31}$/.test(username);
 }
 
 function readBody(req) {
@@ -2400,7 +2433,11 @@ function readBody(req) {
 }
 
 function sendJson(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-store',
+  });
   res.end(JSON.stringify(data));
 }
 
@@ -2459,13 +2496,23 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 429, { error: 'Too many login attempts. Try again in 15 minutes.' });
       return;
     }
+
+    let body;
     try {
-      const body = await readBody(req);
+      body = await readBody(req);
+    } catch (_) {
+      sendJson(res, 400, { error: 'Invalid login request.' });
+      return;
+    }
+    if (!body || typeof body !== 'object') body = {};
+
+    const username = normalizeDashboardUsername(body.username);
+    if (username === 'admin') {
       const login = authenticateDashboardLogin({
-        username: body.username,
+        username,
         password: body.password,
         dashboardPassword: process.env.DASHBOARD_PASSWORD,
-        sessionSecret: process.env.SESSION_SECRET,
+        sessionSecret: dashboardSigningSecret(),
       });
       if (login.status !== 200) {
         if (login.status === 401) recordDashboardLoginFailure(ip);
@@ -2478,21 +2525,236 @@ const server = http.createServer(async (req, res) => {
         user: login.user,
         mustSetPassword: login.mustSetPassword,
       });
-    } catch (_) {
-      sendJson(res, 400, { error: 'Invalid login request.' });
+      return;
+    }
+
+    if (!dashboardSigningSecret()) {
+      sendJson(res, 503, { error: 'Dashboard login is not configured.' });
+      return;
+    }
+
+    try {
+      const account = await DashboardAccount.findOne({ username, role: 'mod' });
+      const password = typeof body.password === 'string' ? body.password : '';
+      if (!account) {
+        recordDashboardLoginFailure(ip);
+        sendJson(res, 401, { error: 'Invalid username, password, or setup code.' });
+        return;
+      }
+
+      if (account.mustSetPassword || account.resetTokenHash) {
+        const setupCodeActive = account.resetTokenHash &&
+          account.resetTokenExpiresAt &&
+          new Date(account.resetTokenExpiresAt).getTime() > Date.now();
+        if (!setupCodeActive || !verifySetupCode(password, account.resetTokenHash)) {
+          recordDashboardLoginFailure(ip);
+          sendJson(res, 401, { error: 'Invalid username, password, or setup code.' });
+          return;
+        }
+
+        const token = createModeratorToken(account, {
+          purpose: 'password-setup',
+          ttlSeconds: SETUP_SESSION_TTL_SECONDS,
+        });
+        dashboardLoginFailures.delete(ip);
+        sendJson(res, 200, {
+          token,
+          user: { username: account.username, role: 'mod' },
+          mustSetPassword: true,
+        });
+        return;
+      }
+
+      if (!await verifyModeratorPassword(password, account.passwordHash)) {
+        recordDashboardLoginFailure(ip);
+        sendJson(res, 401, { error: 'Invalid username, password, or setup code.' });
+        return;
+      }
+
+      const token = createModeratorToken(account);
+      dashboardLoginFailures.delete(ip);
+      sendJson(res, 200, {
+        token,
+        user: { username: account.username, role: 'mod' },
+        mustSetPassword: false,
+      });
+    } catch (error) {
+      console.error('[DashboardAuth] Moderator login failed:', error.message);
+      sendJson(res, 503, { error: 'Could not verify moderator login right now.' });
     }
     return;
   }
 
   // Auth check for all /api/* routes
   if (pathname.startsWith('/api/')) {
-    if (!checkAuth(req)) {
+    const authUser = checkAuth(req);
+    if (!authUser) {
       sendJson(res, 401, { error: 'Unauthorized' });
       return;
     }
 
+    const tokenPurpose = authUser.purpose || 'session';
+    if (tokenPurpose === 'password-setup' &&
+        !(pathname === '/api/auth/set-password' && req.method === 'POST')) {
+      sendJson(res, 403, { error: 'Set your password before using the dashboard.' });
+      return;
+    }
+
+    if (authUser.role === 'mod' && tokenPurpose === 'session') {
+      try {
+        const account = await DashboardAccount.findById(authUser.accountId)
+          .select('username mustSetPassword sessionVersion');
+        if (!account || account.username !== authUser.sub || account.mustSetPassword ||
+            Number(account.sessionVersion || 0) !== authUser.sessionVersion) {
+          sendJson(res, 401, { error: 'Unauthorized' });
+          return;
+        }
+      } catch (error) {
+        console.error('[DashboardAuth] Moderator session check failed:', error.message);
+        sendJson(res, 503, { error: 'Could not verify dashboard session right now.' });
+        return;
+      }
+    }
+
+    if (pathname === '/api/auth/set-password' && req.method === 'POST') {
+      if (authUser.role !== 'mod' || tokenPurpose !== 'password-setup') {
+        sendJson(res, 403, { error: 'A valid moderator setup code is required.' });
+        return;
+      }
+      try {
+        const body = await readBody(req);
+        const password = body && typeof body.password === 'string' ? body.password : '';
+        if (password.length < 8) {
+          sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+          return;
+        }
+
+        const account = await DashboardAccount.findOne({
+          _id: authUser.accountId,
+          username: authUser.sub,
+          role: 'mod',
+        });
+        const setupCodeActive = account?.resetTokenHash &&
+          account.resetTokenExpiresAt &&
+          new Date(account.resetTokenExpiresAt).getTime() > Date.now();
+        if (!account || !account.mustSetPassword || !setupCodeActive) {
+          sendJson(res, 401, { error: 'This setup code has expired. Ask your admin for a new one.' });
+          return;
+        }
+
+        account.passwordHash = await hashModeratorPassword(password);
+        account.mustSetPassword = false;
+        account.resetTokenHash = '';
+        account.resetTokenExpiresAt = null;
+        account.sessionVersion = Number(account.sessionVersion || 0) + 1;
+        await account.save();
+
+        sendJson(res, 200, {
+          success: true,
+          token: createModeratorToken(account),
+          user: { username: account.username, role: 'mod' },
+        });
+      } catch (error) {
+        console.error('[DashboardAuth] Moderator password setup failed:', error.message);
+        sendJson(res, 500, { error: 'Could not save the moderator password.' });
+      }
+      return;
+    }
+
     if (pathname === '/api/auth/me' && req.method === 'GET') {
-      sendJson(res, 200, { user: { username: 'admin', role: 'admin' } });
+      sendJson(res, 200, { user: { username: authUser.sub, role: authUser.role } });
+      return;
+    }
+
+    if (pathname === '/api/mod-accounts' && req.method === 'GET') {
+      if (authUser.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required.' });
+        return;
+      }
+      try {
+        const accounts = await DashboardAccount.find({ role: 'mod' })
+          .select('username mustSetPassword createdAt')
+          .sort({ username: 1 })
+          .lean();
+        sendJson(res, 200, accounts);
+      } catch (error) {
+        console.error('[DashboardAuth] Moderator account listing failed:', error.message);
+        sendJson(res, 500, { error: 'Could not load moderator accounts.' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/mod-accounts' && req.method === 'POST') {
+      if (authUser.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required.' });
+        return;
+      }
+      try {
+        const body = await readBody(req);
+        const username = normalizeDashboardUsername(body && body.username);
+        if (!isValidModeratorUsername(username)) {
+          sendJson(res, 400, { error: 'Use 3–32 characters: letters, numbers, dots, underscores, or hyphens.' });
+          return;
+        }
+
+        const setupCode = generateSetupCode();
+        const account = await DashboardAccount.create({
+          username,
+          role: 'mod',
+          passwordHash: '',
+          mustSetPassword: true,
+          resetTokenHash: hashSetupCode(setupCode),
+          resetTokenExpiresAt: new Date(Date.now() + SETUP_CODE_TTL_MS),
+          sessionVersion: 0,
+        });
+        sendJson(res, 201, {
+          id: String(account._id),
+          username: account.username,
+          setupCode,
+        });
+      } catch (error) {
+        if (error.code === 11000) {
+          sendJson(res, 409, { error: 'A moderator account with that username already exists.' });
+          return;
+        }
+        console.error('[DashboardAuth] Moderator account creation failed:', error.message);
+        sendJson(res, 500, { error: 'Could not create the moderator account.' });
+      }
+      return;
+    }
+
+    const resetModAccountMatch = pathname.match(/^\/api\/mod-accounts\/([a-f0-9]{24})\/reset$/i);
+    if (resetModAccountMatch && req.method === 'POST') {
+      if (authUser.role !== 'admin') {
+        sendJson(res, 403, { error: 'Admin access required.' });
+        return;
+      }
+      try {
+        const account = await DashboardAccount.findOne({
+          _id: resetModAccountMatch[1],
+          role: 'mod',
+        });
+        if (!account) {
+          sendJson(res, 404, { error: 'Moderator account not found.' });
+          return;
+        }
+
+        const setupCode = generateSetupCode();
+        account.passwordHash = '';
+        account.mustSetPassword = true;
+        account.resetTokenHash = hashSetupCode(setupCode);
+        account.resetTokenExpiresAt = new Date(Date.now() + SETUP_CODE_TTL_MS);
+        account.sessionVersion = Number(account.sessionVersion || 0) + 1;
+        await account.save();
+
+        sendJson(res, 200, {
+          username: account.username,
+          setupCode,
+        });
+      } catch (error) {
+        console.error('[DashboardAuth] Moderator password reset failed:', error.message);
+        sendJson(res, 500, { error: 'Could not reset the moderator password.' });
+      }
       return;
     }
 

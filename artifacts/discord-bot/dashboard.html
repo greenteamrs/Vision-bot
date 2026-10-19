@@ -135,6 +135,17 @@
 
   .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
   .field label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 5px; }
+  .dashboard-lock-button {
+    display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;
+    width:25px;height:23px;margin-left:6px;padding:2px;border:1px solid #3c4252;
+    border-radius:5px;background:#191b25;color:#aeb8c8;cursor:pointer;
+  }
+  .dashboard-lock-button:hover:not(:disabled) { border-color:#8b9bb4;color:#fff;background:#222633; }
+  .dashboard-lock-button.is-locked { color:#f5c36b;border-color:#6a5429;background:#2a2417; }
+  .dashboard-lock-button:disabled { cursor:default;opacity:.9; }
+  .dashboard-lock-button svg { width:15px;height:15px;display:block; }
+  .lock-status-text { display:none; }
+  .field input:disabled,.field select:disabled,.field textarea:disabled { opacity:.58;cursor:not-allowed; }
   .field input {
     width: 100%;
     padding: 8px 12px;
@@ -511,7 +522,7 @@
               <button id="cal-month" class="active" onclick="setCalendarView('month')">Month</button>
               <button id="cal-week" onclick="setCalendarView('week')">Week</button>
               <button id="cal-year" onclick="setCalendarView('year')">Year</button>
-              <button class="btn-save" onclick="openEventModal()">+ Event</button>
+              <button class="btn-save" data-lock-action-key="calendar.create.action" onclick="openEventModal()">+ Event</button>
             </div>
           </div>
           <div id="calendar-content"></div>
@@ -543,34 +554,34 @@
         <div class="card">
           <h3>💬 Message XP</h3>
           <div class="field-grid">
-            <div class="field"><label>Min XP per message</label><input type="number" id="messageXpMin" /></div>
-            <div class="field"><label>Max XP per message</label><input type="number" id="messageXpMax" /></div>
-            <div class="field"><label>Cooldown (seconds)</label><input type="number" id="messageXpCooldownSecs" /></div>
+            <div class="field"><label>Min XP per message</label><input type="number" id="messageXpMin" data-lock-key="settings.messageXpMin" /></div>
+            <div class="field"><label>Max XP per message</label><input type="number" id="messageXpMax" data-lock-key="settings.messageXpMax" /></div>
+            <div class="field"><label>Cooldown (seconds)</label><input type="number" id="messageXpCooldownSecs" data-lock-key="settings.messageXpCooldownSecs" /></div>
           </div>
         </div>
 
         <div class="card">
           <h3>🎙️ Voice XP</h3>
           <div class="field-grid">
-            <div class="field"><label>Join XP</label><input type="number" id="voiceJoinXp" /></div>
-            <div class="field"><label>Join Cooldown (seconds)</label><input type="number" id="voiceJoinCooldownSecs" /></div>
-            <div class="field"><label>Activity XP (per interval)</label><input type="number" id="voiceIntervalXp" /></div>
-            <div class="field"><label>Interval (minutes)</label><input type="number" id="voiceIntervalMins" /></div>
+            <div class="field"><label>Join XP</label><input type="number" id="voiceJoinXp" data-lock-key="settings.voiceJoinXp" /></div>
+            <div class="field"><label>Join Cooldown (seconds)</label><input type="number" id="voiceJoinCooldownSecs" data-lock-key="settings.voiceJoinCooldownSecs" /></div>
+            <div class="field"><label>Activity XP (per interval)</label><input type="number" id="voiceIntervalXp" data-lock-key="settings.voiceIntervalXp" /></div>
+            <div class="field"><label>Interval (minutes)</label><input type="number" id="voiceIntervalMins" data-lock-key="settings.voiceIntervalMins" /></div>
           </div>
         </div>
 
         <div class="card">
           <h3>⚙️ Bot Config</h3>
           <div class="field-grid">
-            <div class="field"><label>AFK Channel ID</label><input type="text" id="afkChannelId" /></div>
-            <div class="field"><label>Rank Notify Channel ID</label><input type="text" id="rankNotifyChannelId" placeholder="Leave blank to use XP channel" /></div>
-            <div class="field"><label>Droptracker Group ID</label><input type="text" id="droptrackerGroupId" placeholder="e.g. 42" /></div>
-            <div class="field"><label>WOM Activity Channel ID</label><input type="text" id="womActivityChannelId" placeholder="Channel ID for join/leave/role posts" /></div>
-            <div class="field"><label>Bingo Review Channel ID</label><input type="text" id="bingoReviewChannelId" placeholder="Channel where submissions are posted for mod review" /></div>
+            <div class="field"><label>AFK Channel ID</label><input type="text" id="afkChannelId" data-lock-key="settings.afkChannelId" /></div>
+            <div class="field"><label>Rank Notify Channel ID</label><input type="text" id="rankNotifyChannelId" data-lock-key="settings.rankNotifyChannelId" placeholder="Leave blank to use XP channel" /></div>
+            <div class="field"><label>Droptracker Group ID</label><input type="text" id="droptrackerGroupId" data-lock-key="settings.droptrackerGroupId" placeholder="e.g. 42" /></div>
+            <div class="field"><label>WOM Activity Channel ID</label><input type="text" id="womActivityChannelId" data-lock-key="settings.womActivityChannelId" placeholder="Channel ID for join/leave/role posts" /></div>
+            <div class="field"><label>Bingo Review Channel ID</label><input type="text" id="bingoReviewChannelId" data-lock-key="settings.bingoReviewChannelId" placeholder="Channel where submissions are posted for mod review" /></div>
             <div class="field">
               <label>WiseOldMan Group ID</label>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                <input type="text" id="womGroupId" placeholder="e.g. 1234" style="flex:1;min-width:100px;" />
+                <input type="text" id="womGroupId" data-lock-key="settings.womGroupId" placeholder="e.g. 1234" style="flex:1;min-width:100px;" />
                 <input type="text" id="womSearchName" placeholder="Search by clan name…" style="flex:2;min-width:130px;" onkeydown="if(event.key==='Enter')searchWomGroup()" />
                 <button class="btn-edit" onclick="searchWomGroup()" id="btn-wom-search" style="white-space:nowrap;">🔍 Find</button>
               </div>
@@ -600,21 +611,21 @@
           <div class="field-grid">
             <div class="field">
               <label>A — quadratic coefficient</label>
-              <input type="number" id="levelA" step="0.1" min="0" oninput="updateLevelPreview()" />
+              <input type="number" id="levelA" data-lock-key="settings.levelA" step="0.1" min="0" oninput="updateLevelPreview()" />
               <small style="color:#666; font-size:0.78rem;">Controls how steeply XP grows with level</small>
             </div>
             <div class="field">
               <label>B — linear coefficient</label>
-              <input type="number" id="levelB" step="1" min="0" oninput="updateLevelPreview()" />
+              <input type="number" id="levelB" data-lock-key="settings.levelB" step="1" min="0" oninput="updateLevelPreview()" />
             </div>
             <div class="field">
               <label>C — base XP</label>
-              <input type="number" id="levelC" step="1" min="0" oninput="updateLevelPreview()" />
+              <input type="number" id="levelC" data-lock-key="settings.levelC" step="1" min="0" oninput="updateLevelPreview()" />
               <small style="color:#666; font-size:0.78rem;">XP required to reach level 1</small>
             </div>
             <div class="field">
               <label>Max Level</label>
-              <input type="number" id="levelMax" min="1" max="9999" oninput="updateLevelPreview()" />
+              <input type="number" id="levelMax" data-lock-key="settings.levelMax" min="1" max="9999" oninput="updateLevelPreview()" />
               <small style="color:#666; font-size:0.78rem;">Members stop levelling after this</small>
             </div>
           </div>
@@ -652,16 +663,16 @@
         <div class="card">
           <h3>XP awarded to each placement when you run !droptop</h3>
           <div class="awards-grid">
-            <div class="award-field"><label>🥇 1st</label><input type="number" id="award-0" /></div>
-            <div class="award-field"><label>🥈 2nd</label><input type="number" id="award-1" /></div>
-            <div class="award-field"><label>🥉 3rd</label><input type="number" id="award-2" /></div>
-            <div class="award-field"><label>4th</label><input type="number" id="award-3" /></div>
-            <div class="award-field"><label>5th</label><input type="number" id="award-4" /></div>
-            <div class="award-field"><label>6th</label><input type="number" id="award-5" /></div>
-            <div class="award-field"><label>7th</label><input type="number" id="award-6" /></div>
-            <div class="award-field"><label>8th</label><input type="number" id="award-7" /></div>
-            <div class="award-field"><label>9th</label><input type="number" id="award-8" /></div>
-            <div class="award-field"><label>10th</label><input type="number" id="award-9" /></div>
+            <div class="award-field"><label>🥇 1st</label><input type="number" id="award-0" data-lock-key="settings.dropTopXp.0" /></div>
+            <div class="award-field"><label>🥈 2nd</label><input type="number" id="award-1" data-lock-key="settings.dropTopXp.1" /></div>
+            <div class="award-field"><label>🥉 3rd</label><input type="number" id="award-2" data-lock-key="settings.dropTopXp.2" /></div>
+            <div class="award-field"><label>4th</label><input type="number" id="award-3" data-lock-key="settings.dropTopXp.3" /></div>
+            <div class="award-field"><label>5th</label><input type="number" id="award-4" data-lock-key="settings.dropTopXp.4" /></div>
+            <div class="award-field"><label>6th</label><input type="number" id="award-5" data-lock-key="settings.dropTopXp.5" /></div>
+            <div class="award-field"><label>7th</label><input type="number" id="award-6" data-lock-key="settings.dropTopXp.6" /></div>
+            <div class="award-field"><label>8th</label><input type="number" id="award-7" data-lock-key="settings.dropTopXp.7" /></div>
+            <div class="award-field"><label>9th</label><input type="number" id="award-8" data-lock-key="settings.dropTopXp.8" /></div>
+            <div class="award-field"><label>10th</label><input type="number" id="award-9" data-lock-key="settings.dropTopXp.9" /></div>
           </div>
           <div class="save-row">
             <button class="btn-save" onclick="saveAwards()">Save Awards</button>
@@ -688,7 +699,7 @@
         <div class="card">
           <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) for eligibility using days, LP, and level. Add a special requirement when moderators need to verify something manually after the numeric requirements are met. Turn notifications off for higher/admin ranks that should not trigger automatic alerts. Rank names should match the names used by Wise Old Man so the bot can recognize a member's current rank. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!checkranks</code> in Discord (mods only) to trigger an immediate check.</p>
           <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
-            <button class="btn-save" onclick="openRankModal()">+ Add Rank</button>
+            <button class="btn-save" data-lock-action-key="rank.create.action" onclick="openRankModal()">+ Add Rank</button>
             <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow()" id="btn-check-ranks">🔍 Check Now</button>
             <button class="btn-save" style="background:#14532d;border:1px solid #16a34a;" onclick="syncWomDashboard()" id="btn-wom-sync">🌐 Sync from WiseOldMan</button>
           </div>
@@ -738,9 +749,9 @@
           <h3>Teams</h3>
           <div id="bingo-teams-list"></div>
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;">
-            <input type="text" id="new-team-name" placeholder="Team name" style="flex:1;min-width:120px;" />
-            <input type="color" id="new-team-color" value="#e74c3c" style="width:44px;height:36px;padding:2px;cursor:pointer;border-radius:6px;border:1px solid var(--border);" />
-            <button class="btn-save" onclick="addBingoTeam()">+ Add Team</button>
+            <input type="text" id="new-team-name" data-lock-key="bingo.team.create.name" placeholder="Team name" style="flex:1;min-width:120px;" />
+            <input type="color" id="new-team-color" data-lock-key="bingo.team.create.color" value="#e74c3c" style="width:44px;height:36px;padding:2px;cursor:pointer;border-radius:6px;border:1px solid var(--border);" />
+              <button class="btn-save" data-lock-action-key="bingo.team.create.action" onclick="addBingoTeam()">+ Add Team</button>
           </div>
         </div>
 
@@ -788,7 +799,7 @@
           <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px;">
             <p style="color:var(--muted);font-size:13px;margin-bottom:10px;">Post the board image to a Discord channel:</p>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-              <input type="text" id="bingo-channel-id" placeholder="Discord channel ID" style="flex:1;max-width:220px;" />
+              <input type="text" id="bingo-channel-id" data-lock-key="settings.bingoChannelId" placeholder="Discord channel ID" style="flex:1;max-width:220px;" />
               <select id="bingo-post-team" style="max-width:180px;">
                 <option value="">All teams</option>
               </select>
@@ -812,7 +823,7 @@
               <option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option>
             </select>
             <button class="btn-edit" onclick="loadEvents(true)">Refresh</button>
-            <button class="btn-save" onclick="openEventEditor()">Create event</button>
+            <button class="btn-save" data-lock-action-key="event.create.action" onclick="openEventEditor()">Create event</button>
           </div>
         </div>
         <div class="event-layout">
@@ -910,9 +921,9 @@
     </div>
     <div class="field"><label>Color</label><input type="color" id="event-color" value="#8ab4f8" style="height:40px;padding:3px;" /></div>
     <div class="modal-actions">
-      <button class="btn-danger" id="event-delete" onclick="deleteEvent()" style="display:none;margin-right:auto;">Delete</button>
+        <button class="btn-danger" id="event-delete" onclick="deleteEvent()" style="display:none;margin-right:auto;">Delete</button>
       <button class="btn-cancel" onclick="closeEventModal()">Cancel</button>
-      <button class="btn-save" onclick="saveEvent()">Save event</button>
+        <button class="btn-save" id="event-save-button" onclick="saveEvent()">Save event</button>
     </div>
   </div>
 </div>
@@ -933,6 +944,133 @@
   let currentEventId = '';
   let currentEventData = null;
   let eventWorkspacePanel = 'overview';
+  let currentDashboardUser = null;
+  let dashboardLocks = {};
+  let dashboardLocksReady = false;
+  let lockRefreshQueued = false;
+
+  function dashboardLockIcon(locked) {
+    return locked
+      ? '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 14v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 7.3-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 14v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  }
+
+  function lockIsActive(key) {
+    return dashboardLocks[key] === true || (!dashboardLocksReady && currentDashboardUser?.role !== 'admin');
+  }
+
+  function setLockButtonState(button, key) {
+    const locked = lockIsActive(key);
+    const isAdmin = currentDashboardUser?.role === 'admin';
+    const icon = dashboardLockIcon(locked);
+    if (button.innerHTML !== icon) button.innerHTML = icon;
+    button.classList.toggle('is-locked', locked);
+    button.disabled = !isAdmin;
+    button.title = isAdmin
+      ? `${locked ? 'Locked' : 'Unlocked'} — click to ${locked ? 'unlock' : 'lock'}`
+      : `${locked ? 'Locked' : 'Unlocked'} — only the admin can change this`;
+    button.setAttribute('aria-label', `${locked ? 'Locked' : 'Unlocked'}: ${key}`);
+    button.setAttribute('aria-pressed', String(locked));
+  }
+
+  function makeDashboardLockButton(key) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'dashboard-lock-button';
+    button.dataset.dashboardLockButton = key;
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleDashboardLock(key);
+    });
+    setLockButtonState(button, key);
+    return button;
+  }
+
+  function hydrateDashboardLockControls(root = document) {
+    if (!currentDashboardUser) return;
+    root.querySelectorAll('[data-lock-key]').forEach(control => {
+      const key = control.dataset.lockKey;
+      if (!key) return;
+      if (control.dataset.lockBaseDisabled === undefined) {
+        control.dataset.lockBaseDisabled = control.disabled ? 'true' : 'false';
+      }
+      const locked = lockIsActive(key);
+      const baseDisabled = control.dataset.lockBaseDisabled === 'true';
+      control.disabled = baseDisabled || (currentDashboardUser.role !== 'admin' && locked);
+
+      const label = control.closest('label') || control.closest('.field')?.querySelector('label') ||
+        control.closest('.award-field')?.querySelector('label');
+      if (label) {
+        let button = label.querySelector(`[data-dashboard-lock-button="${CSS.escape(key)}"]`);
+        if (!button) {
+          button = makeDashboardLockButton(key);
+          label.appendChild(button);
+        } else setLockButtonState(button, key);
+      } else {
+        let button = control.parentElement?.querySelector(`[data-dashboard-lock-button="${CSS.escape(key)}"]`);
+        if (!button) {
+          button = makeDashboardLockButton(key);
+          control.insertAdjacentElement('afterend', button);
+        } else setLockButtonState(button, key);
+      }
+    });
+
+    root.querySelectorAll('[data-lock-action-key]').forEach(control => {
+      const key = control.dataset.lockActionKey;
+      if (!key) return;
+      let button = control.parentElement?.querySelector(`[data-dashboard-lock-button="${CSS.escape(key)}"]`);
+      if (!button) {
+        button = makeDashboardLockButton(key);
+        control.parentElement?.insertBefore(button, control);
+      } else setLockButtonState(button, key);
+      control.disabled = currentDashboardUser.role !== 'admin' && lockIsActive(key);
+    });
+
+    root.querySelectorAll('[data-lock-guard-key]').forEach(control => {
+      control.disabled = currentDashboardUser.role !== 'admin' && lockIsActive(control.dataset.lockGuardKey);
+    });
+
+    root.querySelectorAll('[data-dashboard-lock-button]').forEach(button => {
+      setLockButtonState(button, button.dataset.dashboardLockButton);
+    });
+  }
+
+  async function loadDashboardLocks() {
+    dashboardLocksReady = false;
+    const res = await api('GET', '/api/dashboard-locks');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not load dashboard lock states.');
+    dashboardLocks = data.locks && typeof data.locks === 'object' ? data.locks : {};
+    dashboardLocksReady = true;
+    hydrateDashboardLockControls();
+  }
+
+  async function toggleDashboardLock(key) {
+    if (currentDashboardUser?.role !== 'admin') return;
+    const locked = dashboardLocks[key] !== true;
+    const res = await api('PATCH', '/api/dashboard-locks', { key, locked });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast(data.error || 'Could not update lock.', true);
+    dashboardLocks[key] = locked;
+    hydrateDashboardLockControls();
+    showToast(`${locked ? 'Locked' : 'Unlocked'}: ${key}`);
+  }
+
+  const dashboardLockObserver = new MutationObserver(() => {
+    if (lockRefreshQueued) return;
+    lockRefreshQueued = true;
+    queueMicrotask(() => {
+      lockRefreshQueued = false;
+      hydrateDashboardLockControls();
+    });
+  });
+  dashboardLockObserver.observe(document.getElementById('app'), {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['data-lock-key', 'data-lock-action-key', 'data-lock-guard-key'],
+  });
 
   // ---- AUTH ----
   async function login() {
@@ -986,9 +1124,10 @@
   }
 
   function enterDashboard(user) {
+    currentDashboardUser = user || { role: 'mod' };
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
-    document.getElementById('nav-mod-accounts').style.display = user?.role === 'admin' ? 'block' : 'none';
+    document.getElementById('nav-mod-accounts').style.display = currentDashboardUser.role === 'admin' ? 'block' : 'none';
     init();
   }
 
@@ -1049,6 +1188,13 @@
 
   // ---- INIT ----
   async function init() {
+    try {
+      await loadDashboardLocks();
+    } catch (error) {
+      dashboardLocksReady = false;
+      hydrateDashboardLockControls();
+      showToast(error.message || 'Could not load edit permissions.', true);
+    }
     await loadStatus();
     await loadSettings();
     await loadCalendarEvents();
@@ -1171,7 +1317,7 @@
           <td style="color:#666;font-size:0.82rem;font-family:monospace">${esc(c.usage)}</td>
           <td>
             <div style="display:flex;gap:6px;align-items:center;">
-              <input type="text" id="cmdinput-${c.key}" value="${esc(c.name)}" style="width:90px;padding:4px 8px;font-size:0.85rem;" maxlength="32" />
+               <input type="text" id="cmdinput-${c.key}" data-lock-key="command.${escAttr(c.key)}.name" value="${esc(c.name)}" style="width:90px;padding:4px 8px;font-size:0.85rem;" maxlength="32" />
               <button class="btn-edit" style="padding:4px 10px;" onclick="saveCommandName('${c.key}')">Save</button>
             </div>
           </td>
@@ -1312,7 +1458,7 @@
           <td>${daysCell}</td>
           <td style="display:flex;gap:6px;">
             <button class="btn-edit" onclick="openEditModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>
-            <button class="btn-edit" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteUser('${esc(u.userId)}', '${esc(u.username || u.userId)}')">Delete</button>
+            <button class="btn-edit" data-lock-action-key="user.${escAttr(u.userId)}.delete" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteUser('${esc(u.userId)}', '${esc(u.username || u.userId)}')">Delete</button>
           </td>
         </tr>`;
       }).join('');
@@ -1337,6 +1483,16 @@
   function openEditModal(user) {
     document.getElementById('modal-userid').value = user.userId;
     document.getElementById('modal-username').textContent = user.username || user.userId;
+    const fields = {
+      'modal-name': 'username',
+      'modal-rsname': 'rsNames',
+      'modal-level': 'level',
+      'modal-xp': 'xp',
+      'modal-lp': 'lootPoints',
+    };
+    Object.entries(fields).forEach(([id, field]) => {
+      document.getElementById(id).dataset.lockKey = `user.${user.userId}.${field}`;
+    });
     document.getElementById('modal-name').value = user.username || '';
     const rsNamesArr = user.rsNames && user.rsNames.length ? user.rsNames : (user.rsName ? [user.rsName] : []);
     document.getElementById('modal-rsname').value = rsNamesArr.join(', ');
@@ -1344,6 +1500,7 @@
     document.getElementById('modal-xp').value = user.xp;
     document.getElementById('modal-lp').value = user.lootPoints;
     document.getElementById('edit-modal').classList.add('open');
+    hydrateDashboardLockControls(document.getElementById('edit-modal'));
   }
 
   function closeModal() {
@@ -1368,7 +1525,8 @@
       showToast('User updated!');
       loadUsers(currentPage);
     } else {
-      showToast('Failed to update user.', true);
+      const error = await res.json().catch(() => ({}));
+      showToast(error.error || 'Failed to update user.', true);
     }
   }
 
@@ -1379,7 +1537,8 @@
       showToast('User deleted.');
       loadUsers(currentPage);
     } else {
-      showToast('Failed to delete user.', true);
+      const error = await res.json().catch(() => ({}));
+      showToast(error.error || 'Failed to delete user.', true);
     }
   }
 
@@ -1489,15 +1648,26 @@
   function openEventModal(dateKey='') {
     const existing = dateKey ? calendarEvents.find(e=>dayKey(e.start)===dateKey) : null;
     document.getElementById('event-id').value=existing?existing._id:'';
+    const prefix = existing ? `calendar.${existing._id}` : 'calendar.create';
+    const eventFields = { 'event-title':'title', 'event-type':'type', 'event-start':'start', 'event-end':'end', 'event-color':'color' };
+    Object.entries(eventFields).forEach(([id, field]) => {
+      document.getElementById(id).dataset.lockKey = `${prefix}.${field}`;
+    });
     document.getElementById('event-title').value=existing?.title||'';
     document.getElementById('event-type').value=existing?.type||'Event';
     const base=dateKey?new Date(`${dateKey}T09:00`):new Date(); const end=new Date(base); end.setHours(base.getHours()+1);
     document.getElementById('event-start').value=localInputValue(existing?.start||base);
     document.getElementById('event-end').value=localInputValue(existing?.end||end);
     document.getElementById('event-color').value=existing?.color||'#8ab4f8';
-    document.getElementById('event-delete').style.display=existing?'block':'none';
+    const deleteButton = document.getElementById('event-delete');
+    deleteButton.style.display=existing?'block':'none';
+    deleteButton.dataset.lockActionKey = existing ? `calendar.${existing._id}.delete` : '';
+    const saveButton = document.getElementById('event-save-button');
+    if (existing) saveButton.removeAttribute('data-lock-guard-key');
+    else saveButton.dataset.lockGuardKey = 'calendar.create.action';
     document.getElementById('event-modal-title').textContent=existing?'Edit calendar event':'Add calendar event';
     document.getElementById('event-modal').classList.add('open');
+    hydrateDashboardLockControls(document.getElementById('event-modal'));
   }
   function closeEventModal(){document.getElementById('event-modal').classList.remove('open');}
   async function saveEvent(){
@@ -1505,9 +1675,9 @@
     const data={title:document.getElementById('event-title').value.trim(),type:document.getElementById('event-type').value.trim()||'Event',start:new Date(document.getElementById('event-start').value).toISOString(),end:new Date(document.getElementById('event-end').value).toISOString(),color:document.getElementById('event-color').value};
     if(!data.title||new Date(data.end)<new Date(data.start)) return showToast('Enter a title and a valid date range.',true);
     const res=await api(id?'PATCH':'POST',id?`/api/calendar/events/${id}`:'/api/calendar/events',data);
-    if(res.ok){closeEventModal();await loadCalendarEvents();renderCalendar();showToast(id?'Event updated.':'Event added.');}else showToast('Could not save event.',true);
+    if(res.ok){closeEventModal();await loadCalendarEvents();renderCalendar();showToast(id?'Event updated.':'Event added.');}else {const error=await res.json().catch(()=>({}));showToast(error.error||'Could not save event.',true);}
   }
-  async function deleteEvent(){const id=document.getElementById('event-id').value;if(!id||!confirm('Delete this event?'))return;const res=await api('DELETE',`/api/calendar/events/${id}`);if(res.ok){closeEventModal();await loadCalendarEvents();renderCalendar();showToast('Event deleted.');}}
+  async function deleteEvent(){const id=document.getElementById('event-id').value;if(!id||!confirm('Delete this event?'))return;const res=await api('DELETE',`/api/calendar/events/${id}`);if(res.ok){closeEventModal();await loadCalendarEvents();renderCalendar();showToast('Event deleted.');}else{const error=await res.json().catch(()=>({}));showToast(error.error||'Could not delete event.',true);}}
 
   function showMsg(id) {
     const el = document.getElementById(id);
@@ -1557,7 +1727,7 @@
           <button class="btn-tier" onclick="moveRank(${i},-1)" ${i === 0 ? 'disabled' : ''}>↑</button>
           <button class="btn-tier" onclick="moveRank(${i},1)" ${i === currentRanks.length - 1 ? 'disabled' : ''}>↓</button>
           <button class="btn-edit" style="margin-left:4px;" onclick="openRankModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
-          <button class="btn-edit" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteRank('${r._id}', '${esc(r.name)}')">Delete</button>
+          <button class="btn-edit" data-lock-action-key="rank.${escAttr(r._id)}.delete" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteRank('${r._id}', '${esc(r.name)}')">Delete</button>
         </td>
       </tr>
     `).join('');
@@ -1566,6 +1736,10 @@
   async function moveRank(index, dir) {
     const swapIndex = index + dir;
     if (swapIndex < 0 || swapIndex >= currentRanks.length) return;
+    if (currentDashboardUser?.role !== 'admin' &&
+        [currentRanks[index], currentRanks[swapIndex]].some(rank => lockIsActive(`rank.${rank._id}.order`))) {
+      return showToast('At least one of these rank orders is locked by the admin.', true);
+    }
     await api('PATCH', `/api/ranks/${currentRanks[index]._id}`, { order: swapIndex });
     await api('PATCH', `/api/ranks/${currentRanks[swapIndex]._id}`, { order: index });
     await loadRanks();
@@ -1574,6 +1748,19 @@
   function openRankModal(rank) {
     document.getElementById('rank-modal-title').textContent = rank ? `Edit Rank — ${rank.name}` : 'Add Rank';
     document.getElementById('rank-modal-id').value = rank?._id || '';
+    const prefix = rank ? `rank.${rank._id}` : 'rank.create';
+    const rankFields = {
+      'rank-name': 'name',
+      'rank-minDays': 'minDays',
+      'rank-minLootPoints': 'minLootPoints',
+      'rank-minLevel': 'minLevel',
+      'rank-order': 'order',
+      'rank-notify': 'notifyOnEligibility',
+      'rank-specialRequirement': 'specialRequirement',
+    };
+    Object.entries(rankFields).forEach(([id, field]) => {
+      document.getElementById(id).dataset.lockKey = `${prefix}.${field}`;
+    });
     document.getElementById('rank-name').value = rank?.name || '';
     document.getElementById('rank-minDays').value = rank?.minDays ?? 0;
     document.getElementById('rank-minLootPoints').value = rank?.minLootPoints ?? 0;
@@ -1582,6 +1769,7 @@
     document.getElementById('rank-notify').checked = rank?.notifyOnEligibility !== false;
     document.getElementById('rank-specialRequirement').value = rank?.specialRequirement || '';
     document.getElementById('rank-modal').classList.add('open');
+    hydrateDashboardLockControls(document.getElementById('rank-modal'));
   }
 
   function closeRankModal() {
@@ -1608,7 +1796,8 @@
       showToast(id ? 'Rank updated!' : 'Rank created!');
       loadRanks();
     } else {
-      showToast('Failed to save rank.', true);
+      const error = await res.json().catch(() => ({}));
+      showToast(error.error || 'Failed to save rank.', true);
     }
   }
 
@@ -1619,7 +1808,8 @@
       showToast('Rank deleted.');
       loadRanks();
     } else {
-      showToast('Failed to delete rank.', true);
+      const error = await res.json().catch(() => ({}));
+      showToast(error.error || 'Failed to delete rank.', true);
     }
   }
 
@@ -1818,14 +2008,14 @@
       <div style="display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">
         <span style="width:18px;height:18px;border-radius:3px;background:${t.color};display:inline-block;flex-shrink:0;"></span>
         <span style="flex:1;font-weight:600;">${t.name}</span>
-        <input type="color" value="${t.color}" title="Change colour"
+        <input type="color" data-lock-key="bingo.team.${escAttr(t._id)}.color" value="${escAttr(t.color)}" title="Change colour"
           style="width:36px;height:28px;padding:2px;cursor:pointer;border-radius:4px;border:1px solid var(--border);"
           onchange="updateBingoTeamColor('${t._id}', this.value)" />
-        <input type="text" value="${t.name}"
+        <input type="text" data-lock-key="bingo.team.${escAttr(t._id)}.name" value="${escAttr(t.name)}"
           style="width:140px;"
           onblur="updateBingoTeamName('${t._id}', this.value)"
           onkeydown="if(event.key==='Enter')this.blur()" />
-        <button class="btn-danger" onclick="deleteBingoTeam('${t._id}')">✕</button>
+        <button class="btn-danger" data-lock-action-key="bingo.team.${escAttr(t._id)}.delete" onclick="deleteBingoTeam('${t._id}')">✕</button>
       </div>
     `).join('');
   }
@@ -1948,8 +2138,8 @@
             <span style="width:11px;height:11px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>
             <span style="flex:1;font-weight:600;">${t.name}</span>
             ${done
-              ? `<button class="btn-danger" style="padding:4px 12px;font-size:12px;" onclick="toggleBingoTileSimple('${tile.id}','${t._id}',true)">✕ Remove</button>`
-              : `<button class="btn-primary" style="padding:4px 12px;font-size:12px;background:${color};" onclick="toggleBingoTileSimple('${tile.id}','${t._id}',false)">✓ Complete</button>`
+              ? `<button class="btn-danger" data-lock-action-key="bingo.completion.${escAttr(tile.id)}.${escAttr(t._id)}" style="padding:4px 12px;font-size:12px;" onclick="toggleBingoTileSimple('${tile.id}','${t._id}',true)">✕ Remove</button>`
+              : `<button class="btn-primary" data-lock-action-key="bingo.completion.${escAttr(tile.id)}.${escAttr(t._id)}" style="padding:4px 12px;font-size:12px;background:${color};" onclick="toggleBingoTileSimple('${tile.id}','${t._id}',false)">✓ Complete</button>`
             }
           </div>`;
         }).join('')}
@@ -1968,7 +2158,7 @@
         ${tileConfig.steps.map((step) => {
           const checked = completedSteps.includes(step);
           return `<label style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:${activeTeamId?'pointer':'default'};">
-            <input type="checkbox" ${checked?'checked':''} ${!activeTeamId?'disabled':''}
+            <input type="checkbox" data-lock-key="bingo.progress.${escAttr(tile.id)}.${escAttr(activeTeamId || 'none')}" ${checked?'checked':''} ${!activeTeamId?'disabled':''}
               style="width:16px;height:16px;accent-color:${teamColor};cursor:${activeTeamId?'pointer':'default'};"
               onchange="toggleBingoStep('${tile.id}','${step.replace(/'/g,"\\'")}',this.checked)" />
             <span style="${checked?`color:${teamColor};font-weight:600;`:''}">${step}</span>
@@ -2128,11 +2318,11 @@
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
               One step per line. Leave empty to treat this tile as a single-click completion.
             </div>
-            <textarea id="steps-input-${tile.id}" rows="4" style="width:100%;font-family:monospace;font-size:13px;resize:vertical;"
+            <textarea id="steps-input-${tile.id}" data-lock-key="bingo.tile.${escAttr(tile.id)}.steps" rows="4" style="width:100%;font-family:monospace;font-size:13px;resize:vertical;"
               placeholder="Step 1&#10;Step 2&#10;Step 3">${steps.join('\n')}</textarea>
             <div style="display:flex;gap:8px;margin-top:8px;">
-              <button class="btn-save" onclick="saveBingoTileSteps('${tile.id}')">💾 Save Steps</button>
-              ${steps.length > 0 ? `<button class="btn-danger" onclick="clearBingoTileSteps('${tile.id}')">✕ Clear</button>` : ''}
+              <button class="btn-save" data-lock-guard-key="bingo.tile.${escAttr(tile.id)}.steps" onclick="saveBingoTileSteps('${tile.id}')">💾 Save Steps</button>
+              ${steps.length > 0 ? `<button class="btn-danger" data-lock-guard-key="bingo.tile.${escAttr(tile.id)}.steps" onclick="clearBingoTileSteps('${tile.id}')">✕ Clear</button>` : ''}
             </div>
           </div>
         </details>`;
@@ -2451,7 +2641,7 @@
         </div>
         <div class="event-top-actions">
           <button class="btn-edit" onclick="openEventEditor(${eventArg(event._id)})">Edit configuration</button>
-          <button class="btn-danger" onclick="deleteManagedEvent(${eventArg(event._id)})">Delete</button>
+          <button class="btn-danger" data-lock-action-key="event.${escAttr(event._id)}.delete" onclick="deleteManagedEvent(${eventArg(event._id)})">Delete</button>
         </div>
       </div>
       <div class="event-metrics">
@@ -2508,27 +2698,27 @@
       <div class="event-section-title"><div><div class="events-kicker">${id ? 'Event configuration' : 'New event setup'}</div><h3 style="font-size:1.2rem;margin:4px 0 0!important;">${id ? `Edit ${esc(event.name || 'event')}` : 'Create an event'}</h3></div></div>
       <form id="managed-event-form" onsubmit="saveManagedEvent(event,${eventArg(id)})">
         <div class="event-form-grid">
-          <div class="field"><label for="ev-name">Event name</label><input id="ev-name" required maxlength="100" value="${escAttr(event.name || '')}" placeholder="Winter bossing league"></div>
-          <div class="field"><label for="ev-format">Format</label><select id="ev-format">${formatOptions}</select></div>
-          <div class="field wide"><label for="ev-description">Brief</label><textarea id="ev-description" maxlength="2000" placeholder="What are members competing to do?">${esc(event.description || '')}</textarea></div>
-          <div class="field"><label for="ev-status">Lifecycle</label><select id="ev-status">${statusOptions}</select></div>
-          <div class="field"><label for="ev-participation">Participation</label><select id="ev-participation"><option value="solo" ${currentParticipation === 'solo' ? 'selected' : ''}>Solo</option><option value="team" ${currentParticipation === 'team' ? 'selected' : ''}>Team</option></select></div>
-          <div class="field"><label for="ev-start">Starts</label><input id="ev-start" type="datetime-local" required value="${eventDateValue(event.startsAt)}"></div>
-          <div class="field"><label for="ev-end">Ends</label><input id="ev-end" type="datetime-local" required value="${eventDateValue(event.endsAt)}"></div>
-          <div class="field wide"><label for="ev-scoring-mode">Scoring preset</label><select id="ev-scoring-mode" onchange="setScoringPreset(this.value)">
+          <div class="field"><label for="ev-name">Event name</label><input id="ev-name" data-lock-key="event.${escAttr(id || 'create')}.name" required maxlength="100" value="${escAttr(event.name || '')}" placeholder="Winter bossing league"></div>
+          <div class="field"><label for="ev-format">Format</label><select id="ev-format" data-lock-key="event.${escAttr(id || 'create')}.format">${formatOptions}</select></div>
+          <div class="field wide"><label for="ev-description">Brief</label><textarea id="ev-description" data-lock-key="event.${escAttr(id || 'create')}.description" maxlength="2000" placeholder="What are members competing to do?">${esc(event.description || '')}</textarea></div>
+          <div class="field"><label for="ev-status">Lifecycle</label><select id="ev-status" data-lock-key="event.${escAttr(id || 'create')}.status">${statusOptions}</select></div>
+          <div class="field"><label for="ev-participation">Participation</label><select id="ev-participation" data-lock-key="event.${escAttr(id || 'create')}.participationMode"><option value="solo" ${currentParticipation === 'solo' ? 'selected' : ''}>Solo</option><option value="team" ${currentParticipation === 'team' ? 'selected' : ''}>Team</option></select></div>
+          <div class="field"><label for="ev-start">Starts</label><input id="ev-start" data-lock-key="event.${escAttr(id || 'create')}.startsAt" type="datetime-local" required value="${eventDateValue(event.startsAt)}"></div>
+          <div class="field"><label for="ev-end">Ends</label><input id="ev-end" data-lock-key="event.${escAttr(id || 'create')}.endsAt" type="datetime-local" required value="${eventDateValue(event.endsAt)}"></div>
+          <div class="field wide"><label for="ev-scoring-mode">Scoring preset</label><select id="ev-scoring-mode" data-lock-key="event.${escAttr(id || 'create')}.scoringMode" onchange="setScoringPreset(this.value)">
             <option value="task-points" ${currentMode === 'task-points' ? 'selected' : ''}>Task points</option>
             <option value="points-per-unit" ${currentMode === 'points-per-unit' ? 'selected' : ''}>Points per unit</option>
             <option value="highest-value" ${currentMode === 'highest-value' ? 'selected' : ''}>Highest value</option>
             <option value="first-to-target" ${currentMode === 'first-to-target' ? 'selected' : ''}>First to target</option>
           </select></div>
-          <div class="field"><label for="ev-points-per-unit">Points per unit</label><input id="ev-points-per-unit" type="number" step="any" value="${escAttr(scoringDefaults.pointsPerUnit)}"></div>
-          <div class="field"><label for="ev-first-place-bonus">First-place bonus</label><input id="ev-first-place-bonus" type="number" step="any" value="${escAttr(scoringDefaults.firstPlaceBonus)}"></div>
-          <div class="field"><label for="ev-line-bonus">Line bonus</label><input id="ev-line-bonus" type="number" step="any" value="${escAttr(scoringDefaults.lineBonus)}"></div>
-          <div class="field"><label for="ev-grid-size">Grid size</label><input id="ev-grid-size" type="number" step="1" min="2" max="20" value="${escAttr(scoringDefaults.gridSize)}"></div>
+          <div class="field"><label for="ev-points-per-unit">Points per unit</label><input id="ev-points-per-unit" data-lock-key="event.${escAttr(id || 'create')}.scoringConfig.pointsPerUnit" type="number" step="any" value="${escAttr(scoringDefaults.pointsPerUnit)}"></div>
+          <div class="field"><label for="ev-first-place-bonus">First-place bonus</label><input id="ev-first-place-bonus" data-lock-key="event.${escAttr(id || 'create')}.scoringConfig.firstPlaceBonus" type="number" step="any" value="${escAttr(scoringDefaults.firstPlaceBonus)}"></div>
+          <div class="field"><label for="ev-line-bonus">Line bonus</label><input id="ev-line-bonus" data-lock-key="event.${escAttr(id || 'create')}.scoringConfig.lineBonus" type="number" step="any" value="${escAttr(scoringDefaults.lineBonus)}"></div>
+          <div class="field"><label for="ev-grid-size">Grid size</label><input id="ev-grid-size" data-lock-key="event.${escAttr(id || 'create')}.scoringConfig.gridSize" type="number" step="1" min="2" max="20" value="${escAttr(scoringDefaults.gridSize)}"></div>
         </div>
         <p style="color:#81958b;font-size:.76rem;margin-top:12px;">Adjust the supported scoring values for this preset. Bingo task boards use grid size and line bonus.</p>
         <div class="save-row">
-          <button class="btn-save" type="submit">${id ? 'Save configuration' : 'Create event'}</button>
+          <button class="btn-save" type="submit" ${id ? '' : 'data-lock-guard-key="event.create.action"'}>${id ? 'Save configuration' : 'Create event'}</button>
           <button class="btn-cancel" type="button" onclick="${id ? 'loadEventDetail()' : 'cancelEventCreate()'}">Cancel</button>
         </div>
       </form>
@@ -2618,25 +2808,25 @@
     return `<div class="event-panel active">
       <div class="event-section-title"><h3>Goals & tasks <span style="font-size:.75rem;color:#82958c;">${goals.length}</span></h3></div>
       <form class="event-inline-form" onsubmit="createEventGoal(event)">
-        <div class="field"><label>Task name</label><input name="name" required maxlength="120" placeholder="First Theatre of Blood clear"></div>
-        <div class="field"><label>Kind</label><select name="kind" required><option value="task">Task</option><option value="counter">Counter</option><option value="drop">Drop</option><option value="collection">Collection</option></select></div>
-        <div class="field"><label>Target value</label><input name="targetValue" type="number" step="any" value="1"></div>
-        <div class="field"><label>Unit</label><input name="unit" placeholder="kills, items, points"></div>
-        <div class="field"><label>Points</label><input name="points" type="number" step="any" value="1"></div>
-        <div class="field"><label>Verification</label><select name="verification" required><option value="proof">Proof review</option><option value="droptracker">Droptracker match</option></select></div>
-        <div class="field wide"><label>Description</label><input name="description" maxlength="500" placeholder="Task instructions"></div>
-        <div class="field"><label>NPC name · drop criteria</label><input name="npcName" placeholder="Boss or NPC"></div>
-        <div class="field"><label>Item name · drop criteria</label><input name="itemName" placeholder="Drop item"></div>
-        <div class="field"><label>Minimum value · drop criteria</label><input name="minValue" type="number" step="any" placeholder="Optional"></div>
-        <div class="field"><label>Row · bingo task</label><input name="row" type="number" step="1" min="1" placeholder="Optional integer"></div>
-        <div class="field"><label>Column · bingo task</label><input name="column" type="number" step="1" min="1" placeholder="Optional integer"></div>
+        <div class="field"><label>Task name</label><input name="name" data-lock-key="event.${escAttr(currentEventId)}.goal.create.name" required maxlength="120" placeholder="First Theatre of Blood clear"></div>
+        <div class="field"><label>Kind</label><select name="kind" data-lock-key="event.${escAttr(currentEventId)}.goal.create.kind" required><option value="task">Task</option><option value="counter">Counter</option><option value="drop">Drop</option><option value="collection">Collection</option></select></div>
+        <div class="field"><label>Target value</label><input name="targetValue" data-lock-key="event.${escAttr(currentEventId)}.goal.create.targetValue" type="number" step="any" value="1"></div>
+        <div class="field"><label>Unit</label><input name="unit" data-lock-key="event.${escAttr(currentEventId)}.goal.create.unit" placeholder="kills, items, points"></div>
+        <div class="field"><label>Points</label><input name="points" data-lock-key="event.${escAttr(currentEventId)}.goal.create.points" type="number" step="any" value="1"></div>
+        <div class="field"><label>Verification</label><select name="verification" data-lock-key="event.${escAttr(currentEventId)}.goal.create.verification" required><option value="proof">Proof review</option><option value="droptracker">Droptracker match</option></select></div>
+        <div class="field wide"><label>Description</label><input name="description" data-lock-key="event.${escAttr(currentEventId)}.goal.create.description" maxlength="500" placeholder="Task instructions"></div>
+        <div class="field"><label>NPC name · drop criteria</label><input name="npcName" data-lock-key="event.${escAttr(currentEventId)}.goal.create.criteria.npcName" placeholder="Boss or NPC"></div>
+        <div class="field"><label>Item name · drop criteria</label><input name="itemName" data-lock-key="event.${escAttr(currentEventId)}.goal.create.criteria.itemName" placeholder="Drop item"></div>
+        <div class="field"><label>Minimum value · drop criteria</label><input name="minValue" data-lock-key="event.${escAttr(currentEventId)}.goal.create.criteria.minValue" type="number" step="any" placeholder="Optional"></div>
+        <div class="field"><label>Row · bingo task</label><input name="row" data-lock-key="event.${escAttr(currentEventId)}.goal.create.criteria.row" type="number" step="1" min="1" placeholder="Optional integer"></div>
+        <div class="field"><label>Column · bingo task</label><input name="column" data-lock-key="event.${escAttr(currentEventId)}.goal.create.criteria.column" type="number" step="1" min="1" placeholder="Optional integer"></div>
         <p class="wide" style="color:#81958b;font-size:.76rem;">Droptracker can match automatically when configured. Members can still submit proof for moderator review. NPC, item, and minimum value describe drop criteria; row and column are optional bingo coordinates.</p>
-        <div class="wide"><button class="btn-save" type="submit">Add goal</button></div>
+        <div class="wide"><button class="btn-save" data-lock-action-key="event.${escAttr(currentEventId)}.goal.create.action" type="submit">Add goal</button></div>
       </form>
       <div id="event-goal-edit"></div>
       ${goals.length ? goals.map(goal => `<div class="event-row">
         <div class="event-row-main"><strong>${esc(goal.name)}</strong><small>${esc(goal.description || 'No additional instructions')} · ${esc(String(goal.targetValue ?? 1))} ${esc(goal.unit || goal.kind || 'target')} · ${esc(String(goal.points ?? 0))} pts · ${esc(goal.verification || 'proof')} · ${esc(goalCriteriaLabel(goal.criteria))}</small></div>
-        <div class="event-row-actions"><button class="btn-edit" onclick="openGoalEditor(${eventArg(goal._id)})">Edit</button><button class="btn-danger" onclick="deleteEventGoal(${eventArg(goal._id)})">Delete</button></div>
+        <div class="event-row-actions"><button class="btn-edit" onclick="openGoalEditor(${eventArg(goal._id)})">Edit</button><button class="btn-danger" data-lock-action-key="event.${escAttr(currentEventId)}.goal.${escAttr(goal._id)}.delete" onclick="deleteEventGoal(${eventArg(goal._id)})">Delete</button></div>
       </div>`).join('') : '<div class="event-empty"><strong>No goals configured</strong>Add the tasks that members need to complete and submit.</div>'}
     </div>`;
   }
@@ -2656,18 +2846,18 @@
     if (!goal || !host) return;
     const criteria = goal.criteria && typeof goal.criteria === 'object' ? goal.criteria : {};
     host.innerHTML = `<form class="event-inline-form" onsubmit="saveEventGoal(event,${eventArg(goalId)})">
-      <div class="field"><label>Task name</label><input name="name" required value="${escAttr(goal.name || '')}"></div>
-      <div class="field"><label>Kind</label><select name="kind" required>${[['task','Task'],['counter','Counter'],['drop','Drop'],['collection','Collection']].map(([value,label]) => `<option value="${value}" ${goal.kind === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
-      <div class="field"><label>Target value</label><input name="targetValue" type="number" step="any" value="${escAttr(goal.targetValue ?? '')}"></div>
-      <div class="field"><label>Unit</label><input name="unit" value="${escAttr(goal.unit || '')}"></div>
-      <div class="field"><label>Points</label><input name="points" type="number" step="any" value="${escAttr(goal.points ?? '')}"></div>
-      <div class="field"><label>Verification</label><select name="verification" required><option value="proof" ${goal.verification === 'proof' || !goal.verification ? 'selected' : ''}>Proof review</option><option value="droptracker" ${goal.verification === 'droptracker' ? 'selected' : ''}>Droptracker match</option></select></div>
-      <div class="field wide"><label>Description</label><input name="description" value="${escAttr(goal.description || '')}"></div>
-      <div class="field"><label>NPC name · drop criteria</label><input name="npcName" value="${escAttr(criteria.npcName || '')}"></div>
-      <div class="field"><label>Item name · drop criteria</label><input name="itemName" value="${escAttr(criteria.itemName || '')}"></div>
-      <div class="field"><label>Minimum value · drop criteria</label><input name="minValue" type="number" step="any" value="${escAttr(criteria.minValue ?? '')}"></div>
-      <div class="field"><label>Row · bingo task</label><input name="row" type="number" step="1" min="1" value="${escAttr(criteria.row ?? '')}" placeholder="Optional integer"></div>
-      <div class="field"><label>Column · bingo task</label><input name="column" type="number" step="1" min="1" value="${escAttr(criteria.column ?? '')}" placeholder="Optional integer"></div>
+      <div class="field"><label>Task name</label><input name="name" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.name" required value="${escAttr(goal.name || '')}"></div>
+      <div class="field"><label>Kind</label><select name="kind" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.kind" required>${[['task','Task'],['counter','Counter'],['drop','Drop'],['collection','Collection']].map(([value,label]) => `<option value="${value}" ${goal.kind === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+      <div class="field"><label>Target value</label><input name="targetValue" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.targetValue" type="number" step="any" value="${escAttr(goal.targetValue ?? '')}"></div>
+      <div class="field"><label>Unit</label><input name="unit" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.unit" value="${escAttr(goal.unit || '')}"></div>
+      <div class="field"><label>Points</label><input name="points" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.points" type="number" step="any" value="${escAttr(goal.points ?? '')}"></div>
+      <div class="field"><label>Verification</label><select name="verification" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.verification" required><option value="proof" ${goal.verification === 'proof' || !goal.verification ? 'selected' : ''}>Proof review</option><option value="droptracker" ${goal.verification === 'droptracker' ? 'selected' : ''}>Droptracker match</option></select></div>
+      <div class="field wide"><label>Description</label><input name="description" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.description" value="${escAttr(goal.description || '')}"></div>
+      <div class="field"><label>NPC name · drop criteria</label><input name="npcName" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.criteria.npcName" value="${escAttr(criteria.npcName || '')}"></div>
+      <div class="field"><label>Item name · drop criteria</label><input name="itemName" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.criteria.itemName" value="${escAttr(criteria.itemName || '')}"></div>
+      <div class="field"><label>Minimum value · drop criteria</label><input name="minValue" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.criteria.minValue" type="number" step="any" value="${escAttr(criteria.minValue ?? '')}"></div>
+      <div class="field"><label>Row · bingo task</label><input name="row" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.criteria.row" type="number" step="1" min="1" value="${escAttr(criteria.row ?? '')}" placeholder="Optional integer"></div>
+      <div class="field"><label>Column · bingo task</label><input name="column" data-lock-key="event.${escAttr(currentEventId)}.goal.${escAttr(goalId)}.criteria.column" type="number" step="1" min="1" value="${escAttr(criteria.column ?? '')}" placeholder="Optional integer"></div>
       <div class="wide"><button class="btn-save" type="submit">Save goal</button> <button class="btn-cancel" type="button" onclick="document.getElementById('event-goal-edit').innerHTML=''">Cancel</button></div>
     </form>`;
   }
@@ -2722,15 +2912,15 @@
     return `<div class="event-panel active">
       <div class="event-section-title"><h3>Teams</h3></div>
       <form class="event-inline-form" onsubmit="createEventTeam(event)">
-        <div class="field"><label>Team name</label><input name="name" required maxlength="80" placeholder="The Fremennik Four"></div>
-        <div class="field"><label>Team colour</label><input name="color" type="color" value="#86c7bb"></div>
-        <div class="wide"><button class="btn-save" type="submit">Create team</button></div>
+        <div class="field"><label>Team name</label><input name="name" data-lock-key="event.${escAttr(currentEventId)}.team.create.name" required maxlength="80" placeholder="The Fremennik Four"></div>
+        <div class="field"><label>Team colour</label><input name="color" data-lock-key="event.${escAttr(currentEventId)}.team.create.color" type="color" value="#86c7bb"></div>
+        <div class="wide"><button class="btn-save" data-lock-action-key="event.${escAttr(currentEventId)}.team.create.action" type="submit">Create team</button></div>
       </form>
       <div id="event-team-edit"></div>
       ${teams.length ? teams.map(team => `<div class="event-row">
         <span style="width:13px;height:13px;border-radius:4px;background:${/^#[0-9a-f]{6}$/i.test(team.color || '') ? team.color : '#60756b'};flex:none;"></span>
         <div class="event-row-main"><strong>${esc(team.name)}</strong><small>${(event.participants || []).filter(person => person.teamId === team._id).length} enrolled members</small></div>
-        <div class="event-row-actions"><button class="btn-edit" onclick="openTeamEditor(${eventArg(team._id)})">Edit</button><button class="btn-danger" onclick="deleteEventTeam(${eventArg(team._id)})">Delete</button></div>
+        <div class="event-row-actions"><button class="btn-edit" onclick="openTeamEditor(${eventArg(team._id)})">Edit</button><button class="btn-danger" data-lock-action-key="event.${escAttr(currentEventId)}.team.${escAttr(team._id)}.delete" onclick="deleteEventTeam(${eventArg(team._id)})">Delete</button></div>
       </div>`).join('') : '<div class="event-empty"><strong>No teams yet</strong>Create teams here, then assign enrolled members from Participants.</div>'}
     </div>`;
   }
@@ -2739,8 +2929,8 @@
     const host = document.getElementById('event-team-edit');
     if (!team || !host) return;
     host.innerHTML = `<form class="event-inline-form" onsubmit="saveEventTeam(event,${eventArg(teamId)})">
-      <div class="field"><label>Team name</label><input name="name" required value="${escAttr(team.name || '')}"></div>
-      <div class="field"><label>Team colour</label><input name="color" type="color" value="${/^#[0-9a-f]{6}$/i.test(team.color || '') ? team.color : '#86c7bb'}"></div>
+      <div class="field"><label>Team name</label><input name="name" data-lock-key="event.${escAttr(currentEventId)}.team.${escAttr(teamId)}.name" required value="${escAttr(team.name || '')}"></div>
+      <div class="field"><label>Team colour</label><input name="color" data-lock-key="event.${escAttr(currentEventId)}.team.${escAttr(teamId)}.color" type="color" value="${/^#[0-9a-f]{6}$/i.test(team.color || '') ? team.color : '#86c7bb'}"></div>
       <div class="wide"><button class="btn-save" type="submit">Save team</button> <button class="btn-cancel" type="button" onclick="document.getElementById('event-team-edit').innerHTML=''">Cancel</button></div>
     </form>`;
   }
@@ -2766,7 +2956,7 @@
       ${people.length ? `<div class="event-table-wrap"><table><thead><tr><th>Member</th><th>Joined</th><th>Team assignment</th></tr></thead><tbody>${people.map(person => `<tr>
         <td>${esc(person.username || person.userId)}</td>
         <td>${esc(person.joinedAt ? eventDateLabel(person.joinedAt) : '—')}</td>
-        <td><select aria-label="Team for ${escAttr(person.username || person.userId)}" onchange="assignEventParticipant(${eventArg(person.userId)},this.value)">
+        <td><select data-lock-key="event.${escAttr(currentEventId)}.participant.${escAttr(person.userId)}.teamId" aria-label="Team for ${escAttr(person.username || person.userId)}" onchange="assignEventParticipant(${eventArg(person.userId)},this.value)">
           <option value="" ${!person.teamId ? 'selected' : ''}>No team</option>
           ${teams.map(team => `<option value="${escAttr(team._id)}" ${person.teamId === team._id ? 'selected' : ''}>${esc(team.name)}</option>`).join('')}
         </select></td>
@@ -2797,7 +2987,7 @@
             ${proof ? `<small><a class="event-proof" href="${escAttr(proof)}" target="_blank" rel="noopener noreferrer">Open evidence</a></small>` : item.proofUrl ? '<small>Evidence link is not a valid web URL.</small>' : '<small>No evidence link provided.</small>'}
             ${item.reviewNote ? `<small>Moderator note: ${esc(item.reviewNote)}</small>` : ''}
             ${item.pointsAwarded != null ? `<small>Points awarded: ${esc(String(item.pointsAwarded))}</small>` : ''}
-            ${item.status === 'pending' ? `<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:9px;"><input id="event-review-note-${escAttr(item._id)}" aria-label="Review note" placeholder="Optional moderator note" style="max-width:250px;padding:7px 9px;"><button class="btn-edit" onclick="reviewEventSubmission(${eventArg(item._id)},'approve')">Approve</button><button class="btn-danger" onclick="reviewEventSubmission(${eventArg(item._id)},'reject')">Reject</button></div>` : ''}
+            ${item.status === 'pending' ? `<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:9px;"><input id="event-review-note-${escAttr(item._id)}" data-lock-key="event.${escAttr(currentEventId)}.submission.${escAttr(item._id)}.review" aria-label="Review note" placeholder="Optional moderator note" style="max-width:250px;padding:7px 9px;"><button class="btn-edit" data-lock-action-key="event.${escAttr(currentEventId)}.submission.${escAttr(item._id)}.review" onclick="reviewEventSubmission(${eventArg(item._id)},'approve')">Approve</button><button class="btn-danger" data-lock-guard-key="event.${escAttr(currentEventId)}.submission.${escAttr(item._id)}.review" onclick="reviewEventSubmission(${eventArg(item._id)},'reject')">Reject</button></div>` : ''}
           </div>
         </div>`;
       }).join('') : `<div class="event-empty"><strong>${submissions.length ? 'No results in this view' : 'No submissions yet'}</strong>${submissions.length ? 'Choose another review status.' : 'Member submissions and evidence will appear here.'}</div>`}
@@ -2823,7 +3013,7 @@
         <div class="field"><label>Score target type</label><select name="targetType"><option value="solo">Solo</option><option value="team" ${type === 'team' ? 'selected' : ''}>Team</option></select></div>
         <div class="field"><label>Points adjustment</label><input name="points" type="number" step="any" required placeholder="12 or -3"></div>
         <div class="field"><label>Reason</label><input name="reason" required maxlength="300" placeholder="Reason for moderator adjustment"></div>
-        <div class="wide"><button class="btn-save" type="submit" ${leaderboard.length ? '' : 'disabled'}>Apply adjustment</button></div>
+        <div class="wide"><button class="btn-save" data-lock-action-key="event.${escAttr(currentEventId)}.scoreAdjustment.create" type="submit" ${leaderboard.length ? '' : 'disabled'}>Apply adjustment</button></div>
       </form>
     </div>`;
   }

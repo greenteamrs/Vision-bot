@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { valuesDiffer } = require('./dashboard-locks');
 const {
   OsrsEvent,
   EventSubmission,
@@ -49,7 +50,72 @@ function serializeEvent(event) {
   return value;
 }
 
-function createEventService({ client, User, getDroptrackerDrops, readBody, sendJson }) {
+function createEventService({ client, User, getDroptrackerDrops, readBody, sendJson, dashboardEditBlocked }) {
+  async function editIsBlocked(res, authUser, keys) {
+    return dashboardEditBlocked(authUser, res, keys);
+  }
+
+  function eventFieldKeys(eventId, values, prefix = `event.${eventId}`) {
+    return Object.keys(values || {})
+      .filter(key => values[key] !== undefined)
+      .map(key => `${prefix}.${key}`);
+  }
+
+  function eventUpdateLockKeys(eventId, event, update) {
+    const keys = [];
+    for (const field of ['name', 'description', 'format', 'status', 'participationMode', 'scoringMode', 'startsAt', 'endsAt']) {
+      if (update[field] !== undefined && valuesDiffer(event[field], update[field])) {
+        keys.push(`event.${eventId}.${field}`);
+      }
+    }
+    if (update.scoringConfig) {
+      for (const field of ['pointsPerUnit', 'firstPlaceBonus', 'lineBonus', 'gridSize']) {
+        if (update.scoringConfig[field] !== undefined &&
+            valuesDiffer(event.scoringConfig?.[field], update.scoringConfig[field])) {
+          keys.push(`event.${eventId}.scoringConfig.${field}`);
+        }
+      }
+    }
+    return keys;
+  }
+
+  function goalUpdateLockKeys(eventId, goalId, goal, normalized) {
+    const current = {
+      name: goal.name,
+      description: goal.description,
+      kind: goal.kind,
+      targetValue: goal.targetValue,
+      unit: goal.unit,
+      points: goal.points,
+      verification: goal.verification,
+      npcName: goal.criteria?.npcName || '',
+      itemName: goal.criteria?.itemName || '',
+      minValue: goal.criteria?.minValue ?? 0,
+      row: goal.row ?? goal.criteria?.row ?? null,
+      column: goal.col ?? goal.criteria?.column ?? null,
+    };
+    const next = {
+      name: normalized.name,
+      description: normalized.description,
+      kind: normalized.kind,
+      targetValue: normalized.targetValue,
+      unit: normalized.unit,
+      points: normalized.points,
+      verification: normalized.verification,
+      npcName: normalized.criteria?.npcName || '',
+      itemName: normalized.criteria?.itemName || '',
+      minValue: normalized.criteria?.minValue ?? 0,
+      row: normalized.row ?? null,
+      column: normalized.col ?? null,
+    };
+    return Object.keys(next)
+      .filter(field => valuesDiffer(current[field], next[field]))
+      .map(field => {
+        const criteriaField = ['npcName', 'itemName', 'minValue', 'row', 'column'].includes(field);
+        return `event.${eventId}.goal.${goalId}.${criteriaField ? `criteria.${field}` : field}`;
+      });
+  }
+
   async function refreshAwards(event) {
     const accepted = await EventSubmission.find({
       eventId: event._id,
@@ -115,7 +181,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     sendJson(res, status, { error: error?.message || 'Event request failed.' });
   }
 
-  async function handleApi(req, res, pathname, params) {
+  async function handleApi(req, res, pathname, params, authUser) {
     if (pathname === '/api/events' && req.method === 'GET') {
       try {
         const events = await OsrsEvent.find().sort({ startsAt: 1, createdAt: -1 }).lean();
@@ -127,6 +193,11 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     if (pathname === '/api/events' && req.method === 'POST') {
       try {
         const body = await readBody(req);
+        if (await editIsBlocked(res, authUser, [
+          'event.create',
+          ...eventFieldKeys('create', body, 'event.create'),
+          ...eventFieldKeys('create', body.scoringConfig || {}, 'event.create.scoringConfig'),
+        ])) return true;
         const normalized = normalizeEventInput(body);
         const event = await OsrsEvent.create(normalized);
         sendJson(res, 201, { event: serializeEvent(event) });
@@ -153,6 +224,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
       if (!event) { sendJson(res, 404, { error: 'Event not found.' }); return true; }
       try {
         const update = normalizeEventInput(await readBody(req), { partial: true });
+        if (await editIsBlocked(res, authUser, eventUpdateLockKeys(eventId, event, update))) return true;
         if (update.participationMode && update.participationMode !== event.participationMode) {
           const hasResults = await EventSubmission.exists({ eventId: event._id });
           if (event.participants.length || hasResults) {
@@ -169,6 +241,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
 
     if (suffix === '' && req.method === 'DELETE') {
       if (!event) { sendJson(res, 404, { error: 'Event not found.' }); return true; }
+      if (await editIsBlocked(res, authUser, [`event.${eventId}.delete`])) return true;
       await EventSubmission.deleteMany({ eventId: event._id });
       await event.deleteOne();
       sendJson(res, 200, { success: true });
@@ -180,6 +253,12 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     if (suffix === 'goals' && req.method === 'POST') {
       try {
         const body = await readBody(req);
+        const goalPrefix = `event.${eventId}.goal.create`;
+        if (await editIsBlocked(res, authUser, [
+          `${goalPrefix}.action`,
+          ...eventFieldKeys(eventId, body, goalPrefix),
+          ...eventFieldKeys(eventId, body.criteria || {}, `${goalPrefix}.criteria`),
+        ])) return true;
         if (event.goals.length >= 100) throw new Error('An event can have at most 100 goals.');
         event.goals.push(normalizeGoal(body));
         await event.save();
@@ -199,6 +278,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
           ...body,
           col: body.col ?? body.column ?? goal.col,
         });
+        if (await editIsBlocked(res, authUser, goalUpdateLockKeys(eventId, goalMatch[1], goal, normalized))) return true;
         Object.assign(goal, normalized);
         await event.save();
         await refreshAwards(event);
@@ -209,6 +289,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     if (goalMatch && req.method === 'DELETE') {
       const goal = goalById(event, goalMatch[1]);
       if (!goal) { sendJson(res, 404, { error: 'Goal not found.' }); return true; }
+      if (await editIsBlocked(res, authUser, [`event.${eventId}.goal.${goalMatch[1]}.delete`])) return true;
       const submissions = await EventSubmission.countDocuments({ eventId: event._id, goalId: goalMatch[1] });
       if (submissions) {
         sendJson(res, 409, { error: 'This goal already has result history. Keep it for the event record instead of deleting it.' });
@@ -224,6 +305,11 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
       try {
         if (event.participationMode !== 'team') throw new Error('Switch the event to team participation before adding teams.');
         const body = await readBody(req);
+        if (await editIsBlocked(res, authUser, [
+          `event.${eventId}.team.create.action`,
+          `event.${eventId}.team.create.name`,
+          `event.${eventId}.team.create.color`,
+        ])) return true;
         const name = String(body.name || '').trim();
         if (!name || name.length > 80) throw new Error('Team name is required and must be 80 characters or fewer.');
         if (nameAlreadyUsed(event.teams, name)) throw new Error('Team names must be unique within an event.');
@@ -241,6 +327,14 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
         const team = event.teams.id(teamMatch[1]);
         if (!team) { sendJson(res, 404, { error: 'Team not found.' }); return true; }
         const body = await readBody(req);
+        const teamLockKeys = [];
+        if (body.name !== undefined && valuesDiffer(team.name, String(body.name || '').trim())) {
+          teamLockKeys.push(`event.${eventId}.team.${teamMatch[1]}.name`);
+        }
+        if (body.color !== undefined && valuesDiffer(team.color, body.color)) {
+          teamLockKeys.push(`event.${eventId}.team.${teamMatch[1]}.color`);
+        }
+        if (await editIsBlocked(res, authUser, teamLockKeys)) return true;
         if (body.name !== undefined) {
           const name = String(body.name || '').trim();
           if (!name || name.length > 80) throw new Error('Team name is required and must be 80 characters or fewer.');
@@ -260,6 +354,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     if (teamMatch && req.method === 'DELETE') {
       const team = event.teams.id(teamMatch[1]);
       if (!team) { sendJson(res, 404, { error: 'Team not found.' }); return true; }
+      if (await editIsBlocked(res, authUser, [`event.${eventId}.team.${teamMatch[1]}.delete`])) return true;
       const assigned = event.participants.some(participant => participant.teamId === String(team._id));
       const submitted = await EventSubmission.exists({ eventId: event._id, teamId: String(team._id) });
       if (assigned || submitted) {
@@ -279,12 +374,14 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
         const participant = event.participants.find(item => item.userId === participantMatch[1]);
         if (!participant) { sendJson(res, 404, { error: 'Participant not found.' }); return true; }
         const body = await readBody(req);
+        const nextTeamId = body.teamId == null || body.teamId === '' ? '' : String(body.teamId);
+        if (valuesDiffer(participant.teamId || '', nextTeamId) &&
+            await editIsBlocked(res, authUser, [`event.${eventId}.participant.${participant.userId}.teamId`])) return true;
         const hasResults = await EventSubmission.exists({
           eventId: event._id,
           submittedById: participant.userId,
           kind: 'goal',
         });
-        const nextTeamId = body.teamId == null || body.teamId === '' ? '' : String(body.teamId);
         if (hasResults && nextTeamId !== participant.teamId) {
           throw new Error('A member with recorded results cannot be moved to another team; this keeps past scores with the team that earned them.');
         }
@@ -305,6 +402,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     if (reviewMatch && req.method === 'POST') {
       try {
         const body = await readBody(req);
+        if (await editIsBlocked(res, authUser, [`event.${eventId}.submission.${reviewMatch[1]}.review`])) return true;
         const decision = body.decision;
         if (!['approve', 'reject'].includes(decision)) throw new Error('Decision must be approve or reject.');
         const submission = await EventSubmission.findOne({ _id: reviewMatch[1], eventId: event._id });
@@ -355,6 +453,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     if (suffix === 'score-adjustments' && req.method === 'POST') {
       try {
         const body = await readBody(req);
+        if (await editIsBlocked(res, authUser, [`event.${eventId}.scoreAdjustment.create`])) return true;
         const targetType = body.targetType;
         if (!['solo', 'team'].includes(targetType)) throw new Error('Target type must be solo or team.');
         if (targetType !== (event.participationMode === 'team' ? 'team' : 'solo')) {

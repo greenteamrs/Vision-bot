@@ -34,6 +34,11 @@ const {
   verifySetupCode,
   verifyDashboardToken,
 } = require('./dashboard-auth');
+const {
+  isValidDashboardLockKey,
+  isDashboardLockEnforced,
+  valuesDiffer,
+} = require('./dashboard-locks');
 
 
 // --- MongoDB: User Schema ---
@@ -117,6 +122,46 @@ const dashboardAccountSchema = new mongoose.Schema({
   role: { type: String, enum: ['mod'], default: 'mod' },
 }, { timestamps: true });
 const DashboardAccount = mongoose.model('DashboardAccount', dashboardAccountSchema);
+
+const dashboardLockSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true },
+  locked: { type: Boolean, default: false },
+  updatedBy: { type: String, default: '' },
+}, { timestamps: true });
+const DashboardLock = mongoose.model('DashboardLock', dashboardLockSchema);
+
+async function getDashboardLockMap() {
+  const rows = await DashboardLock.find({}).select('key locked').lean();
+  return Object.fromEntries(rows.map(row => [row.key, row.locked === true]));
+}
+
+async function dashboardEditBlocked(authUser, res, keys) {
+  if (authUser?.role === 'admin') return false;
+  const uniqueKeys = [...new Set(keys.filter(Boolean))];
+  if (!uniqueKeys.length) return false;
+  try {
+    const lockedRows = await DashboardLock.find({
+      key: { $in: uniqueKeys },
+      locked: true,
+    }).select('key').lean();
+    if (!lockedRows.length) return false;
+    sendJson(res, 423, {
+      error: 'This dashboard value is locked by the admin.',
+      lockedKeys: lockedRows.map(row => row.key),
+    });
+    return true;
+  } catch (error) {
+    console.error('[DashboardLocks] Could not check edit permissions:', error.message);
+    sendJson(res, 503, { error: 'Could not verify dashboard edit permissions right now.' });
+    return true;
+  }
+}
+
+function changedLockKeys(current, incoming, keyForField, fields = Object.keys(incoming || {})) {
+  return fields
+    .filter(field => incoming[field] !== undefined && valuesDiffer(current?.[field], incoming[field]))
+    .map(field => keyForField(field));
+}
 
 const commandConfigSchema = new mongoose.Schema({
   key:         { type: String, unique: true, required: true },
@@ -734,6 +779,7 @@ const eventService = createEventService({
   getDroptrackerDrops,
   readBody,
   sendJson,
+  dashboardEditBlocked,
 });
 
 function formatGp(n) {
@@ -2666,6 +2712,41 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/dashboard-locks' && req.method === 'GET') {
+      try {
+        sendJson(res, 200, { locks: await getDashboardLockMap() });
+      } catch (error) {
+        console.error('[DashboardLocks] Could not load lock states:', error.message);
+        sendJson(res, 503, { error: 'Could not load dashboard lock states.' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/dashboard-locks' && req.method === 'PATCH') {
+      if (authUser.role !== 'admin') {
+        sendJson(res, 403, { error: 'Only the dashboard admin can change lock states.' });
+        return;
+      }
+      try {
+        const body = await readBody(req);
+        const key = body && body.key;
+        if (!isValidDashboardLockKey(key) || typeof body.locked !== 'boolean') {
+          sendJson(res, 400, { error: 'A valid lock key and locked status are required.' });
+          return;
+        }
+        await DashboardLock.findOneAndUpdate(
+          { key },
+          { $set: { locked: body.locked, updatedBy: authUser.sub } },
+          { upsert: true, new: true, setDefaultsOnInsert: true },
+        );
+        sendJson(res, 200, { key, locked: body.locked });
+      } catch (error) {
+        console.error('[DashboardLocks] Could not update lock state:', error.message);
+        sendJson(res, 500, { error: 'Could not update the dashboard lock.' });
+      }
+      return;
+    }
+
     if (pathname === '/api/mod-accounts' && req.method === 'GET') {
       if (authUser.role !== 'admin') {
         sendJson(res, 403, { error: 'Admin access required.' });
@@ -2758,7 +2839,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (await eventService.handleApi(req, res, pathname, params)) return;
+    if (await eventService.handleApi(req, res, pathname, params, authUser)) return;
 
     // GET /api/settings
     if (pathname === '/api/settings' && req.method === 'GET') {
@@ -2771,6 +2852,23 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/settings' && req.method === 'POST') {
       try {
         const data = await readBody(req);
+        const existing = await Settings.findOne({ key: 'main' }) || new Settings({ key: 'main' });
+        const allowed = [
+          'messageXpMin', 'messageXpMax', 'messageXpCooldownSecs',
+          'voiceJoinXp', 'voiceJoinCooldownSecs', 'voiceIntervalXp', 'voiceIntervalMins',
+          'afkChannelId', 'rankNotifyChannelId', 'womGroupId', 'womActivityChannelId',
+          'droptrackerGroupId', 'bingoChannelId', 'bingoReviewChannelId',
+          'levelA', 'levelB', 'levelC', 'levelMax',
+        ];
+        const lockKeys = changedLockKeys(existing, data, field => `settings.${field}`, allowed);
+        if (Array.isArray(data.dropTopXp)) {
+          const previous = existing.dropTopXp || [];
+          const length = Math.max(previous.length, data.dropTopXp.length);
+          for (let i = 0; i < length; i++) {
+            if (valuesDiffer(previous[i], data.dropTopXp[i])) lockKeys.push(`settings.dropTopXp.${i}`);
+          }
+        }
+        if (await dashboardEditBlocked(authUser, res, lockKeys)) return;
         await saveSettings(data);
         sendJson(res, 200, { success: true });
       } catch (e) {
@@ -2811,6 +2909,7 @@ const server = http.createServer(async (req, res) => {
     const userMatchDel = pathname.match(/^\/api\/users\/(.+)$/);
     if (userMatchDel && req.method === 'DELETE') {
       try {
+        if (await dashboardEditBlocked(authUser, res, [`user.${userMatchDel[1]}.delete`])) return;
         await User.deleteOne({ userId: userMatchDel[1] });
         sendJson(res, 200, { success: true });
       } catch (e) {
@@ -2829,6 +2928,15 @@ const server = http.createServer(async (req, res) => {
         for (const k of allowed) {
           if (data[k] !== undefined) update[k] = data[k];
         }
+        const existing = await User.findOne({ userId: userMatch[1] });
+        if (!existing) { sendJson(res, 404, { error: 'User not found.' }); return; }
+        const lockKeys = [];
+        for (const field of Object.keys(update)) {
+          if (!valuesDiffer(existing[field], update[field])) continue;
+          const lockField = field === 'rsName' || field === 'rsNames' ? 'rsNames' : field;
+          lockKeys.push(`user.${userMatch[1]}.${lockField}`);
+        }
+        if (await dashboardEditBlocked(authUser, res, lockKeys)) return;
         const user = await User.findOneAndUpdate({ userId: userMatch[1] }, { $set: update }, { new: true });
         sendJson(res, 200, user);
       } catch (e) {
@@ -2915,6 +3023,17 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/ranks' && req.method === 'POST') {
       try {
         const data = await readBody(req);
+        const createLockKeys = [
+          'rank.create.action',
+          'rank.create.name',
+          'rank.create.minDays',
+          'rank.create.minLootPoints',
+          'rank.create.minLevel',
+          'rank.create.order',
+          'rank.create.notifyOnEligibility',
+          'rank.create.specialRequirement',
+        ];
+        if (await dashboardEditBlocked(authUser, res, createLockKeys)) return;
         const rank = await Rank.create({
           name: data.name,
           minDays: Number(data.minDays) || 0,
@@ -2953,6 +3072,14 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/calendar/events' && req.method === 'POST') {
       try {
         const data = await readBody(req);
+        if (await dashboardEditBlocked(authUser, res, [
+          'calendar.create.action',
+          'calendar.create.title',
+          'calendar.create.type',
+          'calendar.create.start',
+          'calendar.create.end',
+          'calendar.create.color',
+        ])) return;
         const start = new Date(data.start);
         const end = new Date(data.end);
         if (!data.title?.trim() || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
@@ -2975,12 +3102,16 @@ const server = http.createServer(async (req, res) => {
     if (calendarEventMatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
+        const current = await CalendarEvent.findById(calendarEventMatch[1]);
+        if (!current) { sendJson(res, 404, { error: 'Event not found' }); return; }
         const update = {};
         if (data.title !== undefined) update.title = String(data.title).trim();
         if (data.type !== undefined) update.type = String(data.type).trim();
         if (data.start !== undefined) update.start = new Date(data.start);
         if (data.end !== undefined) update.end = new Date(data.end);
         if (data.color !== undefined && /^#[0-9a-f]{6}$/i.test(data.color)) update.color = data.color;
+        const lockKeys = changedLockKeys(current, update, field => `calendar.${calendarEventMatch[1]}.${field}`);
+        if (await dashboardEditBlocked(authUser, res, lockKeys)) return;
         const event = await CalendarEvent.findByIdAndUpdate(calendarEventMatch[1], { $set: update }, { new: true });
         if (!event) { sendJson(res, 404, { error: 'Event not found' }); return; }
         sendJson(res, 200, event);
@@ -2989,6 +3120,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (calendarEventMatch && req.method === 'DELETE') {
+      if (await dashboardEditBlocked(authUser, res, [`calendar.${calendarEventMatch[1]}.delete`])) return;
       await CalendarEvent.findByIdAndDelete(calendarEventMatch[1]);
       sendJson(res, 200, { success: true });
       return;
@@ -3010,6 +3142,10 @@ const server = http.createServer(async (req, res) => {
                 : data[k];
           }
         }
+        const current = await Rank.findById(rankMatchPatch[1]);
+        if (!current) { sendJson(res, 404, { error: 'Not found' }); return; }
+        const lockKeys = changedLockKeys(current, update, field => `rank.${rankMatchPatch[1]}.${field}`);
+        if (await dashboardEditBlocked(authUser, res, lockKeys)) return;
         const rank = await Rank.findByIdAndUpdate(rankMatchPatch[1], { $set: update }, { new: true });
         if (!rank) { sendJson(res, 404, { error: 'Not found' }); return; }
         sendJson(res, 200, rank);
@@ -3023,6 +3159,7 @@ const server = http.createServer(async (req, res) => {
     const rankMatchDelete = pathname.match(/^\/api\/ranks\/(.+)$/);
     if (rankMatchDelete && req.method === 'DELETE') {
       try {
+        if (await dashboardEditBlocked(authUser, res, [`rank.${rankMatchDelete[1]}.delete`])) return;
         await Rank.findByIdAndDelete(rankMatchDelete[1]);
         sendJson(res, 200, { success: true });
       } catch (e) {
@@ -3048,6 +3185,10 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'Invalid command name. Use only letters, numbers, hyphens, underscores.' });
           return;
         }
+        const current = await CommandConfig.findOne({ key: cmdMatch[1] });
+        if (!current) { sendJson(res, 404, { error: 'Command not found' }); return; }
+        if (valuesDiffer(current.name, name.trim().toLowerCase()) &&
+            await dashboardEditBlocked(authUser, res, [`command.${cmdMatch[1]}.name`])) return;
         const updated = await CommandConfig.findOneAndUpdate(
           { key: cmdMatch[1] },
           { name: name.trim().toLowerCase() },
@@ -3080,6 +3221,7 @@ const server = http.createServer(async (req, res) => {
         const data = await readBody(req);
         const { tileId, teamId } = data;
         if (!tileId || !teamId) { sendJson(res, 400, { error: 'tileId and teamId required' }); return; }
+        if (await dashboardEditBlocked(authUser, res, [`bingo.submission.${approveMatch[1]}.review`])) return;
         const sub = await BingoSubmission.findById(approveMatch[1]);
         if (!sub) { sendJson(res, 404, { error: 'Submission not found' }); return; }
         const already = await BingoCompletion.findOne({ tileId, teamId });
@@ -3100,6 +3242,7 @@ const server = http.createServer(async (req, res) => {
     if (rejectMatch && req.method === 'POST') {
       try {
         const data = await readBody(req);
+        if (await dashboardEditBlocked(authUser, res, [`bingo.submission.${rejectMatch[1]}.review`])) return;
         const sub = await BingoSubmission.findById(rejectMatch[1]);
         if (!sub) { sendJson(res, 404, { error: 'Submission not found' }); return; }
         await BingoSubmission.findByIdAndUpdate(sub._id, { status: 'rejected', reviewedBy: 'dashboard' });
@@ -3128,6 +3271,9 @@ const server = http.createServer(async (req, res) => {
       try {
         const data = await readBody(req);
         const steps = Array.isArray(data.steps) ? data.steps.map(s => String(s).trim()).filter(Boolean) : [];
+        const previous = await BingoTileConfig.findOne({ tileId: tileConfigMatch[1] });
+        if (valuesDiffer(previous?.steps || [], steps) &&
+            await dashboardEditBlocked(authUser, res, [`bingo.tile.${tileConfigMatch[1]}.steps`])) return;
         const config = await BingoTileConfig.findOneAndUpdate(
           { tileId: tileConfigMatch[1] },
           { $set: { steps } },
@@ -3144,6 +3290,7 @@ const server = http.createServer(async (req, res) => {
         const data = await readBody(req);
         const { tileId, teamId, step } = data;
         if (!tileId || !teamId || !step) { sendJson(res, 400, { error: 'tileId, teamId, step required' }); return; }
+        if (await dashboardEditBlocked(authUser, res, [`bingo.progress.${tileId}.${teamId}`])) return;
 
         const existing = await BingoProgress.findOne({ tileId, teamId });
         let completedSteps;
@@ -3178,6 +3325,11 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/bingo/teams' && req.method === 'POST') {
       try {
         const data = await readBody(req);
+        if (await dashboardEditBlocked(authUser, res, [
+          'bingo.team.create.action',
+          'bingo.team.create.name',
+          'bingo.team.create.color',
+        ])) return;
         const team = await BingoTeam.create({ name: data.name, color: data.color || '#e74c3c', order: data.order || 0 });
         sendJson(res, 201, team);
       } catch (e) { sendJson(res, 400, { error: e.message }); }
@@ -3189,6 +3341,15 @@ const server = http.createServer(async (req, res) => {
     if (bingoTeamPatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
+        const current = await BingoTeam.findById(bingoTeamPatch[1]);
+        if (!current) { sendJson(res, 404, { error: 'Not found' }); return; }
+        const lockKeys = [];
+        for (const field of ['name', 'color', 'order']) {
+          if (data[field] !== undefined && valuesDiffer(current[field], field === 'order' ? Number(data[field]) : data[field])) {
+            lockKeys.push(`bingo.team.${bingoTeamPatch[1]}.${field}`);
+          }
+        }
+        if (await dashboardEditBlocked(authUser, res, lockKeys)) return;
         const upd = {};
         if (data.name !== undefined) upd.name = data.name;
         if (data.color !== undefined) upd.color = data.color;
@@ -3203,6 +3364,7 @@ const server = http.createServer(async (req, res) => {
     // DELETE /api/bingo/teams/:id
     const bingoTeamDel = pathname.match(/^\/api\/bingo\/teams\/(.+)$/);
     if (bingoTeamDel && req.method === 'DELETE') {
+      if (await dashboardEditBlocked(authUser, res, [`bingo.team.${bingoTeamDel[1]}.delete`])) return;
       await BingoTeam.findByIdAndDelete(bingoTeamDel[1]);
       await BingoCompletion.deleteMany({ teamId: bingoTeamDel[1] });
       sendJson(res, 200, { success: true });
@@ -3213,6 +3375,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/bingo/complete' && req.method === 'POST') {
       try {
         const data = await readBody(req);
+        if (await dashboardEditBlocked(authUser, res, [`bingo.completion.${data.tileId}.${data.teamId}`])) return;
         const existing = await BingoCompletion.findOne({ tileId: data.tileId, teamId: data.teamId });
         if (existing) { sendJson(res, 200, existing); return; }
         const comp = await BingoCompletion.create({ tileId: data.tileId, teamId: data.teamId, completedBy: data.completedBy || '' });
@@ -3225,6 +3388,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/bingo/complete' && req.method === 'DELETE') {
       try {
         const data = await readBody(req);
+        if (await dashboardEditBlocked(authUser, res, [`bingo.completion.${data.tileId}.${data.teamId}`])) return;
         await BingoCompletion.deleteOne({ tileId: data.tileId, teamId: data.teamId });
         sendJson(res, 200, { success: true });
       } catch (e) { sendJson(res, 400, { error: e.message }); }

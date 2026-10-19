@@ -3001,18 +3001,22 @@ server.listen(PORT, () => {
 });
 
 // --- Start Bot ---
-const token = process.env.DISCORD_TOKEN;
-if (!token) { console.error("DISCORD_TOKEN not set!"); process.exit(1); }
+if (process.env.REPL_ID) {
+  console.log('Discord bot is hosted on Render; skipping local MongoDB connection and Discord login in Replit.');
+} else {
+  const token = process.env.DISCORD_TOKEN;
+  if (!token) { console.error("DISCORD_TOKEN not set!"); process.exit(1); }
 
-const mongoUri = process.env.MONGODB_URI;
-if (!mongoUri) { console.error("MONGODB_URI not set!"); process.exit(1); }
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) { console.error("MONGODB_URI not set!"); process.exit(1); }
 
-mongoose.connect(mongoUri)
-  .then(() => {
-    console.log("Connected to MongoDB.");
-    client.login(token);
-  })
-  .catch(err => {
-    console.error("MongoDB connection error:", err);
-    process.exit(1);
-  });
+  mongoose.connect(mongoUri)
+    .then(() => {
+      console.log("Connected to MongoDB.");
+      client.login(token);
+    })
+    .catch(err => {
+      console.error("MongoDB connection error:", err);
+      process.exit(1);
+    });
+}

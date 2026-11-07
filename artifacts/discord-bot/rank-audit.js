@@ -1,4 +1,5 @@
 const { resolvePermanentRank } = require('./rank-history');
+const { hasFixedImpRank, meetsRankRequirements } = require('./rank-requirements');
 
 function findPendingRankUps({ ranks, users, daysInClan }) {
   if (!Array.isArray(ranks) || !Array.isArray(users) || typeof daysInClan !== 'function') {
@@ -8,16 +9,14 @@ function findPendingRankUps({ ranks, users, daysInClan }) {
 
   const pending = [];
   for (const user of users) {
+    if (hasFixedImpRank(user, ranks)) continue;
     const days = daysInClan(user);
     let qualifiedIndex = -1;
     for (let index = 0; index < ranks.length; index++) {
       const rank = ranks[index];
       // Notification-disabled ranks are manually assigned, not earned by thresholds.
       // Keep them in the full list only to recognize a member's current WOM rank.
-      if (rank.notifyOnEligibility === false || rank.isTemporary === true) continue;
-      if (days >= rank.minDays &&
-          Number(user.lootPoints || 0) >= Number(rank.minLootPoints || 0) &&
-          Number(user.level || 0) >= Number(rank.minLevel || 0)) {
+      if (meetsRankRequirements(rank, user, days, ranks)) {
         qualifiedIndex = index;
       }
     }

@@ -27,7 +27,7 @@ test('CA tiers use earned points across difficulties, and live cumulative thresh
 
 test('RuneProfile parsing distinguishes known zero from missing and rejects the wrong account', () => {
   assert.deepEqual(profileStats(profile, 'example'), {
-    totalLevel: 2100, collectionLogCount: 0, combatAchievementTier: 'Hard',
+    totalLevel: 2100, collectionLogCount: 0, combatAchievementTier: 'Hard', combatAchievementPoints: 60,
   });
   assert.throws(() => profileStats(profile, 'other'), /different account/);
   assert.throws(() => profileStats({ username: 'Example' }, 'Example'), /no valid stats/);
@@ -157,10 +157,10 @@ const html = fs.readFileSync(path.join(__dirname, 'dashboard.html'), 'utf8');
 const bot = fs.readFileSync(path.join(__dirname, 'bot.js'), 'utf8');
 
 test('Users UI exposes stats, manual inputs, sortable counts, and scrollable modal', () => {
-  for (const id of ['modal-total-level', 'modal-ca-tier', 'modal-collection-log', 'btn-users-stats-sync']) {
+  for (const id of ['modal-total-level', 'modal-ca-tier', 'modal-ca-points', 'modal-collection-log', 'btn-users-stats-sync']) {
     assert.ok(html.includes(`id="${id}"`));
   }
-  for (const field of ['totalLevel', 'combatAchievementTier', 'collectionLogCount']) {
+  for (const field of ['totalLevel', 'combatAchievementTier', 'combatAchievementPoints', 'collectionLogCount']) {
     assert.ok(html.includes(`'${field}'`));
   }
   assert.match(html, /u\[field\] \?\? 'Unknown'/);
@@ -174,7 +174,7 @@ test('Users UI exposes stats, manual inputs, sortable counts, and scrollable mod
 test('edit form sends changes and clear-to-auto without freezing unchanged synced stats', async () => {
   const nodes = {};
   for (const id of ['userid','username','name','rsname','permanent-rank','level','xp','lp',
-    'total-level','ca-tier','collection-log']) {
+    'total-level','ca-tier','ca-points','collection-log']) {
     nodes[`modal-${id}`] = { value: '', dataset: {} };
   }
   nodes['edit-modal'] = { classList: { add() {}, remove() {} } };
@@ -193,10 +193,13 @@ test('edit form sends changes and clear-to-auto without freezing unchanged synce
   assert.equal(Object.hasOwn(requests[0][2], 'totalLevel'), false);
   nodes['modal-total-level'].value = '2100';
   nodes['modal-ca-tier'].value = '';
+  nodes['modal-ca-points'].value = '1965';
   nodes['modal-collection-log'].value = '0';
   await context.saveUser();
   assert.equal(requests[1][2].totalLevel, 2100);
   assert.equal(requests[1][2].combatAchievementTier, null);
+  assert.equal(requests[1][2].combatAchievementPoints, 1965);
+  assert.equal(nodes['modal-ca-points'].dataset.lockKey, 'user.1.combatAchievementPoints');
   assert.equal(requests[1][2].collectionLogCount, 0);
   assert.equal(nodes['modal-total-level'].dataset.lockKey, 'user.1.totalLevel');
   context.openEditModal({ userId: '2' });
@@ -237,7 +240,7 @@ test('user PATCH validates stats and enforces moderator field locks before savin
       : scenario === 'clear' ? { collectionLogCount: null } : { collectionLogCount: 650 };
     const context = vm.createContext({
       pathname: '/api/users/123', req: { method: 'PATCH' }, res: {}, authUser: { role: 'moderator' },
-      readBody: async () => data, STAT_FIELDS: ['totalLevel', 'combatAchievementTier', 'collectionLogCount'],
+      readBody: async () => data, STAT_FIELDS: ['totalLevel', 'combatAchievementTier', 'combatAchievementPoints', 'collectionLogCount'],
       manualStatUpdates, valuesDiffer: (a, b) => a !== b,
       User: {
         findOne: async () => ({ userId: '123', collectionLogCount: 600 }),

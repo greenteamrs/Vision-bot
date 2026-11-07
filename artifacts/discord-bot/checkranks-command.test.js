@@ -9,6 +9,7 @@ const { createRankMemberScope } = require('./rank-members');
 test('/checkranks reports every eligible Visionaries member across Discord-sized messages', async () => {
   const users = Array.from({ length: 75 }, (_, i) => ({
     userId: String(i), username: `EligiblePlayer${i}`, rsName: `Player ${i}`,
+    droptrackerSetup: true,
     womRank: 'Recruit', days: 40, level: 10, lootPoints: 1000, notifiedRankId: 'raider',
   }));
   users.push({ ...users[0], userId: 'outsider', username: 'NotVisionaries' });
@@ -63,7 +64,7 @@ test('/checkranks reports every eligible Visionaries member across Discord-sized
   const text = messages.join('\n');
   assert.match(text, /Found 75 outstanding rank-ups/);
   for (let i = 0; i < 75; i++) {
-    assert.ok(text.includes(`Player ${i} / EligiblePlayer${i} / LP: 1000 / Days in clan: 40 / Community: 10 / Droptracker: ❌ / Recruit → Raider`));
+    assert.ok(text.includes(`Player ${i} / EligiblePlayer${i} / LP: 1000 / Days in clan: 40 / Community: 10 / Droptracker: ✅ / Recruit → Raider`));
   }
   assert.doesNotMatch(text, /SelectedOnly|NotVisionaries|AlreadyPromoted|Open the dashboard/);
 });

@@ -14,6 +14,7 @@ const ranks = [
 test('rank audit finds qualifying members even if their notification was already sent', () => {
   const users = [{
     userId: '10001',
+    droptrackerSetup: true,
     username: 'StillWaiting',
     womRank: 'Recruit',
     notifiedRankId: 'r3',
@@ -32,8 +33,8 @@ test('rank audit finds qualifying members even if their notification was already
 
 test('rank audit excludes members already at or above their eligible rank', () => {
   const users = [
-    { userId: '10002', username: 'Promoted', womRank: 'Veteran', days: 40, lootPoints: 700, level: 6 },
-    { userId: '10003', username: 'NotReady', womRank: 'Recruit', days: 5, lootPoints: 10, level: 1 },
+    { userId: '10002', droptrackerSetup: true, username: 'Promoted', womRank: 'Veteran', days: 40, lootPoints: 700, level: 6 },
+    { userId: '10003', droptrackerSetup: true, username: 'NotReady', womRank: 'Recruit', days: 5, lootPoints: 10, level: 1 },
   ];
 
   assert.deepEqual(findPendingRankUps({ ranks, users, daysInClan: user => user.days }), []);
@@ -47,9 +48,9 @@ test('rank audit excludes manually assigned ranks from promotion targets', () =>
   const pending = findPendingRankUps({
     ranks: manualRanks,
     users: [
-      { userId: 'waiting', womRank: 'Recruit', days: 40, lootPoints: 700, level: 6 },
-      { userId: 'promoted', womRank: 'Veteran', days: 40, lootPoints: 700, level: 6 },
-      { userId: 'selected', womRank: 'Selected member', days: 40, lootPoints: 700, level: 6 },
+      { userId: 'waiting', droptrackerSetup: true, womRank: 'Recruit', days: 40, lootPoints: 700, level: 6 },
+      { userId: 'promoted', droptrackerSetup: true, womRank: 'Veteran', days: 40, lootPoints: 700, level: 6 },
+      { userId: 'selected', droptrackerSetup: true, womRank: 'Selected member', days: 40, lootPoints: 700, level: 6 },
     ],
     daysInClan: user => user.days,
   });
@@ -61,7 +62,7 @@ test('rank audit excludes manually assigned ranks from promotion targets', () =>
 test('rank audit finds no promotions when every rank is manually assigned', () => {
   const pending = findPendingRankUps({
     ranks: ranks.map(rank => ({ ...rank, notifyOnEligibility: false })),
-    users: [{ userId: 'waiting', womRank: '', days: 100, lootPoints: 1000, level: 100 }],
+    users: [{ userId: 'waiting', droptrackerSetup: true, womRank: '', days: 100, lootPoints: 1000, level: 100 }],
     daysInClan: user => user.days,
   });
   assert.deepEqual(pending, []);
@@ -71,7 +72,7 @@ test('rank audit treats an equal configured rank order as already reached', () =
   const tiedRanks = [...ranks.slice(0, 2), { ...ranks[2], order: 2 }];
   const pending = findPendingRankUps({
     ranks: tiedRanks,
-    users: [{ userId: '10005', womRank: 'Raider', days: 40, lootPoints: 700, level: 6 }],
+    users: [{ userId: '10005', droptrackerSetup: true, womRank: 'Raider', days: 40, lootPoints: 700, level: 6 }],
     daysInClan: user => user.days,
   });
 
@@ -81,7 +82,7 @@ test('rank audit treats an equal configured rank order as already reached', () =
 test('rank audit reports eligible users with no matching WOM rank as outstanding', () => {
   const pending = findPendingRankUps({
     ranks,
-    users: [{ userId: '10004', username: 'Unranked', womRank: '', days: 12, lootPoints: 120, level: 2 }],
+    users: [{ userId: '10004', droptrackerSetup: true, username: 'Unranked', womRank: '', days: 12, lootPoints: 120, level: 2 }],
     daysInClan: user => user.days,
   });
 

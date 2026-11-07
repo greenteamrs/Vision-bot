@@ -3,7 +3,7 @@ name: OSRS user stats
 description: Automatic syncing and manual corrections for members' OSRS progress stats.
 ---
 
-The user chose automatic sync plus manual editing for total level, Combat Achievement tier, and collection-log count.
+The user chose automatic sync plus manual editing for total level, Combat Achievement tier, and collection-log count. Combat Achievement points are also required for TzKal eligibility.
 
 **Why:** The user wants these stats on member records while still allowing staff to maintain values when automatic data is unavailable.
 

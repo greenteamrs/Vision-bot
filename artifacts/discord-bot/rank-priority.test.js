@@ -16,7 +16,7 @@ test('priority 1 remains the highest internal rank without reversing eligibility
   const updated = ranks.map(rank => ({ ...rank, order: changes.find(change => change.id === rank._id)?.order ?? rank.order }));
   const result = findPendingRankUps({
     ranks: updated.sort((a, b) => a.order - b.order),
-    users: [{ userId: '1', womRank: 'Raider', level: 6, lootPoints: 1000, days: 50 }],
+    users: [{ userId: '1', droptrackerSetup: true, womRank: 'Raider', level: 6, lootPoints: 1000, days: 50 }],
     daysInClan: user => user.days,
   });
   assert.equal(result[0].rankName, 'Veteran');
@@ -98,8 +98,8 @@ test('members at an equivalent tier are not flagged but lower tiers still qualif
   const pending = findPendingRankUps({
     ranks: equalRanks.sort((a, b) => a.order - b.order),
     users: [
-      { userId: 'equal', womRank: 'Raider', level: 6, lootPoints: 1000, days: 50 },
-      { userId: 'lower', womRank: 'Recruit', level: 6, lootPoints: 1000, days: 50 },
+      { userId: 'equal', droptrackerSetup: true, womRank: 'Raider', level: 6, lootPoints: 1000, days: 50 },
+      { userId: 'lower', droptrackerSetup: true, womRank: 'Recruit', level: 6, lootPoints: 1000, days: 50 },
     ], daysInClan: user => user.days,
   });
   assert.deepEqual(pending.map(user => user.userId), ['lower']);
@@ -116,7 +116,7 @@ test('automatic rank checks do not send alerts for equivalent priorities', async
   let channelRequests = 0;
   const context = vm.createContext({
     getRankCheckUsers: async () => [{
-      userId: 'same-tier', womRank: 'Raider', level: 6, lootPoints: 1000,
+      userId: 'same-tier', droptrackerSetup: true, womRank: 'Raider', level: 6, lootPoints: 1000,
     }],
     getSettings: async () => ({}),
     XP_CHANNEL_ID: 'test',
@@ -124,6 +124,7 @@ test('automatic rank checks do not send alerts for equivalent priorities', async
     User: { updateOne: async () => {} },
     daysInClan: () => 50,
     resolvePermanentRank,
+    ...require('./rank-requirements'),
     client: { channels: { fetch: async () => { channelRequests++; throw new Error('No alert expected'); } } },
     console,
   });

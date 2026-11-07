@@ -47,6 +47,7 @@ const { hasVisionariesRole, createRankMemberScope } = require('./rank-members');
 const { womRankUpdates, resolvePermanentRank, unknownPermanentRanks } = require('./rank-history');
 const { buildPriorityUpdates, withPriorityLevels } = require('./rank-priority');
 const { STAT_FIELDS, manualStatUpdates, createUserStatsService } = require('./user-stats');
+const { hasFixedImpRank, meetsRankRequirements, automaticRequirements } = require('./rank-requirements');
 
 
 // --- MongoDB: User Schema ---
@@ -67,10 +68,12 @@ const userSchema = new mongoose.Schema({
   droptrackerSetup: { type: Boolean, default: false },
   totalLevel: { type: Number, default: null },
   combatAchievementTier: { type: String, default: null },
+  combatAchievementPoints: { type: Number, default: null },
   collectionLogCount: { type: Number, default: null },
   statsManual: {
     totalLevel: { type: Boolean, default: false },
     combatAchievementTier: { type: Boolean, default: false },
+    combatAchievementPoints: { type: Boolean, default: false },
     collectionLogCount: { type: Boolean, default: false },
   },
   statsSyncedAt: { type: Date, default: null },
@@ -835,15 +838,10 @@ async function checkRankUps(guild) {
   let notified = 0;
 
   for (const user of users) {
+    if (hasFixedImpRank(user, ranks)) continue;
     const days = daysInClan(user);
     const qualifiedRank = ranks
-      .filter(rank =>
-        days >= rank.minDays &&
-        user.lootPoints >= rank.minLootPoints &&
-        user.level >= rank.minLevel &&
-        rank.notifyOnEligibility !== false &&
-        rank.isTemporary !== true
-      )
+      .filter(rank => meetsRankRequirements(rank, user, days, ranks))
       .at(-1);
 
     if (!qualifiedRank) continue;
@@ -892,7 +890,7 @@ async function getRankAudit(guild = client.guilds.cache.first()) {
   ]);
   return {
     pendingRankUps: computePendingRankUps({ ranks, users, daysInClan }),
-    unknownRanks: unknownPermanentRanks(ranks, users),
+    unknownRanks: unknownPermanentRanks(ranks, users.filter(user => !hasFixedImpRank(user, ranks))),
   };
 }
 
@@ -2886,7 +2884,7 @@ const server = http.createServer(async (req, res) => {
       const query = search
         ? { $or: [{ username: { $regex: search, $options: 'i' } }, { rsName: { $regex: search, $options: 'i' } }, { rsNames: new RegExp(search, 'i') }] }
         : {};
-      const validSorts = { username: 1, rsName: 1, level: 1, xp: 1, lootPoints: 1, totalLevel: 1, collectionLogCount: 1 };
+      const validSorts = { username: 1, rsName: 1, level: 1, xp: 1, lootPoints: 1, totalLevel: 1, collectionLogCount: 1, combatAchievementPoints: 1 };
       const rawSort = url.searchParams.get('sort');
       const sortDir = url.searchParams.get('dir') === 'asc' ? 1 : -1;
       let sortObj;
@@ -3052,7 +3050,9 @@ const server = http.createServer(async (req, res) => {
     // GET /api/ranks
     if (pathname === '/api/ranks' && req.method === 'GET') {
       const ranks = await Rank.find().sort({ order: 1, minLevel: 1 });
-      sendJson(res, 200, withPriorityLevels(ranks));
+      sendJson(res, 200, withPriorityLevels(ranks).map(rank => ({
+        ...rank, automaticRequirements: automaticRequirements(rank, ranks),
+      })));
       return;
     }
 

@@ -1,4 +1,4 @@
-const STAT_FIELDS = ['totalLevel', 'combatAchievementTier', 'collectionLogCount'];
+const STAT_FIELDS = ['totalLevel', 'combatAchievementTier', 'combatAchievementPoints', 'collectionLogCount'];
 const CA_TIERS = ['None', 'Easy', 'Medium', 'Hard', 'Elite', 'Master', 'Grandmaster'];
 const normalizeRsn = value => String(value || '').trim().replace(/[_\u00a0]/g, ' ').toLowerCase();
 const primaryRsn = user => String(user.rsName || user.rsNames?.at(-1) || '').trim();
@@ -7,7 +7,7 @@ const isCount = value => Number.isSafeInteger(value) && value >= 0;
 // Rewards are point-based, not based on completing every task of a difficulty.
 // Use the provider's current task totals (including account exemptions), rather
 // than hardcoding thresholds that change when Jagex adds tasks.
-function combatTier(rows) {
+function combatProgress(rows) {
   if (!Array.isArray(rows) || rows.length !== 6) return null;
   const tiers = CA_TIERS.slice(1).map(name =>
     rows.find(row => String(row.name).toLowerCase() === name.toLowerCase()));
@@ -20,7 +20,11 @@ function combatTier(rows) {
     threshold += row.total * (i + 1);
     if (points >= threshold) tier = CA_TIERS[i + 1];
   });
-  return tier;
+  return { tier, points };
+}
+
+function combatTier(rows) {
+  return combatProgress(rows)?.tier ?? null;
 }
 
 function profileStats(profile, rsn) {
@@ -34,8 +38,11 @@ function profileStats(profile, rsn) {
   if (isCount(profile.collectionLog?.obtained)) {
     stats.collectionLogCount = profile.collectionLog.obtained;
   }
-  const tier = combatTier(profile.combatAchievements);
-  if (tier !== null) stats.combatAchievementTier = tier;
+  const progress = combatProgress(profile.combatAchievements);
+  if (progress !== null) {
+    stats.combatAchievementTier = progress.tier;
+    stats.combatAchievementPoints = progress.points;
+  }
   if (!Object.keys(stats).length) throw new Error('RuneProfile returned no valid stats.');
   return stats;
 }
@@ -158,4 +165,4 @@ function createUserStatsService({ User, getSettings, getLocks, fetchImpl = fetch
   };
 }
 
-module.exports = { STAT_FIELDS, CA_TIERS, combatTier, profileStats, manualStatUpdates, createUserStatsService };
+module.exports = { STAT_FIELDS, CA_TIERS, combatTier, combatProgress, profileStats, manualStatUpdates, createUserStatsService };

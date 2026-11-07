@@ -46,7 +46,7 @@ test('rank checks use saved Gnome Child and Leader ranks despite higher seasonal
   const pending = findPendingRankUps({
     ranks,
     users: ['Gnome Child', 'Leader'].map((permanentRank, i) => ({
-      userId: String(i), womRank: 'Season Winner', permanentRank, days: 30, lootPoints: 300, level: 10,
+      userId: String(i), droptrackerSetup: true, womRank: 'Season Winner', permanentRank, days: 30, lootPoints: 300, level: 10,
     })),
     daysInClan: user => user.days,
   });
@@ -81,7 +81,7 @@ test('command rows use the requested fields, confirmation icons and decimal LP w
 test('missing WOM rank uses the saved original rank instead of claiming no rank is recorded', () => {
   for (const womRank of [undefined, null, '', '   ']) {
     const user = {
-      userId: 'saved', womRank, permanentRank: 'Leader',
+      userId: 'saved', droptrackerSetup: true, womRank, permanentRank: 'Leader',
       level: 10, lootPoints: 500,
     };
     const pending = findPendingRankUps({ ranks, users: [user], daysInClan: () => 50 });

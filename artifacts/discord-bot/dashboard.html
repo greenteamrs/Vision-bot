@@ -868,6 +868,7 @@
                 <th>DropTracker</th>
                 <th class="sortable" onclick="setUserSort('totalLevel')">Total Level <span class="sort-arrow" id="sarr-totalLevel"></span></th>
                 <th>Combat Achievement Tier</th>
+                <th class="sortable" onclick="setUserSort('combatAchievementPoints')">CA Points <span class="sort-arrow" id="sarr-combatAchievementPoints"></span></th>
                 <th class="sortable" onclick="setUserSort('collectionLogCount')">Collection Log <span class="sort-arrow" id="sarr-collectionLogCount"></span></th>
                 <th class="sortable" onclick="setUserSort('level')">Level <span class="sort-arrow" id="sarr-level">▼</span></th>
                 <th class="sortable" onclick="setUserSort('xp')">XP <span class="sort-arrow" id="sarr-xp"></span></th>
@@ -877,7 +878,7 @@
               </tr>
             </thead>
             <tbody id="users-table-body">
-              <tr><td colspan="12" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
+              <tr><td colspan="13" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -901,6 +902,7 @@
     <p style="color:#aaa;font-size:0.8rem;margin-bottom:12px;">Changing an OSRS stat makes it manual: sync will not overwrite it. Clear it to return to automatic sync on the next refresh. Blank means Unknown, not zero.</p>
     <div class="field"><label>Total level</label><input type="number" id="modal-total-level" min="1" step="1" placeholder="Unknown / automatic" /></div>
     <div class="field"><label>Combat Achievement tier</label><select id="modal-ca-tier"><option value="">Unknown / automatic</option><option>None</option><option>Easy</option><option>Medium</option><option>Hard</option><option>Elite</option><option>Master</option><option>Grandmaster</option></select></div>
+    <div class="field"><label for="modal-ca-points">Combat Achievement points</label><input type="number" id="modal-ca-points" min="0" step="1" placeholder="Unknown / automatic" /><small style="color:#888;">TzKal requires at least 1965 points. Editing the tier alone does not establish a points total.</small></div>
     <div class="field"><label>Collection log count</label><input type="number" id="modal-collection-log" min="0" step="1" placeholder="Unknown / automatic" /></div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
@@ -1493,7 +1495,7 @@
   }
 
   function updateSortArrows() {
-    ['username','rsName','level','xp','lootPoints','daysInClan','totalLevel','collectionLogCount'].forEach(f => {
+    ['username','rsName','level','xp','lootPoints','daysInClan','totalLevel','collectionLogCount','combatAchievementPoints'].forEach(f => {
       const el = document.getElementById(`sarr-${f}`);
       const th = el?.closest('th');
       if (!el) return;
@@ -1517,7 +1519,7 @@
 
     const tbody = document.getElementById('users-table-body');
     if (!data.users || data.users.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
     } else {
       tbody.innerHTML = data.users.map(u => {
         const names = (u.rsNames && u.rsNames.length ? u.rsNames : (u.rsName ? [u.rsName] : []));
@@ -1531,7 +1533,7 @@
           <td style="color:#888">${esc(names.join(', ') || 'Missing RSN')}</td>
           <td>${esc(u.womRank || 'Unknown')}${u.permanentRank && u.permanentRank !== u.womRank ? `<br><small style="color:#a78bfa;">Original: ${esc(u.permanentRank)}</small>` : ''}</td>
           <td><span style="color:${u.droptrackerSetup === true ? '#4ade80' : '#f87171'};font-weight:700;" aria-label="${u.droptrackerSetup === true ? 'DropTracker confirmed' : 'DropTracker not confirmed'}" title="${u.droptrackerSetup === true ? 'Confirmed in last successful DropTracker sync' : 'No confirmed DropTracker setup — sync members to refresh'}">${u.droptrackerSetup === true ? '✓' : '✕'}</span></td>
-          ${['totalLevel','combatAchievementTier','collectionLogCount'].map(field => `<td>${esc(u[field] ?? 'Unknown')}${u.statsManual?.[field] ? '<br><small style="color:#a78bfa;">Manual</small>' : ''}</td>`).join('')}
+          ${['totalLevel','combatAchievementTier','combatAchievementPoints','collectionLogCount'].map(field => `<td>${esc(u[field] ?? 'Unknown')}${u.statsManual?.[field] ? '<br><small style="color:#a78bfa;">Manual</small>' : ''}</td>`).join('')}
           <td>${u.level}</td>
           <td>${u.xp}</td>
           <td>${u.lootPoints}</td>
@@ -1572,6 +1574,7 @@
       'modal-lp': 'lootPoints',
       'modal-total-level': 'totalLevel',
       'modal-ca-tier': 'combatAchievementTier',
+      'modal-ca-points': 'combatAchievementPoints',
       'modal-collection-log': 'collectionLogCount',
     };
     Object.entries(fields).forEach(([id, field]) => {
@@ -1586,8 +1589,9 @@
     document.getElementById('modal-lp').value = user.lootPoints;
     document.getElementById('modal-total-level').value = user.totalLevel ?? '';
     document.getElementById('modal-ca-tier').value = user.combatAchievementTier ?? '';
+    document.getElementById('modal-ca-points').value = user.combatAchievementPoints ?? '';
     document.getElementById('modal-collection-log').value = user.collectionLogCount ?? '';
-    ['modal-total-level', 'modal-ca-tier', 'modal-collection-log'].forEach(id => {
+    ['modal-total-level', 'modal-ca-tier', 'modal-ca-points', 'modal-collection-log'].forEach(id => {
       const input = document.getElementById(id);
       input.dataset.originalValue = String(input.value);
     });
@@ -1613,12 +1617,13 @@
       lootPoints: Number(document.getElementById('modal-lp').value),
       totalLevel: document.getElementById('modal-total-level').value === '' ? null : Number(document.getElementById('modal-total-level').value),
       combatAchievementTier: document.getElementById('modal-ca-tier').value || null,
+      combatAchievementPoints: document.getElementById('modal-ca-points').value === '' ? null : Number(document.getElementById('modal-ca-points').value),
       collectionLogCount: document.getElementById('modal-collection-log').value === '' ? null : Number(document.getElementById('modal-collection-log').value),
     };
     // Do not turn stale, unchanged values into manual overrides if a background
     // sync updated the account while this edit form was open.
     for (const [id, field] of [['modal-total-level', 'totalLevel'],
-      ['modal-ca-tier', 'combatAchievementTier'], ['modal-collection-log', 'collectionLogCount']]) {
+      ['modal-ca-tier', 'combatAchievementTier'], ['modal-ca-points', 'combatAchievementPoints'], ['modal-collection-log', 'collectionLogCount']]) {
       const input = document.getElementById(id);
       if (String(input.value) === input.dataset.originalValue) delete data[field];
     }
@@ -1831,7 +1836,7 @@
         <td>Level ${r.minLevel}</td>
         <td style="color:${r.notifyOnEligibility === false ? '#fbbf24' : '#86efac'}">${r.notifyOnEligibility === false ? 'Off' : 'On'}</td>
         <td><label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" aria-label="Temporary rank: ${escAttr(r.name)}" data-lock-key="rank.${escAttr(r._id)}.isTemporary" ${r.isTemporary === true ? 'checked' : ''} onchange="setRankTemporary('${escAttr(r._id)}', this)" /> ${r.isTemporary === true ? 'Seasonal' : 'No'}</label></td>
-        <td style="max-width:240px;white-space:normal;color:#cbd5e1">${esc(r.specialRequirement || '—')}</td>
+        <td style="max-width:240px;white-space:normal;color:#cbd5e1">${(r.automaticRequirements || []).map(text => `<div style="color:#86efac;">Automatic: ${esc(text)}</div>`).join('')}${esc(r.specialRequirement || ((r.automaticRequirements || []).length ? '' : '—'))}</td>
         <td style="display:flex;gap:4px;align-items:center;">
           <button class="btn-edit" style="margin-left:4px;" onclick="openRankModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
           <button class="btn-edit" data-lock-action-key="rank.${escAttr(r._id)}.delete" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteRank('${r._id}', '${esc(r.name)}')">Delete</button>

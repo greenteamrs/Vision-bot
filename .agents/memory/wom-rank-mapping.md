@@ -5,6 +5,14 @@ description: How rank eligibility and Wise Old Man current-rank data work togeth
 
 The bot should continue calculating rank eligibility from configured days-in-clan, loot-point, and community-level thresholds. Wise Old Man supplies the player's current rank, and the existing dashboard rank name is used for the match. The configured names are expected to be aligned with WOM names over time.
 
+Imp is a fixed rank: members who hold it do not receive rank-ups. This also applies to an original Imp rank underneath a seasonal rank.
+
+In addition to the configured thresholds, Maxed requires at least **2376 total level**, TzKal requires at least **1965 Combat Achievement points**, and Collector requires at least **900 collection-log entries**. Every rank strictly higher than Leader in the configured hierarchy requires confirmed DropTracker setup.
+
+**Why:** The user explicitly specified these membership rules. Combat Achievement tier alone does not prove the required points total.
+
+**How to apply:** Enforce these additional requirements in both manual audits and automatic notifications. Unknown required stats must not count as meeting a threshold; same-priority alternatives still do not trigger rank-ups.
+
 The dashboard hierarchy is named **Priority level**, with **1 highest**, shown before the rank name and listed top-down from 1.
 
 **Why:** The user requested this priority convention; changing the presentation must not accidentally invert promotion eligibility.

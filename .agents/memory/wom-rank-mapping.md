@@ -21,8 +21,8 @@ Manual `/checkranks` and dashboard checks are audits, not notification jobs. The
 
 **How to apply:** Keep this audit read-only and separate from the daily notification process; compare eligibility with WOM rank rather than notification state.
 
-Only members currently holding the Discord Visionaries role belong in rank-up checks. Members with that role but no known RSN in the database must trigger a notification in #onlymods, and remain excluded from promotion results until linked.
+Only members currently holding the Discord Visionaries role belong in rank-up checks. Members without a known RSN remain excluded from promotion results until linked. Do not send missing-RSN messages to Discord; show member information on the Vision dashboard instead.
 
-**Why:** The user restricts rank progression to Visionaries and wants moderators to resolve missing Discord-to-RSN links.
+**Why:** The user restricts rank progression to Visionaries and replaced the requested Discord messages with dashboard visibility: current Wise Old Man rank and a DropTracker setup confirmation.
 
-**How to apply:** Fetch current Discord members for both manual and scheduled checks, including members absent from the database when detecting missing RSNs. Suppress duplicate missing-RSN alerts across restarts; clear that alert state when the member is linked or leaves the role so a later missing link can be reported again.
+**How to apply:** Fetch current Discord members for both manual and scheduled checks. Show WOM rank directly, not the highest eligible rank. Confirm DropTracker through a successful member sync rather than assuming any linked RSN means DropTracker is set up.

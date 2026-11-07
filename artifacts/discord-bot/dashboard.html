@@ -843,12 +843,15 @@
         <div class="search-row">
           <input type="text" id="user-search" placeholder="Search by username or RS name..." oninput="debounceSearch()" />
         </div>
-        <div class="card" style="padding: 0; overflow: hidden;">
+        <p style="color:#888;font-size:0.85rem;margin-bottom:12px;">Current Rank comes from Wise Old Man. DropTracker: ✓ confirmed in the last successful member sync; ✕ not confirmed. Use Sync Members in Droptracker to refresh.</p>
+        <div class="card" style="padding: 0; overflow-x: auto;">
           <table>
             <thead id="users-thead">
               <tr>
                 <th class="sortable" onclick="setUserSort('username')">Username <span class="sort-arrow" id="sarr-username"></span></th>
                 <th class="sortable" onclick="setUserSort('rsName')">RS Name <span class="sort-arrow" id="sarr-rsName"></span></th>
+                <th>Current Rank (Wise Old Man)</th>
+                <th>DropTracker</th>
                 <th class="sortable" onclick="setUserSort('level')">Level <span class="sort-arrow" id="sarr-level">▼</span></th>
                 <th class="sortable" onclick="setUserSort('xp')">XP <span class="sort-arrow" id="sarr-xp"></span></th>
                 <th class="sortable" onclick="setUserSort('lootPoints')">LP <span class="sort-arrow" id="sarr-lootPoints"></span></th>
@@ -857,7 +860,7 @@
               </tr>
             </thead>
             <tbody id="users-table-body">
-              <tr><td colspan="7" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
+              <tr><td colspan="9" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1488,7 +1491,7 @@
 
     const tbody = document.getElementById('users-table-body');
     if (!data.users || data.users.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
     } else {
       tbody.innerHTML = data.users.map(u => {
         const names = (u.rsNames && u.rsNames.length ? u.rsNames : (u.rsName ? [u.rsName] : []));
@@ -1499,7 +1502,9 @@
           : `<span style="color:#444">—</span>`;
         return `<tr>
           <td>${esc(u.username || u.userId)}</td>
-          <td style="color:#888">${esc(names.join(', ') || '—')}</td>
+          <td style="color:#888">${esc(names.join(', ') || 'Missing RSN')}</td>
+          <td>${esc(u.womRank || 'Unknown')}</td>
+          <td><span style="color:${u.droptrackerSetup === true ? '#4ade80' : '#f87171'};font-weight:700;" aria-label="${u.droptrackerSetup === true ? 'DropTracker confirmed' : 'DropTracker not confirmed'}" title="${u.droptrackerSetup === true ? 'Confirmed in last successful DropTracker sync' : 'No confirmed DropTracker setup — sync members to refresh'}">${u.droptrackerSetup === true ? '✓' : '✕'}</span></td>
           <td>${u.level}</td>
           <td>${u.xp}</td>
           <td>${u.lootPoints}</td>
@@ -2021,7 +2026,10 @@
       const res = await api('POST', '/api/droptracker/sync');
       const data = await res.json();
       if (data.error) showToast(data.error, true);
-      else showToast(`Droptracker sync — ${data.updated} user(s) updated out of ${data.total} members.`);
+      else {
+        showToast(`Droptracker sync — ${data.updated} user(s) updated out of ${data.total} members.`);
+        await loadUsers(currentPage);
+      }
     } catch(e) { showToast('Error contacting bot server.', true); }
     btn.disabled = false; btn.textContent = '🔄 Sync Members';
   }

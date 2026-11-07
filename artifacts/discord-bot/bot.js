@@ -60,19 +60,13 @@ const userSchema = new mongoose.Schema({
   joinedServerAt: { type: Date, default: null },
   joinedClanAt: { type: Date, default: null },
   womRank: { type: String, default: '' },
+  droptrackerSetup: { type: Boolean, default: false },
   notifiedRankId: { type: String, default: null },
 });
 
 const User = mongoose.model('User', userSchema);
 
-const missingRsnAlertSchema = new mongoose.Schema({
-  guildId: { type: String, required: true },
-  userId: { type: String, required: true },
-  sentAt: { type: Date, required: true },
-});
-missingRsnAlertSchema.index({ guildId: 1, userId: 1 }, { unique: true });
-const MissingRsnAlert = mongoose.model('MissingRsnAlert', missingRsnAlertSchema);
-const getRankCheckUsers = createRankMemberScope({ User, MissingRsnAlert });
+const getRankCheckUsers = createRankMemberScope({ User });
 
 // --- MongoDB: Rank Schema ---
 const rankSchema = new mongoose.Schema({
@@ -723,7 +717,11 @@ async function dtFetch(path) {
 async function syncDroptrackerMembers() {
   const result = await dtFetch('/export/members');
   if (result.error) return { updated: 0, total: 0, error: result.error };
-  const members = Array.isArray(result.data) ? result.data : (result.data.members || []);
+  const members = Array.isArray(result.data) ? result.data : result.data?.members;
+  if (!Array.isArray(members)) {
+    return { updated: 0, total: 0, error: 'Could not read Droptracker members. Setup status was not changed.' };
+  }
+  const confirmedUserIds = new Set();
   let updated = 0;
   let linked = 0;
   for (const m of members) {
@@ -737,7 +735,7 @@ async function syncDroptrackerMembers() {
 
     // 1. Try to find by Discord ID from Droptracker (most reliable)
     if (discordId) {
-      user = await User.findOne({ discordId: String(discordId) });
+      user = await User.findOne({ userId: String(discordId) });
       if (user) {
         // Auto-link RS name if not already linked
         const alreadyLinked =
@@ -756,13 +754,14 @@ async function syncDroptrackerMembers() {
     // 2. Fall back to matching by RS name already in our DB
     if (!user) {
       user = await User.findOne({ $or: [
-        { rsName: { $regex: new RegExp(`^${rsName}$`, 'i') } },
-        { rsNames: new RegExp(`^${rsName}$`, 'i') },
+        { rsName: { $regex: new RegExp(`^${escapeRegex(rsName)}$`, 'i') } },
+        { rsNames: new RegExp(`^${escapeRegex(rsName)}$`, 'i') },
       ]});
     }
 
     if (!user) continue;
 
+    confirmedUserIds.add(user.userId);
     // Store WOM ID if provided
     const changes = {};
     if (womId && !user.womPlayerId) changes.womPlayerId = womId;
@@ -772,6 +771,13 @@ async function syncDroptrackerMembers() {
       updated++;
     }
   }
+  // Only a successful full member export may replace confirmation status.
+  await User.updateMany(
+    { userId: { $in: [...confirmedUserIds] } }, { $set: { droptrackerSetup: true } },
+  );
+  await User.updateMany(
+    { userId: { $nin: [...confirmedUserIds] } }, { $set: { droptrackerSetup: false } },
+  );
   return { updated, linked, total: members.length };
 }
 
@@ -1076,18 +1082,6 @@ client.once('ready', async () => {
   for (const [guildId] of client.guilds.cache) {
     await registerSlashCommands(client.user.id, guildId);
   }
-
-  const checkMissingRsns = async () => {
-    for (const guild of client.guilds.cache.values()) {
-      try {
-        await getRankCheckUsers(guild);
-      } catch (error) {
-        console.error(`[Ranks] Visionaries/RSN check failed for ${guild.id}:`, error.message);
-      }
-    }
-  };
-  await checkMissingRsns();
-  setInterval(checkMissingRsns, 10 * 60 * 1000);
 
   cron.schedule('*/5 * * * *', () => {
     eventService.syncDroptrackerEvent().catch(error => {

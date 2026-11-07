@@ -45,13 +45,11 @@ function fixture() {
   return { state, guild, dependencies, check: createRankMemberScope(dependencies) };
 }
 
-test('rank scope checks only current Visionaries with a known RSN and alerts for missing database users', async () => {
+test('rank scope checks only current Visionaries with a known RSN without sending messages', async () => {
   const { check, guild, state } = fixture();
   const users = await check(guild);
   assert.deepEqual(users.map(user => user.userId), ['linked']);
-  assert.equal(state.messages.length, 1);
-  assert.match(state.messages[0].content, /<@missing>.*Visionaries.*no known RuneScape/);
-  assert.deepEqual(state.messages[0].allowedMentions, { parse: [] });
+  assert.equal(state.messages.length, 0);
 });
 
 test('missing RSNs include blank values but accept either stored RSN field', () => {
@@ -61,14 +59,14 @@ test('missing RSNs include blank values but accept either stored RSN field', () 
   assert.equal(hasKnownRsn(undefined), false);
 });
 
-test('alerts are deduplicated across concurrent checks and service restarts', async () => {
+test('concurrent checks and service restarts never send missing-RSN messages', async () => {
   const { check, guild, state, dependencies } = fixture();
   await Promise.all([check(guild), check(guild)]);
   await createRankMemberScope(dependencies)(guild);
-  assert.equal(state.messages.length, 1);
+  assert.equal(state.messages.length, 0);
 });
 
-test('linking an RSN clears alert state and enables checking; unlinking alerts again', async () => {
+test('linking an RSN enables checking and unlinking excludes the member again', async () => {
   const { check, guild, state } = fixture();
   await check(guild);
   state.users.push({ userId: 'missing', rsName: 'Now Linked' });
@@ -76,10 +74,11 @@ test('linking an RSN clears alert state and enables checking; unlinking alerts a
   assert.equal(state.alerts.has('missing'), false);
   state.users[2].rsName = '';
   await check(guild);
-  assert.equal(state.messages.length, 2);
+  assert.equal((await check(guild)).length, 1);
+  assert.equal(state.messages.length, 0);
 });
 
-test('removing the Visionaries role excludes the member and clears their alert', async () => {
+test('removing the Visionaries role excludes the member', async () => {
   const { check, guild, state } = fixture();
   await check(guild);
   state.members = [member('linked', 'Guest'), member('missing', 'Guest')];
@@ -87,21 +86,17 @@ test('removing the Visionaries role excludes the member and clears their alert',
   assert.equal(state.alerts.size, 0);
 });
 
-test('failed alerts are not marked sent and are retried on the next check', async () => {
+test('rank checks do not depend on OnlyMods channel access', async () => {
   const { check, guild, state } = fixture();
   state.sendFails = true;
-  await assert.rejects(check(guild), /Missing channel permission/);
-  assert.equal(state.alerts.size, 0);
-  state.sendFails = false;
-  await check(guild);
-  assert.equal(state.messages.length, 1);
+  state.channelAvailable = false;
+  assert.equal((await check(guild)).length, 1);
+  assert.equal(state.messages.length, 0);
 });
 
-test('missing server, role, channel or unavailable members fail explicitly', async () => {
+test('missing server, role or unavailable members fail explicitly', async () => {
   const { check, guild, state } = fixture();
   await assert.rejects(check(null), /server unavailable/);
-  state.channelAvailable = false;
-  await assert.rejects(check(guild), /OnlyMods channel 864145511166771211 is unavailable/);
   guild.roles.fetch = async () => [];
   await assert.rejects(check(guild), /Visionaries role not found/);
   guild.roles.fetch = async () => [{ name: 'Visionaries' }];

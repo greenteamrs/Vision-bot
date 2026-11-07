@@ -63,7 +63,7 @@ test('/checkranks reports every eligible Visionaries member across Discord-sized
   const text = messages.join('\n');
   assert.match(text, /Found 75 outstanding rank-ups/);
   for (let i = 0; i < 75; i++) {
-    assert.ok(text.includes(`Player ${i} / EligiblePlayer${i} / LP: 1000 / Community: 10 / Droptracker: ❌ / Recruit → Raider`));
+    assert.ok(text.includes(`Player ${i} / EligiblePlayer${i} / LP: 1000 / Days in clan: 40 / Community: 10 / Droptracker: ❌ / Recruit → Raider`));
   }
   assert.doesNotMatch(text, /SelectedOnly|NotVisionaries|AlreadyPromoted|Open the dashboard/);
 });

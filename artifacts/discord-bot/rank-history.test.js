@@ -73,9 +73,9 @@ test('seasonal members without history or a permanent Discord role are flagged, 
 test('command rows use the requested fields, confirmation icons and decimal LP without grouping', () => {
   const text = formatPendingRankUps([{
     rsName: 'Example RSN', username: 'DiscordName', lootPoints: 2414.5,
-    level: 12, droptrackerSetup: true, currentRank: 'Leader', rankName: 'Knight',
+    level: 12, days: 30, droptrackerSetup: true, currentRank: 'Leader', rankName: 'Knight',
   }]);
-  assert.match(text, /Example RSN \/ DiscordName \/ LP: 2414,5 \/ Community: 12 \/ Droptracker: ✅ \/ Leader → Knight/);
+  assert.match(text, /Example RSN \/ DiscordName \/ LP: 2414,5 \/ Days in clan: 30 \/ Community: 12 \/ Droptracker: ✅ \/ Leader → Knight/);
 });
 
 test('missing WOM rank uses the saved original rank instead of claiming no rank is recorded', () => {

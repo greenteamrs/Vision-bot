@@ -59,7 +59,7 @@ function formatPendingRankUps(pending, { maxLines = 18, maxChars = 1700, unknown
       : '';
     const rsName = String(person.rsName || 'Unknown RSN').slice(0, 70);
     const lp = String(Number(person.lootPoints || 0)).replace('.', ',');
-    const line = `${rsName} / ${username} / LP: ${lp} / Community: ${Number(person.level || 0)} / Droptracker: ${person.droptrackerSetup === true ? '✅' : '❌'} / ${currentRank} → ${rankName}${requirement}`;
+    const line = `${rsName} / ${username} / LP: ${lp} / Days in clan: ${Number(person.days || 0)} / Community: ${Number(person.level || 0)} / Droptracker: ${person.droptrackerSetup === true ? '✅' : '❌'} / ${currentRank} → ${rankName}${requirement}`;
     const currentLength = `Found ${pending.length} outstanding rank-ups:\n${lines.join('\n')}`.length;
     if (currentLength + line.length + 1 > maxChars) break;
     lines.push(line);

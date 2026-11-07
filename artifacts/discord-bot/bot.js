@@ -43,6 +43,7 @@ const {
   findPendingRankUps: computePendingRankUps,
   formatPendingRankUps,
 } = require('./rank-audit');
+const { hasVisionariesRole, createRankMemberScope } = require('./rank-members');
 
 
 // --- MongoDB: User Schema ---
@@ -63,6 +64,15 @@ const userSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', userSchema);
+
+const missingRsnAlertSchema = new mongoose.Schema({
+  guildId: { type: String, required: true },
+  userId: { type: String, required: true },
+  sentAt: { type: Date, required: true },
+});
+missingRsnAlertSchema.index({ guildId: 1, userId: 1 }, { unique: true });
+const MissingRsnAlert = mongoose.model('MissingRsnAlert', missingRsnAlertSchema);
+const getRankCheckUsers = createRankMemberScope({ User, MissingRsnAlert });
 
 // --- MongoDB: Rank Schema ---
 const rankSchema = new mongoose.Schema({
@@ -795,12 +805,12 @@ function formatGp(n) {
 }
 
 async function checkRankUps(guild) {
+  const users = await getRankCheckUsers(guild);
   const s = await getSettings();
   const notifyChannelId = s.rankNotifyChannelId || XP_CHANNEL_ID;
   const ranks = await Rank.find().sort({ order: 1, minLevel: 1, minLootPoints: 1 });
   if (ranks.length === 0) return 0;
 
-  const users = await User.find({});
   let notified = 0;
 
   for (const user of users) {
@@ -854,10 +864,10 @@ async function checkRankUps(guild) {
   return notified;
 }
 
-async function findPendingRankUps() {
+async function findPendingRankUps(guild = client.guilds.cache.first()) {
   const [ranks, users] = await Promise.all([
     Rank.find().sort({ order: 1, minLevel: 1, minLootPoints: 1 }).lean(),
-    User.find({}).lean(),
+    getRankCheckUsers(guild),
   ]);
   return computePendingRankUps({ ranks, users, daysInClan });
 }
@@ -1067,6 +1077,18 @@ client.once('ready', async () => {
     await registerSlashCommands(client.user.id, guildId);
   }
 
+  const checkMissingRsns = async () => {
+    for (const guild of client.guilds.cache.values()) {
+      try {
+        await getRankCheckUsers(guild);
+      } catch (error) {
+        console.error(`[Ranks] Visionaries/RSN check failed for ${guild.id}:`, error.message);
+      }
+    }
+  };
+  await checkMissingRsns();
+  setInterval(checkMissingRsns, 10 * 60 * 1000);
+
   cron.schedule('*/5 * * * *', () => {
     eventService.syncDroptrackerEvent().catch(error => {
       console.error('[Events] Droptracker verification failed:', error.message);
@@ -1158,10 +1180,6 @@ client.once('ready', async () => {
 
   console.log("Daily leaderboard + rank check scheduled.");
 });
-
-function hasVisionariesRole(member) {
-  return member && member.roles.cache.some(r => r.name.toLowerCase() === 'visionaries');
-}
 
 async function sendLongMessage(channel, header, lines) {
   const chunks = [];
@@ -1795,7 +1813,7 @@ client.on(Events.MessageCreate, async (message) => {
   if (command === cmd('checkranks') && isMod(message.member)) {
     message.channel.send('🔍 Checking for eligible members who have not received their configured rank yet...');
     try {
-      const pending = await findPendingRankUps();
+      const pending = await findPendingRankUps(message.guild);
       message.channel.send(formatPendingRankUps(pending));
     } catch (err) {
       console.error("!checkranks error:", err);
@@ -2053,7 +2071,7 @@ async function handleConvertedSlashCommand(interaction) {
 
     if (commandName === 'checkranks') {
       if (!isAdmin(member) && !isMod(member)) return interaction.editReply('❌ Mods only.');
-      const pending = await findPendingRankUps();
+      const pending = await findPendingRankUps(interaction.guild);
       return interaction.editReply(formatPendingRankUps(pending));
     }
 

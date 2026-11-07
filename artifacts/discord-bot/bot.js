@@ -39,6 +39,10 @@ const {
   isDashboardLockEnforced,
   valuesDiffer,
 } = require('./dashboard-locks');
+const {
+  findPendingRankUps: computePendingRankUps,
+  formatPendingRankUps,
+} = require('./rank-audit');
 
 
 // --- MongoDB: User Schema ---
@@ -136,7 +140,7 @@ async function getDashboardLockMap() {
 }
 
 async function dashboardEditBlocked(authUser, res, keys) {
-  if (authUser?.role === 'admin') return false;
+  if (!isDashboardLockEnforced(authUser?.role, true)) return false;
   const uniqueKeys = [...new Set(keys.filter(Boolean))];
   if (!uniqueKeys.length) return false;
   try {
@@ -848,6 +852,14 @@ async function checkRankUps(guild) {
     }
   }
   return notified;
+}
+
+async function findPendingRankUps() {
+  const [ranks, users] = await Promise.all([
+    Rank.find().sort({ order: 1, minLevel: 1, minLootPoints: 1 }).lean(),
+    User.find({}).lean(),
+  ]);
+  return computePendingRankUps({ ranks, users, daysInClan });
 }
 
 // --- Drop Top XP Awards ---
@@ -1781,11 +1793,10 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   if (command === cmd('checkranks') && isMod(message.member)) {
-    message.channel.send("🔍 Checking rank-ups...");
+    message.channel.send('🔍 Checking for eligible members who have not received their configured rank yet...');
     try {
-      const guild = message.guild;
-      const count = await checkRankUps(guild);
-      message.channel.send(`✅ Rank check complete. **${count}** new rank-up notification(s) sent.`);
+      const pending = await findPendingRankUps();
+      message.channel.send(formatPendingRankUps(pending));
     } catch (err) {
       console.error("!checkranks error:", err);
       message.channel.send("❌ Error during rank check.");
@@ -2042,8 +2053,8 @@ async function handleConvertedSlashCommand(interaction) {
 
     if (commandName === 'checkranks') {
       if (!isAdmin(member) && !isMod(member)) return interaction.editReply('❌ Mods only.');
-      const count = await checkRankUps(interaction.guild);
-      return interaction.editReply(`✅ Rank check complete. **${count}** new rank-up notification(s) sent.`);
+      const pending = await findPendingRankUps();
+      return interaction.editReply(formatPendingRankUps(pending));
     }
 
     if (commandName === 'help') {
@@ -2439,8 +2450,7 @@ function recordDashboardLoginFailure(ip, now = Date.now()) {
 function checkAuth(req) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  const signingSecret = process.env.SESSION_SECRET || process.env.DASHBOARD_PASSWORD;
-  return verifyDashboardToken(token, signingSecret);
+  return verifyDashboardToken(token, dashboardSigningSecret());
 }
 
 function dashboardSigningSecret() {
@@ -2542,11 +2552,9 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 429, { error: 'Too many login attempts. Try again in 15 minutes.' });
       return;
     }
-
     let body;
-    try {
-      body = await readBody(req);
-    } catch (_) {
+    try { body = await readBody(req); }
+    catch (_) {
       sendJson(res, 400, { error: 'Invalid login request.' });
       return;
     }
@@ -2566,11 +2574,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       dashboardLoginFailures.delete(ip);
-      sendJson(res, 200, {
-        token: login.token,
-        user: login.user,
-        mustSetPassword: login.mustSetPassword,
-      });
+      sendJson(res, 200, { token: login.token, user: login.user, mustSetPassword: login.mustSetPassword });
       return;
     }
 
@@ -2587,40 +2591,30 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 401, { error: 'Invalid username, password, or setup code.' });
         return;
       }
-
       if (account.mustSetPassword || account.resetTokenHash) {
-        const setupCodeActive = account.resetTokenHash &&
-          account.resetTokenExpiresAt &&
+        const setupCodeActive = account.resetTokenHash && account.resetTokenExpiresAt &&
           new Date(account.resetTokenExpiresAt).getTime() > Date.now();
         if (!setupCodeActive || !verifySetupCode(password, account.resetTokenHash)) {
           recordDashboardLoginFailure(ip);
           sendJson(res, 401, { error: 'Invalid username, password, or setup code.' });
           return;
         }
-
-        const token = createModeratorToken(account, {
-          purpose: 'password-setup',
-          ttlSeconds: SETUP_SESSION_TTL_SECONDS,
-        });
         dashboardLoginFailures.delete(ip);
         sendJson(res, 200, {
-          token,
+          token: createModeratorToken(account, { purpose: 'password-setup', ttlSeconds: SETUP_SESSION_TTL_SECONDS }),
           user: { username: account.username, role: 'mod' },
           mustSetPassword: true,
         });
         return;
       }
-
       if (!await verifyModeratorPassword(password, account.passwordHash)) {
         recordDashboardLoginFailure(ip);
         sendJson(res, 401, { error: 'Invalid username, password, or setup code.' });
         return;
       }
-
-      const token = createModeratorToken(account);
       dashboardLoginFailures.delete(ip);
       sendJson(res, 200, {
-        token,
+        token: createModeratorToken(account),
         user: { username: account.username, role: 'mod' },
         mustSetPassword: false,
       });
@@ -2645,7 +2639,6 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 403, { error: 'Set your password before using the dashboard.' });
       return;
     }
-
     if (authUser.role === 'mod' && tokenPurpose === 'session') {
       try {
         const account = await DashboardAccount.findById(authUser.accountId)
@@ -2674,27 +2667,21 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
           return;
         }
-
         const account = await DashboardAccount.findOne({
-          _id: authUser.accountId,
-          username: authUser.sub,
-          role: 'mod',
+          _id: authUser.accountId, username: authUser.sub, role: 'mod',
         });
-        const setupCodeActive = account?.resetTokenHash &&
-          account.resetTokenExpiresAt &&
+        const setupCodeActive = account?.resetTokenHash && account.resetTokenExpiresAt &&
           new Date(account.resetTokenExpiresAt).getTime() > Date.now();
         if (!account || !account.mustSetPassword || !setupCodeActive) {
           sendJson(res, 401, { error: 'This setup code has expired. Ask your admin for a new one.' });
           return;
         }
-
         account.passwordHash = await hashModeratorPassword(password);
         account.mustSetPassword = false;
         account.resetTokenHash = '';
         account.resetTokenExpiresAt = null;
         account.sessionVersion = Number(account.sessionVersion || 0) + 1;
         await account.save();
-
         sendJson(res, 200, {
           success: true,
           token: createModeratorToken(account),
@@ -2721,7 +2708,6 @@ const server = http.createServer(async (req, res) => {
       }
       return;
     }
-
     if (pathname === '/api/dashboard-locks' && req.method === 'PATCH') {
       if (authUser.role !== 'admin') {
         sendJson(res, 403, { error: 'Only the dashboard admin can change lock states.' });
@@ -2729,17 +2715,16 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         const body = await readBody(req);
-        const key = body && body.key;
-        if (!isValidDashboardLockKey(key) || typeof body.locked !== 'boolean') {
+        if (!body || !isValidDashboardLockKey(body.key) || typeof body.locked !== 'boolean') {
           sendJson(res, 400, { error: 'A valid lock key and locked status are required.' });
           return;
         }
         await DashboardLock.findOneAndUpdate(
-          { key },
+          { key: body.key },
           { $set: { locked: body.locked, updatedBy: authUser.sub } },
           { upsert: true, new: true, setDefaultsOnInsert: true },
         );
-        sendJson(res, 200, { key, locked: body.locked });
+        sendJson(res, 200, { key: body.key, locked: body.locked });
       } catch (error) {
         console.error('[DashboardLocks] Could not update lock state:', error.message);
         sendJson(res, 500, { error: 'Could not update the dashboard lock.' });
@@ -2748,15 +2733,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/mod-accounts' && req.method === 'GET') {
-      if (authUser.role !== 'admin') {
-        sendJson(res, 403, { error: 'Admin access required.' });
-        return;
-      }
+      if (authUser.role !== 'admin') { sendJson(res, 403, { error: 'Admin access required.' }); return; }
       try {
         const accounts = await DashboardAccount.find({ role: 'mod' })
-          .select('username mustSetPassword createdAt')
-          .sort({ username: 1 })
-          .lean();
+          .select('username mustSetPassword createdAt').sort({ username: 1 }).lean();
         sendJson(res, 200, accounts);
       } catch (error) {
         console.error('[DashboardAuth] Moderator account listing failed:', error.message);
@@ -2764,12 +2744,8 @@ const server = http.createServer(async (req, res) => {
       }
       return;
     }
-
     if (pathname === '/api/mod-accounts' && req.method === 'POST') {
-      if (authUser.role !== 'admin') {
-        sendJson(res, 403, { error: 'Admin access required.' });
-        return;
-      }
+      if (authUser.role !== 'admin') { sendJson(res, 403, { error: 'Admin access required.' }); return; }
       try {
         const body = await readBody(req);
         const username = normalizeDashboardUsername(body && body.username);
@@ -2777,22 +2753,14 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'Use 3–32 characters: letters, numbers, dots, underscores, or hyphens.' });
           return;
         }
-
         const setupCode = generateSetupCode();
         const account = await DashboardAccount.create({
-          username,
-          role: 'mod',
-          passwordHash: '',
-          mustSetPassword: true,
+          username, role: 'mod', passwordHash: '', mustSetPassword: true,
           resetTokenHash: hashSetupCode(setupCode),
           resetTokenExpiresAt: new Date(Date.now() + SETUP_CODE_TTL_MS),
           sessionVersion: 0,
         });
-        sendJson(res, 201, {
-          id: String(account._id),
-          username: account.username,
-          setupCode,
-        });
+        sendJson(res, 201, { id: String(account._id), username: account.username, setupCode });
       } catch (error) {
         if (error.code === 11000) {
           sendJson(res, 409, { error: 'A moderator account with that username already exists.' });
@@ -2803,23 +2771,12 @@ const server = http.createServer(async (req, res) => {
       }
       return;
     }
-
     const resetModAccountMatch = pathname.match(/^\/api\/mod-accounts\/([a-f0-9]{24})\/reset$/i);
     if (resetModAccountMatch && req.method === 'POST') {
-      if (authUser.role !== 'admin') {
-        sendJson(res, 403, { error: 'Admin access required.' });
-        return;
-      }
+      if (authUser.role !== 'admin') { sendJson(res, 403, { error: 'Admin access required.' }); return; }
       try {
-        const account = await DashboardAccount.findOne({
-          _id: resetModAccountMatch[1],
-          role: 'mod',
-        });
-        if (!account) {
-          sendJson(res, 404, { error: 'Moderator account not found.' });
-          return;
-        }
-
+        const account = await DashboardAccount.findOne({ _id: resetModAccountMatch[1], role: 'mod' });
+        if (!account) { sendJson(res, 404, { error: 'Moderator account not found.' }); return; }
         const setupCode = generateSetupCode();
         account.passwordHash = '';
         account.mustSetPassword = true;
@@ -2827,11 +2784,7 @@ const server = http.createServer(async (req, res) => {
         account.resetTokenExpiresAt = new Date(Date.now() + SETUP_CODE_TTL_MS);
         account.sessionVersion = Number(account.sessionVersion || 0) + 1;
         await account.save();
-
-        sendJson(res, 200, {
-          username: account.username,
-          setupCode,
-        });
+        sendJson(res, 200, { username: account.username, setupCode });
       } catch (error) {
         console.error('[DashboardAuth] Moderator password reset failed:', error.message);
         sendJson(res, 500, { error: 'Could not reset the moderator password.' });
@@ -3023,7 +2976,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/ranks' && req.method === 'POST') {
       try {
         const data = await readBody(req);
-        const createLockKeys = [
+        if (await dashboardEditBlocked(authUser, res, [
           'rank.create.action',
           'rank.create.name',
           'rank.create.minDays',
@@ -3032,8 +2985,7 @@ const server = http.createServer(async (req, res) => {
           'rank.create.order',
           'rank.create.notifyOnEligibility',
           'rank.create.specialRequirement',
-        ];
-        if (await dashboardEditBlocked(authUser, res, createLockKeys)) return;
+        ])) return;
         const rank = await Rank.create({
           name: data.name,
           minDays: Number(data.minDays) || 0,
@@ -3053,9 +3005,8 @@ const server = http.createServer(async (req, res) => {
     // POST /api/ranks/check
     if (pathname === '/api/ranks/check' && req.method === 'POST') {
       try {
-        const guild = client.guilds.cache.first();
-        const count = await checkRankUps(guild);
-        sendJson(res, 200, { notified: count });
+        const pendingRankUps = await findPendingRankUps();
+        sendJson(res, 200, { pendingCount: pendingRankUps.length, pendingRankUps });
       } catch (e) {
         sendJson(res, 500, { error: e.message });
       }
@@ -3345,7 +3296,8 @@ const server = http.createServer(async (req, res) => {
         if (!current) { sendJson(res, 404, { error: 'Not found' }); return; }
         const lockKeys = [];
         for (const field of ['name', 'color', 'order']) {
-          if (data[field] !== undefined && valuesDiffer(current[field], field === 'order' ? Number(data[field]) : data[field])) {
+          const next = field === 'order' ? Number(data[field]) : data[field];
+          if (data[field] !== undefined && valuesDiffer(current[field], next)) {
             lockKeys.push(`bingo.team.${bingoTeamPatch[1]}.${field}`);
           }
         }

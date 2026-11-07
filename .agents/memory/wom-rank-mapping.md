@@ -14,3 +14,9 @@ The bot’s daily status message should distinguish a normal successful daily ch
 **Why:** WOM is the source of truth for the rank a player currently holds, but the bot's thresholds remain useful for deciding whether the player is eligible for advancement. A separate mapping field would add unnecessary configuration.
 
 **How to apply:** Notify only when the highest eligible configured rank is above the matching WOM rank. If names do not yet match, retain the existing notification-history fallback until the dashboard names are aligned.
+
+Manual `/checkranks` and dashboard checks are audits, not notification jobs. They should report every user whose configured numeric thresholds qualify them for a rank above their recorded WOM rank, regardless of notification history or whether that rank sends automatic notifications.
+
+**Why:** The admin uses these manual checks to find rank promotions that have not happened yet, including cases where an alert was previously sent.
+
+**How to apply:** Keep this audit read-only and separate from the daily notification process; compare eligibility with WOM rank rather than notification state.

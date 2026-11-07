@@ -697,12 +697,13 @@
       <div class="section" id="section-ranks">
         <div class="section-title">Ranks</div>
         <div class="card">
-          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) for eligibility using days, LP, and level. Add a special requirement when moderators need to verify something manually after the numeric requirements are met. Turn notifications off for higher/admin ranks that should not trigger automatic alerts. Rank names should match the names used by Wise Old Man so the bot can recognize a member's current rank. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!checkranks</code> in Discord (mods only) to trigger an immediate check.</p>
+          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) for eligibility using days, LP, and level. Add a special requirement when moderators need to verify something manually after the numeric requirements are met. Turn notifications off for higher/admin ranks that should not trigger automatic alerts. Rank names should match Wise Old Man rank names so manual checks can tell whether a member has received a rank-up. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">/checkranks</code> in Discord or Check Now here to list members who still qualify for a higher configured rank than the one in WOM.</p>
           <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
             <button class="btn-save" data-lock-action-key="rank.create.action" onclick="openRankModal()">+ Add Rank</button>
             <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow()" id="btn-check-ranks">🔍 Check Now</button>
             <button class="btn-save" style="background:#14532d;border:1px solid #16a34a;" onclick="syncWomDashboard()" id="btn-wom-sync">🌐 Sync from WiseOldMan</button>
           </div>
+          <div id="rank-check-results" role="status" style="display:none;margin:0 0 16px;padding:12px 14px;border:1px solid #334155;border-radius:8px;background:#111827;color:#d1d5db;"></div>
           <div class="card" style="padding:0;overflow:hidden;margin-bottom:0;" id="ranks-table-wrap">
             <table>
               <thead>
@@ -2510,15 +2511,23 @@
 
   async function checkRankUpsNow() {
     const btn = document.getElementById('btn-check-ranks');
+    const results = document.getElementById('rank-check-results');
     btn.disabled = true;
     btn.textContent = '⏳ Checking...';
     try {
       const res = await api('POST', '/api/ranks/check');
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast(`Check complete — ${data.notified} notification(s) sent.`);
+        const pending = Array.isArray(data.pendingRankUps) ? data.pendingRankUps : [];
+        results.style.display = 'block';
+        results.innerHTML = pending.length
+          ? `<strong>${pending.length} outstanding rank-up${pending.length === 1 ? '' : 's'}</strong><ul style="margin:8px 0 0;padding-left:20px;">${pending.map(person =>
+              `<li><strong>${esc(person.username)}</strong>: ${esc(person.currentRank)} → <strong>${esc(person.rankName)}</strong>${person.specialRequirement ? `<br><small style="color:#9ca3af;">Manual requirement: ${esc(person.specialRequirement)}</small>` : ''}</li>`
+            ).join('')}</ul>`
+          : '<strong>No outstanding rank-ups.</strong> Everyone currently qualifies for the rank recorded in WOM.';
+        showToast(`Rank check complete — ${pending.length} outstanding.`);
       } else {
-        showToast('Check failed.', true);
+        showToast(data.error || 'Check failed.', true);
       }
     } catch (e) {
       showToast('Error running check.', true);

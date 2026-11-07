@@ -1,3 +1,4 @@
 - [WOM rank matching](wom-rank-mapping.md) — eligibility stays threshold-based, while the dashboard rank name matches the synced WOM rank.
+- [Dashboard field locks](dashboard-field-locks.md) — only the admin changes lock state; moderators can edit values only while unlocked.
 - [OSRS event system](osrs-events.md) — dashboard manages events; Discord is for member participation, across multiple active formats.
 - [Discord bot hosting](discord-bot-hosting.md) — The bot runs on Render; Replit secrets and workflow restarts do not update production.

@@ -14,3 +14,7 @@ Ranks above Leader have their own Discord roles. Gnome Child and Leader have no 
 **Why:** The user stated this Discord role arrangement. Visionaries alone cannot distinguish the two lower permanent ranks.
 
 **How to apply:** A matching permanent Discord rank role can identify a seasonal member's underlying rank. Otherwise use the saved permanent WOM rank. If neither is known, flag the member for original-rank correction instead of inferring rank from thresholds or treating them as Leader or Gnome Child.
+
+Use the same known-rank fallback when the current WOM rank is blank: matching permanent Discord role first, then saved permanent rank. A recorded non-temporary WOM rank still takes precedence over both.
+
+**Why:** A missing current WOM value must not cause a known permanent rank to be reported as unrecorded or generate a false promotion.

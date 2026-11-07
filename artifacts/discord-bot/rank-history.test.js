@@ -77,3 +77,44 @@ test('command rows use the requested fields, confirmation icons and decimal LP w
   }]);
   assert.match(text, /Example RSN \/ DiscordName \/ LP: 2414,5 \/ Community: 12 \/ Droptracker: ✅ \/ Leader → Knight/);
 });
+
+test('missing WOM rank uses the saved original rank instead of claiming no rank is recorded', () => {
+  for (const womRank of [undefined, null, '', '   ']) {
+    const user = {
+      userId: 'saved', womRank, permanentRank: 'Leader',
+      level: 10, lootPoints: 500,
+    };
+    const pending = findPendingRankUps({ ranks, users: [user], daysInClan: () => 50 });
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].currentRank, 'Leader');
+    assert.doesNotMatch(formatPendingRankUps(pending), /No WOM rank recorded/);
+  }
+});
+
+test('missing WOM rank can use a permanent Discord rank and suppress false promotions', () => {
+  const user = {
+    userId: 'role', womRank: '', permanentRank: 'Leader',
+    discordRankNames: ['Visionaries', 'Knight', 'Season Winner'],
+    level: 10, lootPoints: 500,
+  };
+  assert.equal(resolvePermanentRank(user, ranks).rank.name, 'Knight');
+  assert.deepEqual(findPendingRankUps({ ranks, users: [user], daysInClan: () => 50 }), []);
+});
+
+test('recorded permanent WOM rank stays authoritative over saved history and Discord roles', () => {
+  const user = {
+    womRank: 'Leader', permanentRank: 'Gnome Child', discordRankNames: ['Visionaries', 'Knight'],
+  };
+  assert.equal(resolvePermanentRank(user, ranks).rank.name, 'Leader');
+});
+
+test('missing ranks are not fabricated from Visionaries or a saved seasonal tier', () => {
+  const user = { womRank: '', permanentRank: 'Season Winner', discordRankNames: ['Visionaries'] };
+  assert.equal(resolvePermanentRank(user, ranks).rank, undefined);
+  assert.equal(resolvePermanentRank(user, ranks).name, '');
+});
+
+test('saved rank names not yet mapped in dashboard still remain visible in audit output', () => {
+  const user = { womRank: '', permanentRank: 'Unmapped original' };
+  assert.equal(resolvePermanentRank(user, ranks).name, 'Unmapped original');
+});

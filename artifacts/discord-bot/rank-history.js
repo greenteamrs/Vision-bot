@@ -28,9 +28,10 @@ function womRankUpdates(user, incomingName, ranks) {
 }
 
 function resolvePermanentRank(user, ranks) {
+  const womName = String(user.womRank || '').trim();
   const womRank = lookupRank(ranks, user.womRank);
-  if (womRank?.isTemporary !== true) {
-    return { rank: womRank, name: String(user.womRank || '').trim(), unknown: false };
+  if (womName && womRank?.isTemporary !== true) {
+    return { rank: womRank, name: womName, unknown: false };
   }
   const roleNames = new Set((user.discordRankNames || []).map(normalizeRankName));
   const roleRanks = ranks.filter(rank =>
@@ -39,7 +40,14 @@ function resolvePermanentRank(user, ranks) {
   const roleRank = roleRanks.sort((a, b) => Number(b.order || 0) - Number(a.order || 0))[0];
   const saved = lookupRank(ranks, user.permanentRank);
   const rank = roleRank || (saved?.isTemporary !== true ? saved : undefined);
-  return { rank, name: rank?.name || '', unknown: !rank };
+  const savedName = saved?.isTemporary === true ? '' : String(user.permanentRank || '').trim();
+  return {
+    rank,
+    name: rank?.name || savedName,
+    // Seasonal members still need a configured permanent tier. For members
+    // without a WOM rank, preserve the existing missing-rank audit behavior.
+    unknown: womRank?.isTemporary === true && !rank,
+  };
 }
 
 function unknownPermanentRanks(ranks, users) {

@@ -1,10 +1,11 @@
+const { resolvePermanentRank } = require('./rank-history');
+
 function findPendingRankUps({ ranks, users, daysInClan }) {
   if (!Array.isArray(ranks) || !Array.isArray(users) || typeof daysInClan !== 'function') {
     throw new TypeError('ranks, users, and daysInClan are required.');
   }
   if (!ranks.length) return [];
 
-  const normalizedRankNames = ranks.map(rank => String(rank.name || '').trim().toLowerCase());
   const pending = [];
   for (const user of users) {
     const days = daysInClan(user);
@@ -13,7 +14,7 @@ function findPendingRankUps({ ranks, users, daysInClan }) {
       const rank = ranks[index];
       // Notification-disabled ranks are manually assigned, not earned by thresholds.
       // Keep them in the full list only to recognize a member's current WOM rank.
-      if (rank.notifyOnEligibility === false) continue;
+      if (rank.notifyOnEligibility === false || rank.isTemporary === true) continue;
       if (days >= rank.minDays &&
           Number(user.lootPoints || 0) >= Number(rank.minLootPoints || 0) &&
           Number(user.level || 0) >= Number(rank.minLevel || 0)) {
@@ -22,16 +23,18 @@ function findPendingRankUps({ ranks, users, daysInClan }) {
     }
     if (qualifiedIndex < 0) continue;
 
-    const currentWomRank = String(user.womRank || '').trim();
-    const currentIndex = normalizedRankNames.indexOf(currentWomRank.toLowerCase());
+    const current = resolvePermanentRank(user, ranks);
+    if (current.unknown) continue;
     const targetRank = ranks[qualifiedIndex];
-    const currentRank = currentIndex >= 0 ? ranks[currentIndex] : null;
+    const currentRank = current.rank;
     if (currentRank && Number(currentRank.order || 0) >= Number(targetRank.order || 0)) continue;
 
     pending.push({
       userId: user.userId,
-      username: user.username || user.userId,
-      currentRank: currentWomRank || 'No WOM rank recorded',
+      username: user.discordName || user.username || user.userId,
+      rsName: user.rsName || (user.rsNames || []).at(-1) || 'Unknown RSN',
+      droptrackerSetup: user.droptrackerSetup === true,
+      currentRank: current.name || 'No WOM rank recorded',
       rankName: targetRank.name,
       days,
       lootPoints: Number(user.lootPoints || 0),
@@ -42,8 +45,8 @@ function findPendingRankUps({ ranks, users, daysInClan }) {
   return pending;
 }
 
-function formatPendingRankUps(pending, { maxLines = 18, maxChars = 1700 } = {}) {
-  if (!pending.length) return 'No outstanding rank-ups. Everyone currently qualifies for the rank recorded in WOM.';
+function formatPendingRankUps(pending, { maxLines = 18, maxChars = 1700, unknownRanks = [] } = {}) {
+  if (!pending.length && !unknownRanks.length) return 'No outstanding rank-ups among the checked Visionaries members.';
 
   const lines = [];
   for (const person of pending) {
@@ -54,13 +57,18 @@ function formatPendingRankUps(pending, { maxLines = 18, maxChars = 1700 } = {}) 
     const requirement = person.specialRequirement
       ? ` (manual check: ${String(person.specialRequirement).slice(0, 90)})`
       : '';
-    const line = `• ${username}: ${currentRank} → ${rankName}${requirement}`;
+    const rsName = String(person.rsName || 'Unknown RSN').slice(0, 70);
+    const lp = String(Number(person.lootPoints || 0)).replace('.', ',');
+    const line = `${rsName} / ${username} / LP: ${lp} / Community: ${Number(person.level || 0)} / Droptracker: ${person.droptrackerSetup === true ? '✅' : '❌'} / ${currentRank} → ${rankName}${requirement}`;
     const currentLength = `Found ${pending.length} outstanding rank-ups:\n${lines.join('\n')}`.length;
     if (currentLength + line.length + 1 > maxChars) break;
     lines.push(line);
   }
   const remaining = pending.length - lines.length;
   if (remaining > 0) lines.push(`…and ${remaining} more. Open the dashboard for the full list.`);
+  for (const user of unknownRanks) {
+    lines.push(`Original rank unknown: ${String(user.rsName || 'Unknown RSN').slice(0, 70)} / ${String(user.username).slice(0, 70)} — seasonal rank ${String(user.temporaryRank).slice(0, 60)}. Set their original rank in dashboard Users; eligibility was not guessed.`);
+  }
   return `Found ${pending.length} outstanding rank-up${pending.length === 1 ? '' : 's'}:\n${lines.join('\n')}`;
 }
 

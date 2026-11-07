@@ -78,10 +78,11 @@
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #888; }
   .dot.online { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
 
-  .layout { display: flex; flex: 1; }
+  .layout { display: flex; flex: 1; width: 100%; min-width: 0; }
 
   nav {
     width: 200px;
+    flex-shrink: 0;
     background: #13131f;
     border-right: 1px solid #2a2a4a;
     padding: 20px 12px;
@@ -103,9 +104,9 @@
   nav button:hover { background: #1f1f35; color: #e0e0f0; }
   nav button.active { background: #2d1b69; color: #a78bfa; font-weight: 600; }
 
-  main { flex: 1; padding: 28px; overflow-y: auto; max-width: 900px; }
+  main { flex: 1; min-width: 0; width: 100%; padding: 28px; overflow: auto; }
 
-  .section { display: none; }
+  .section { display: none; width: 100%; }
   .section.active { display: block; }
 
   .section-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 20px; color: #c4b5fd; }
@@ -697,14 +698,14 @@
       <div class="section" id="section-ranks">
         <div class="section-title">Ranks</div>
         <div class="card">
-          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Configure rank tiers. The bot checks daily (noon UTC) for eligibility using days, LP, and level. Add a special requirement when moderators need to verify something manually after the numeric requirements are met. Turn notifications off for higher/admin ranks that should not trigger automatic alerts. Rank names should match Wise Old Man rank names so manual checks can tell whether a member has received a rank-up. Use <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">/checkranks</code> in Discord or Check Now here to list members who still qualify for a higher configured rank than the one in WOM.</p>
+          <p style="color:#888; font-size:0.9rem; margin-bottom:16px;">Rank checks use days, LP, and community level for Visionaries members. Ranks with notifications off and temporary ranks are never promotion targets. Mark seasonal ranks as Temporary before syncing WOM: the bot saves the previous permanent rank and checks progression against it, even while WOM shows a higher seasonal rank. Permanent Discord rank roles can also identify the original rank. Gnome Child and Leader need a saved WOM rank because they have no separate rank role. Use /checkranks or Check Now for all outstanding promotions.</p>
           <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
             <button class="btn-save" data-lock-action-key="rank.create.action" onclick="openRankModal()">+ Add Rank</button>
             <button class="btn-save" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow()" id="btn-check-ranks">🔍 Check Now</button>
             <button class="btn-save" style="background:#14532d;border:1px solid #16a34a;" onclick="syncWomDashboard()" id="btn-wom-sync">🌐 Sync from WiseOldMan</button>
           </div>
           <div id="rank-check-results" role="status" style="display:none;margin:0 0 16px;padding:12px 14px;border:1px solid #334155;border-radius:8px;background:#111827;color:#d1d5db;"></div>
-          <div class="card" style="padding:0;overflow:hidden;margin-bottom:0;" id="ranks-table-wrap">
+          <div class="card" style="padding:0;overflow-x:auto;margin-bottom:0;" id="ranks-table-wrap">
             <table>
               <thead>
                 <tr>
@@ -713,12 +714,13 @@
                   <th>Min LP</th>
                   <th>Min Level</th>
                   <th>Notifications</th>
+                  <th>Temporary</th>
                   <th>Special Requirement</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="ranks-table-body">
-                <tr><td colspan="7" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
+                <tr><td colspan="8" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -877,6 +879,7 @@
     <input type="hidden" id="modal-userid" />
     <div class="field"><label>Username</label><input type="text" id="modal-name" /></div>
     <div class="field"><label>RS Names (comma-separated)</label><input type="text" id="modal-rsname" placeholder="Name1, Name2" /></div>
+    <div class="field"><label>Original permanent rank (seasonal fallback)</label><input type="text" id="modal-permanent-rank" placeholder="Exact name of a non-temporary dashboard rank" /><small style="color:#888;">Saved automatically by WOM sync. Set this only if the original rank was never recorded.</small></div>
     <div class="field"><label>Level</label><input type="number" id="modal-level" /></div>
     <div class="field"><label>XP (current level progress)</label><input type="number" id="modal-xp" /></div>
     <div class="field"><label>Loot Points</label><input type="number" id="modal-lp" /></div>
@@ -904,6 +907,10 @@
     <label style="display:flex;align-items:center;gap:8px;margin:14px 0;color:#ddd;">
       <input type="checkbox" id="rank-notify" checked />
       Send automatic rank-up notifications for this rank
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;margin:14px 0;color:#ddd;">
+      <input type="checkbox" id="rank-temporary" />
+      Temporary / seasonal rank — preserve the member’s original rank
     </label>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeRankModal()">Cancel</button>
@@ -1503,7 +1510,7 @@
         return `<tr>
           <td>${esc(u.username || u.userId)}</td>
           <td style="color:#888">${esc(names.join(', ') || 'Missing RSN')}</td>
-          <td>${esc(u.womRank || 'Unknown')}</td>
+          <td>${esc(u.womRank || 'Unknown')}${u.permanentRank && u.permanentRank !== u.womRank ? `<br><small style="color:#a78bfa;">Original: ${esc(u.permanentRank)}</small>` : ''}</td>
           <td><span style="color:${u.droptrackerSetup === true ? '#4ade80' : '#f87171'};font-weight:700;" aria-label="${u.droptrackerSetup === true ? 'DropTracker confirmed' : 'DropTracker not confirmed'}" title="${u.droptrackerSetup === true ? 'Confirmed in last successful DropTracker sync' : 'No confirmed DropTracker setup — sync members to refresh'}">${u.droptrackerSetup === true ? '✓' : '✕'}</span></td>
           <td>${u.level}</td>
           <td>${u.xp}</td>
@@ -1539,6 +1546,7 @@
     const fields = {
       'modal-name': 'username',
       'modal-rsname': 'rsNames',
+      'modal-permanent-rank': 'permanentRank',
       'modal-level': 'level',
       'modal-xp': 'xp',
       'modal-lp': 'lootPoints',
@@ -1549,6 +1557,7 @@
     document.getElementById('modal-name').value = user.username || '';
     const rsNamesArr = user.rsNames && user.rsNames.length ? user.rsNames : (user.rsName ? [user.rsName] : []);
     document.getElementById('modal-rsname').value = rsNamesArr.join(', ');
+    document.getElementById('modal-permanent-rank').value = user.permanentRank || '';
     document.getElementById('modal-level').value = user.level;
     document.getElementById('modal-xp').value = user.xp;
     document.getElementById('modal-lp').value = user.lootPoints;
@@ -1568,6 +1577,7 @@
       username: document.getElementById('modal-name').value.trim(),
       rsName: rsNames[rsNames.length - 1] || null,
       rsNames,
+      permanentRank: document.getElementById('modal-permanent-rank').value.trim(),
       level: Number(document.getElementById('modal-level').value),
       xp: Number(document.getElementById('modal-xp').value),
       lootPoints: Number(document.getElementById('modal-lp').value),
@@ -1766,7 +1776,7 @@
     currentRanks = await res.json();
     const tbody = document.getElementById('ranks-table-body');
     if (!currentRanks || currentRanks.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
       return;
     }
     tbody.innerHTML = currentRanks.map((r, i) => `
@@ -1776,6 +1786,7 @@
         <td>${r.minLootPoints.toLocaleString()} LP</td>
         <td>Level ${r.minLevel}</td>
         <td style="color:${r.notifyOnEligibility === false ? '#fbbf24' : '#86efac'}">${r.notifyOnEligibility === false ? 'Off' : 'On'}</td>
+        <td><label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" aria-label="Temporary rank: ${escAttr(r.name)}" data-lock-key="rank.${escAttr(r._id)}.isTemporary" ${r.isTemporary === true ? 'checked' : ''} onchange="setRankTemporary('${escAttr(r._id)}', this)" /> ${r.isTemporary === true ? 'Seasonal' : 'No'}</label></td>
         <td style="max-width:240px;white-space:normal;color:#cbd5e1">${esc(r.specialRequirement || '—')}</td>
         <td style="display:flex;gap:4px;align-items:center;">
           <button class="btn-tier" onclick="moveRank(${i},-1)" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -1785,6 +1796,25 @@
         </td>
       </tr>
     `).join('');
+    hydrateDashboardLockControls(document.getElementById('ranks-table-wrap'));
+  }
+
+  async function setRankTemporary(id, checkbox) {
+    const temporary = checkbox.checked;
+    checkbox.disabled = true;
+    try {
+      const res = await api('PATCH', `/api/ranks/${id}`, { isTemporary: temporary });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not update temporary rank.');
+      await loadRanks();
+      showToast(temporary ? 'Temporary rank enabled. Original ranks will be preserved on WOM sync.' : 'Rank is now permanent.');
+    } catch (error) {
+      checkbox.checked = !temporary;
+      showToast(error.message, true);
+    } finally {
+      checkbox.disabled = false;
+      hydrateDashboardLockControls(document.getElementById('ranks-table-wrap'));
+    }
   }
 
   async function moveRank(index, dir) {
@@ -1810,6 +1840,7 @@
       'rank-minLevel': 'minLevel',
       'rank-order': 'order',
       'rank-notify': 'notifyOnEligibility',
+      'rank-temporary': 'isTemporary',
       'rank-specialRequirement': 'specialRequirement',
     };
     Object.entries(rankFields).forEach(([id, field]) => {
@@ -1821,6 +1852,7 @@
     document.getElementById('rank-minLevel').value = rank?.minLevel ?? 0;
     document.getElementById('rank-order').value = rank?.order ?? 0;
     document.getElementById('rank-notify').checked = rank?.notifyOnEligibility !== false;
+    document.getElementById('rank-temporary').checked = rank?.isTemporary === true;
     document.getElementById('rank-specialRequirement').value = rank?.specialRequirement || '';
     document.getElementById('rank-modal').classList.add('open');
     hydrateDashboardLockControls(document.getElementById('rank-modal'));
@@ -1839,6 +1871,7 @@
       minLevel: Number(document.getElementById('rank-minLevel').value) || 0,
       order: Number(document.getElementById('rank-order').value) || 0,
       notifyOnEligibility: document.getElementById('rank-notify').checked,
+      isTemporary: document.getElementById('rank-temporary').checked,
       specialRequirement: document.getElementById('rank-specialRequirement').value.trim(),
     };
     if (!data.name) { showToast('Rank name is required.', true); return; }
@@ -2580,7 +2613,11 @@
           ? `<strong>${pending.length} outstanding rank-up${pending.length === 1 ? '' : 's'}</strong><ul style="margin:8px 0 0;padding-left:20px;">${pending.map(person =>
               `<li><strong>${esc(person.username)}</strong>: ${esc(person.currentRank)} → <strong>${esc(person.rankName)}</strong>${person.specialRequirement ? `<br><small style="color:#9ca3af;">Manual requirement: ${esc(person.specialRequirement)}</small>` : ''}</li>`
             ).join('')}</ul>`
-          : '<strong>No outstanding rank-ups.</strong> Everyone currently qualifies for the rank recorded in WOM.';
+          : '<strong>No outstanding rank-ups among the checked Visionaries members.</strong>';
+        const unknown = Array.isArray(data.unknownRanks) ? data.unknownRanks : [];
+        if (unknown.length) {
+          results.innerHTML += `<p style="margin-top:12px;color:#fbbf24;"><strong>Original rank unknown — ${unknown.length} member(s) not checked:</strong></p><ul style="padding-left:20px;">${unknown.map(person => `<li>${esc(person.rsName || 'Unknown RSN')} / ${esc(person.username)} — ${esc(person.temporaryRank)}. Set the original permanent rank in Users → Edit.</li>`).join('')}</ul>`;
+        }
         showToast(`Rank check complete — ${pending.length} outstanding.`);
       } else {
         showToast(data.error || 'Check failed.', true);

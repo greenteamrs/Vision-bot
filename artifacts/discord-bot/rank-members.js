@@ -21,7 +21,15 @@ function createRankMemberScope({ User }) {
     }
     const members = [...(await guild.members.fetch()).values()].filter(hasVisionariesRole);
     const users = await User.find({ userId: { $in: members.map(member => member.id) } });
-    return users.filter(hasKnownRsn);
+    const byId = new Map(members.map(member => [member.id, member]));
+    return users.filter(hasKnownRsn).map(user => {
+      const member = byId.get(user.userId);
+      return {
+        ...(typeof user.toObject === 'function' ? user.toObject() : user),
+        discordName: member.user?.username || member.displayName || user.username,
+        discordRankNames: member.roles.cache.map(role => role.name),
+      };
+    });
   }
 
   return function getRankCheckUsers(guild) {

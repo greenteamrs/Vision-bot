@@ -44,6 +44,7 @@ const {
   formatPendingRankUps,
 } = require('./rank-audit');
 const { hasVisionariesRole, createRankMemberScope } = require('./rank-members');
+const { womRankUpdates, resolvePermanentRank, unknownPermanentRanks } = require('./rank-history');
 
 
 // --- MongoDB: User Schema ---
@@ -60,6 +61,7 @@ const userSchema = new mongoose.Schema({
   joinedServerAt: { type: Date, default: null },
   joinedClanAt: { type: Date, default: null },
   womRank: { type: String, default: '' },
+  permanentRank: { type: String, default: '' },
   droptrackerSetup: { type: Boolean, default: false },
   notifiedRankId: { type: String, default: null },
 });
@@ -76,6 +78,7 @@ const rankSchema = new mongoose.Schema({
   minLevel: { type: Number, default: 0 },
   order: { type: Number, default: 0 },
   notifyOnEligibility: { type: Boolean, default: true },
+  isTemporary: { type: Boolean, default: false },
   specialRequirement: { type: String, default: '' },
 }, { timestamps: true });
 
@@ -608,6 +611,7 @@ async function syncWomMembers() {
 
   if (!memberships) return { updated: 0, total: 0, error: 'Could not read memberships from WOM API. The API response format may have changed.' };
 
+  const configuredRanks = await Rank.find().lean();
   let updated = 0;
   for (const m of memberships) {
     const rsName = m.player?.displayName || m.player?.username;
@@ -630,9 +634,7 @@ async function syncWomMembers() {
     if (!user.joinedClanAt || Math.abs(user.joinedClanAt - newDate) > 1000) {
       updates.joinedClanAt = newDate;
     }
-    if (womRank && user.womRank !== womRank) {
-      updates.womRank = womRank;
-    }
+    Object.assign(updates, womRankUpdates(user, womRank, configuredRanks));
     if (Object.keys(updates).length > 0) {
       await User.updateOne({ _id: user._id }, { $set: updates });
       updated++;
@@ -826,7 +828,8 @@ async function checkRankUps(guild) {
         days >= rank.minDays &&
         user.lootPoints >= rank.minLootPoints &&
         user.level >= rank.minLevel &&
-        rank.notifyOnEligibility !== false
+        rank.notifyOnEligibility !== false &&
+        rank.isTemporary !== true
       )
       .at(-1);
 
@@ -835,10 +838,9 @@ async function checkRankUps(guild) {
     // WOM is the source of truth for a player's current rank when the
     // dashboard rank name matches the WOM rank name. Fall back to the
     // notification history while names are not yet aligned.
-    const normalizedWomRank = String(user.womRank || '').trim().toLowerCase();
-    const currentWomRank = normalizedWomRank
-      ? ranks.find(rank => String(rank.name || '').trim().toLowerCase() === normalizedWomRank)
-      : null;
+    const current = resolvePermanentRank(user, ranks);
+    if (current.unknown) continue;
+    const currentWomRank = current.rank;
     if (currentWomRank && qualifiedRank.order <= currentWomRank.order) {
       if (user.notifiedRankId !== currentWomRank._id.toString()) {
         await User.updateOne({ userId: user.userId }, { notifiedRankId: currentWomRank._id.toString() });
@@ -870,12 +872,15 @@ async function checkRankUps(guild) {
   return notified;
 }
 
-async function findPendingRankUps(guild = client.guilds.cache.first()) {
+async function getRankAudit(guild = client.guilds.cache.first()) {
   const [ranks, users] = await Promise.all([
     Rank.find().sort({ order: 1, minLevel: 1, minLootPoints: 1 }).lean(),
     getRankCheckUsers(guild),
   ]);
-  return computePendingRankUps({ ranks, users, daysInClan });
+  return {
+    pendingRankUps: computePendingRankUps({ ranks, users, daysInClan }),
+    unknownRanks: unknownPermanentRanks(ranks, users),
+  };
 }
 
 // --- Drop Top XP Awards ---
@@ -1807,8 +1812,8 @@ client.on(Events.MessageCreate, async (message) => {
   if (command === cmd('checkranks') && isMod(message.member)) {
     message.channel.send('🔍 Checking for eligible members who have not received their configured rank yet...');
     try {
-      const pending = await findPendingRankUps(message.guild);
-      message.channel.send(formatPendingRankUps(pending));
+      const { pendingRankUps, unknownRanks } = await getRankAudit(message.guild);
+      message.channel.send(formatPendingRankUps(pendingRankUps, { unknownRanks }));
     } catch (err) {
       console.error("!checkranks error:", err);
       message.channel.send("❌ Error during rank check.");
@@ -2065,10 +2070,11 @@ async function handleConvertedSlashCommand(interaction) {
 
     if (commandName === 'checkranks') {
       if (!isAdmin(member) && !isMod(member)) return interaction.editReply('❌ Mods only.');
-      const pending = await findPendingRankUps(interaction.guild);
+      const { pendingRankUps: pending, unknownRanks } = await getRankAudit(interaction.guild);
       const [header, ...lines] = formatPendingRankUps(pending, {
         maxLines: Infinity,
         maxChars: Infinity,
+        unknownRanks,
       }).split('\n');
       return replyLongInteraction(interaction, header, lines);
     }
@@ -2892,10 +2898,22 @@ const server = http.createServer(async (req, res) => {
     if (userMatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
-        const allowed = ['xp', 'level', 'lootPoints', 'rsName', 'rsNames', 'username'];
+        const allowed = ['xp', 'level', 'lootPoints', 'rsName', 'rsNames', 'username', 'permanentRank'];
         const update = {};
         for (const k of allowed) {
           if (data[k] !== undefined) update[k] = data[k];
+        }
+        if (update.permanentRank !== undefined) {
+          update.permanentRank = String(update.permanentRank || '').trim();
+          if (update.permanentRank) {
+            const ranks = await Rank.find().lean();
+            const rank = ranks.find(rank => rank.name.toLowerCase() === update.permanentRank.toLowerCase());
+            if (!rank || rank.isTemporary === true) {
+              sendJson(res, 400, { error: 'Choose a configured permanent rank, not a temporary rank.' });
+              return;
+            }
+            update.permanentRank = rank.name;
+          }
         }
         const existing = await User.findOne({ userId: userMatch[1] });
         if (!existing) { sendJson(res, 404, { error: 'User not found.' }); return; }
@@ -3000,6 +3018,7 @@ const server = http.createServer(async (req, res) => {
           'rank.create.minLevel',
           'rank.create.order',
           'rank.create.notifyOnEligibility',
+          'rank.create.isTemporary',
           'rank.create.specialRequirement',
         ])) return;
         const rank = await Rank.create({
@@ -3009,6 +3028,7 @@ const server = http.createServer(async (req, res) => {
           minLevel: Number(data.minLevel) || 0,
           order: Number(data.order) || 0,
           notifyOnEligibility: data.notifyOnEligibility !== false,
+          isTemporary: data.isTemporary === true,
           specialRequirement: String(data.specialRequirement || '').trim(),
         });
         sendJson(res, 201, rank);
@@ -3021,8 +3041,8 @@ const server = http.createServer(async (req, res) => {
     // POST /api/ranks/check
     if (pathname === '/api/ranks/check' && req.method === 'POST') {
       try {
-        const pendingRankUps = await findPendingRankUps();
-        sendJson(res, 200, { pendingCount: pendingRankUps.length, pendingRankUps });
+        const audit = await getRankAudit();
+        sendJson(res, 200, { pendingCount: audit.pendingRankUps.length, ...audit });
       } catch (e) {
         sendJson(res, 500, { error: e.message });
       }
@@ -3098,12 +3118,12 @@ const server = http.createServer(async (req, res) => {
     if (rankMatchPatch && req.method === 'PATCH') {
       try {
         const data = await readBody(req);
-        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order', 'notifyOnEligibility', 'specialRequirement'];
+        const allowed = ['name', 'minDays', 'minLootPoints', 'minLevel', 'order', 'notifyOnEligibility', 'isTemporary', 'specialRequirement'];
         const update = {};
         for (const k of allowed) {
           if (data[k] !== undefined) {
-            update[k] = k === 'notifyOnEligibility'
-              ? data[k] !== false
+            update[k] = k === 'notifyOnEligibility' || k === 'isTemporary'
+              ? (k === 'isTemporary' ? data[k] === true : data[k] !== false)
               : k === 'specialRequirement'
                 ? String(data[k] || '').trim()
                 : data[k];

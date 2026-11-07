@@ -49,8 +49,11 @@ test('/checkranks reports every eligible Visionaries member across Discord-sized
     interaction, member: {}, commandName: 'checkranks',
     isAdmin: () => true, isMod: () => false,
     formatPendingRankUps,
-    findPendingRankUps: async selectedGuild => findPendingRankUps({
-      ranks, users: await scope(selectedGuild), daysInClan: user => user.days,
+    getRankAudit: async selectedGuild => ({
+      pendingRankUps: findPendingRankUps({
+        ranks, users: await scope(selectedGuild), daysInClan: user => user.days,
+      }),
+      unknownRanks: [],
     }),
   });
   vm.runInContext(`${replyHelper}\nasync function runCommand() { ${command} }`, context);
@@ -60,7 +63,7 @@ test('/checkranks reports every eligible Visionaries member across Discord-sized
   const text = messages.join('\n');
   assert.match(text, /Found 75 outstanding rank-ups/);
   for (let i = 0; i < 75; i++) {
-    assert.ok(text.includes(`EligiblePlayer${i}: Recruit → Raider`));
+    assert.ok(text.includes(`Player ${i} / EligiblePlayer${i} / LP: 1000 / Community: 10 / Droptracker: ❌ / Recruit → Raider`));
   }
   assert.doesNotMatch(text, /SelectedOnly|NotVisionaries|AlreadyPromoted|Open the dashboard/);
 });

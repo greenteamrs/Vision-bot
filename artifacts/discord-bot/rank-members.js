@@ -1,3 +1,5 @@
+const ONLYMODS_CHANNEL_ID = '864145511166771211';
+
 function hasVisionariesRole(member) {
   return Boolean(member && !member.user?.bot && member.roles.cache.some(
     role => role.name.trim().toLowerCase() === 'visionaries',
@@ -31,12 +33,10 @@ function createRankMemberScope({ User, MissingRsnAlert }) {
     const alertedIds = new Set(alerted.map(alert => alert.userId));
     const unreported = missing.filter(member => !alertedIds.has(member.id));
     if (unreported.length) {
-      const channels = await guild.channels.fetch();
-      const channel = channels.find(item =>
-        item && item.name?.toLowerCase() === 'onlymods' &&
-        item.isTextBased() && typeof item.send === 'function',
-      );
-      if (!channel) throw new Error('Cannot send missing-RSN alerts: #onlymods was not found.');
+      const channel = await guild.channels.fetch(ONLYMODS_CHANNEL_ID);
+      if (!channel || !channel.isTextBased() || typeof channel.send !== 'function') {
+        throw new Error(`Cannot send missing-RSN alerts: OnlyMods channel ${ONLYMODS_CHANNEL_ID} is unavailable or not text-based.`);
+      }
       for (const member of unreported) {
         await channel.send({
           content: `⚠️ <@${member.id}> has the **Visionaries** role but no known RuneScape name in our database. Please link their RSN using \`/rsset\`. They are excluded from rank-up checks until an RSN is linked.`,

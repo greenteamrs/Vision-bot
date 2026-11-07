@@ -19,13 +19,16 @@ function fixture() {
     id: 'guild',
     roles: { fetch: async () => [{ name: 'Visionaries' }] },
     members: { fetch: async () => new Map(state.members.map(item => [item.id, item])) },
-    channels: { fetch: async () => state.channelAvailable ? [{
-      name: 'onlymods', isTextBased: () => true,
+    channels: { fetch: async id => {
+      assert.equal(id, '864145511166771211');
+      return state.channelAvailable ? {
+      name: 'renamed-mod-channel', isTextBased: () => true,
       send: async message => {
         if (state.sendFails) throw new Error('Missing channel permission');
         state.messages.push(message);
       },
-    }] : [] },
+      } : null;
+    } },
   };
   const dependencies = {
     User: { find: async query => state.users.filter(user => query.userId.$in.includes(user.userId)) },
@@ -98,7 +101,7 @@ test('missing server, role, channel or unavailable members fail explicitly', asy
   const { check, guild, state } = fixture();
   await assert.rejects(check(null), /server unavailable/);
   state.channelAvailable = false;
-  await assert.rejects(check(guild), /#onlymods was not found/);
+  await assert.rejects(check(guild), /OnlyMods channel 864145511166771211 is unavailable/);
   guild.roles.fetch = async () => [];
   await assert.rejects(check(guild), /Visionaries role not found/);
   guild.roles.fetch = async () => [{ name: 'Visionaries' }];

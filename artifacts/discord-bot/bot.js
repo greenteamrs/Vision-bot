@@ -45,6 +45,7 @@ const {
 } = require('./rank-audit');
 const { hasVisionariesRole, createRankMemberScope } = require('./rank-members');
 const { womRankUpdates, resolvePermanentRank, unknownPermanentRanks } = require('./rank-history');
+const { buildPriorityUpdates } = require('./rank-priority');
 
 
 // --- MongoDB: User Schema ---
@@ -2996,6 +2997,25 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/droptracker/sync' && req.method === 'POST') {
       const result = await syncDroptrackerMembers();
       sendJson(res, result.error ? 502 : 200, result);
+      return;
+    }
+
+    // POST /api/ranks/priorities — the first ID is priority 1 (highest).
+    if (pathname === '/api/ranks/priorities' && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        const ranks = await Rank.find().lean();
+        const updates = buildPriorityUpdates(ranks, data.rankIds);
+        if (await dashboardEditBlocked(authUser, res, updates.map(rank => `rank.${rank.id}.order`))) return;
+        if (updates.length) {
+          await Rank.bulkWrite(updates.map(rank => ({
+            updateOne: { filter: { _id: rank.id }, update: { $set: { order: rank.order } } },
+          })));
+        }
+        sendJson(res, 200, { success: true });
+      } catch (error) {
+        sendJson(res, 400, { error: error.message });
+      }
       return;
     }
 

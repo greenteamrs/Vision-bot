@@ -5,6 +5,10 @@ description: How rank eligibility and Wise Old Man current-rank data work togeth
 
 The bot should continue calculating rank eligibility from configured days-in-clan, loot-point, and community-level thresholds. Wise Old Man supplies the player's current rank, and the existing dashboard rank name is used for the match. The configured names are expected to be aligned with WOM names over time.
 
+The dashboard hierarchy is named **Priority level**, with **1 highest**, shown before the rank name and listed top-down from 1.
+
+**Why:** The user requested this priority convention; changing the presentation must not accidentally invert promotion eligibility.
+
 For temporary WOM ranks, use the underlying permanent rank instead; see [Seasonal ranks](seasonal-ranks.md). Temporary tiers are never promotion targets.
 
 Ranks with notifications turned off are manually assigned to selected people. Exclude them from eligibility targets in both automatic alerts and manual checks. They may still be recognized as a member's current WOM rank to avoid suggesting a lower-ranked promotion.

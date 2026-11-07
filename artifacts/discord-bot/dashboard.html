@@ -709,6 +709,7 @@
             <table>
               <thead>
                 <tr>
+                  <th>Priority level</th>
                   <th>Rank Name</th>
                   <th>Min Days</th>
                   <th>Min LP</th>
@@ -720,7 +721,7 @@
                 </tr>
               </thead>
               <tbody id="ranks-table-body">
-                <tr><td colspan="8" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
+                <tr><td colspan="9" style="text-align:center;padding:20px;color:#888;">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -895,11 +896,11 @@
   <div class="modal">
     <h3 id="rank-modal-title">Add Rank</h3>
     <input type="hidden" id="rank-modal-id" />
+    <div class="field"><label>Priority level (1 = highest)</label><input type="number" id="rank-priority" value="1" min="1" step="1" /></div>
     <div class="field"><label>Rank Name</label><input type="text" id="rank-name" placeholder="e.g. Sergeant" /></div>
     <div class="field"><label>Min Days in Clan</label><input type="number" id="rank-minDays" value="0" min="0" /></div>
     <div class="field"><label>Min Loot Points</label><input type="number" id="rank-minLootPoints" value="0" min="0" /></div>
     <div class="field"><label>Min Community Level</label><input type="number" id="rank-minLevel" value="0" min="0" /></div>
-    <div class="field"><label>Order (lower = lower tier)</label><input type="number" id="rank-order" value="0" min="0" /></div>
     <div class="field">
       <label>Special Requirement <span style="color:#888;font-weight:normal;">(optional)</span></label>
       <textarea id="rank-specialRequirement" rows="3" placeholder="e.g. Confirm the required achievement manually"></textarea>
@@ -1773,14 +1774,15 @@
   // ---- RANKS ----
   async function loadRanks() {
     const res = await api('GET', '/api/ranks');
-    currentRanks = await res.json();
+    currentRanks = (await res.json()).sort((a, b) => Number(b.order || 0) - Number(a.order || 0) || Number(b.minLevel || 0) - Number(a.minLevel || 0));
     const tbody = document.getElementById('ranks-table-body');
     if (!currentRanks || currentRanks.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#888;">No ranks configured yet. Add one above.</td></tr>';
       return;
     }
     tbody.innerHTML = currentRanks.map((r, i) => `
       <tr>
+        <td style="font-weight:700;color:#c4b5fd">${i + 1}</td>
         <td style="font-weight:600;color:#c4b5fd">${esc(r.name)}</td>
         <td>${r.minDays} days</td>
         <td>${r.minLootPoints.toLocaleString()} LP</td>
@@ -1822,11 +1824,22 @@
     if (swapIndex < 0 || swapIndex >= currentRanks.length) return;
     if (currentDashboardUser?.role !== 'admin' &&
         [currentRanks[index], currentRanks[swapIndex]].some(rank => lockIsActive(`rank.${rank._id}.order`))) {
-      return showToast('At least one of these rank orders is locked by the admin.', true);
+      return showToast('At least one of these priority levels is locked by the admin.', true);
     }
-    await api('PATCH', `/api/ranks/${currentRanks[index]._id}`, { order: swapIndex });
-    await api('PATCH', `/api/ranks/${currentRanks[swapIndex]._id}`, { order: index });
-    await loadRanks();
+    const ids = currentRanks.map(rank => rank._id);
+    [ids[index], ids[swapIndex]] = [ids[swapIndex], ids[index]];
+    try {
+      await saveRankPriorities(ids);
+      await loadRanks();
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  }
+
+  async function saveRankPriorities(rankIds) {
+    const res = await api('POST', '/api/ranks/priorities', { rankIds });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not update priority levels.');
   }
 
   function openRankModal(rank) {
@@ -1838,7 +1851,7 @@
       'rank-minDays': 'minDays',
       'rank-minLootPoints': 'minLootPoints',
       'rank-minLevel': 'minLevel',
-      'rank-order': 'order',
+      'rank-priority': 'order',
       'rank-notify': 'notifyOnEligibility',
       'rank-temporary': 'isTemporary',
       'rank-specialRequirement': 'specialRequirement',
@@ -1850,7 +1863,9 @@
     document.getElementById('rank-minDays').value = rank?.minDays ?? 0;
     document.getElementById('rank-minLootPoints').value = rank?.minLootPoints ?? 0;
     document.getElementById('rank-minLevel').value = rank?.minLevel ?? 0;
-    document.getElementById('rank-order').value = rank?.order ?? 0;
+    const rankIndex = rank ? currentRanks.findIndex(item => item._id === rank._id) : -1;
+    document.getElementById('rank-priority').value = rankIndex >= 0 ? rankIndex + 1 : currentRanks.length + 1;
+    document.getElementById('rank-priority').max = rank ? currentRanks.length : currentRanks.length + 1;
     document.getElementById('rank-notify').checked = rank?.notifyOnEligibility !== false;
     document.getElementById('rank-temporary').checked = rank?.isTemporary === true;
     document.getElementById('rank-specialRequirement').value = rank?.specialRequirement || '';
@@ -1864,21 +1879,39 @@
 
   async function saveRank() {
     const id = document.getElementById('rank-modal-id').value;
+    const priority = Number(document.getElementById('rank-priority').value);
+    const maxPriority = currentRanks.length + (id ? 0 : 1);
+    if (!Number.isInteger(priority) || priority < 1 || priority > maxPriority) {
+      showToast(`Priority level must be a whole number from 1 to ${maxPriority}.`, true);
+      return;
+    }
     const data = {
       name: document.getElementById('rank-name').value.trim(),
       minDays: Number(document.getElementById('rank-minDays').value) || 0,
       minLootPoints: Number(document.getElementById('rank-minLootPoints').value) || 0,
       minLevel: Number(document.getElementById('rank-minLevel').value) || 0,
-      order: Number(document.getElementById('rank-order').value) || 0,
       notifyOnEligibility: document.getElementById('rank-notify').checked,
       isTemporary: document.getElementById('rank-temporary').checked,
       specialRequirement: document.getElementById('rank-specialRequirement').value.trim(),
     };
+    if (!id) data.order = currentRanks.length ? Math.min(...currentRanks.map(rank => Number(rank.order || 0))) - 1 : 0;
     if (!data.name) { showToast('Rank name is required.', true); return; }
     const res = id
       ? await api('PATCH', `/api/ranks/${id}`, data)
       : await api('POST', '/api/ranks', data);
     if (res.ok) {
+      const saved = await res.json();
+      if (!id || currentRanks.findIndex(rank => rank._id === id) + 1 !== priority) {
+        const ids = currentRanks.filter(rank => rank._id !== id).map(rank => rank._id);
+        ids.splice(priority - 1, 0, saved._id);
+        try {
+          await saveRankPriorities(ids);
+        } catch (error) {
+          showToast(`Rank saved, but priority was not changed: ${error.message}`, true);
+          await loadRanks();
+          return;
+        }
+      }
       closeRankModal();
       showToast(id ? 'Rank updated!' : 'Rank created!');
       loadRanks();

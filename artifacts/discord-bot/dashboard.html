@@ -963,8 +963,11 @@
   function setLockButtonState(button, key) {
     const locked = lockIsActive(key);
     const isAdmin = currentDashboardUser?.role === 'admin';
-    const icon = dashboardLockIcon(locked);
-    if (button.innerHTML !== icon) button.innerHTML = icon;
+    const iconState = locked ? 'locked' : 'unlocked';
+    if (button.dataset.lockIconState !== iconState) {
+      button.innerHTML = dashboardLockIcon(locked);
+      button.dataset.lockIconState = iconState;
+    }
     button.classList.toggle('is-locked', locked);
     button.disabled = !isAdmin;
     button.title = isAdmin
@@ -1063,7 +1066,17 @@
     lockRefreshQueued = true;
     queueMicrotask(() => {
       lockRefreshQueued = false;
-      hydrateDashboardLockControls();
+      dashboardLockObserver.disconnect();
+      try {
+        hydrateDashboardLockControls();
+      } finally {
+        dashboardLockObserver.observe(document.getElementById('app'), {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['data-lock-key', 'data-lock-action-key', 'data-lock-guard-key'],
+        });
+      }
     });
   });
   dashboardLockObserver.observe(document.getElementById('app'), {

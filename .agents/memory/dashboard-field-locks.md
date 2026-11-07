@@ -7,6 +7,8 @@ The dashboard admin alone can toggle per-value locks. Moderators may edit adjust
 
 Loading lock states must not block dashboard data or navigation; if lock data is delayed, keep moderator edits safely disabled while the rest of the dashboard continues loading.
 
+Lock-control observers must not react endlessly to their own DOM updates. Never compare browser-serialized SVG `innerHTML` with raw SVG source to decide whether to redraw; browsers normalize the markup.
+
 **Why:** The admin needs to delegate dashboard work without allowing other admins/moderators to change selected settings.
 
-**How to apply:** For every editable setting, name, or action, provide an admin-controlled lock state and reject moderator writes while that lock is active. Load lock state independently from status, settings, users, and calendar data.
+**How to apply:** For every editable setting, name, or action, provide an admin-controlled lock state and reject moderator writes while that lock is active. Load lock state independently from status, settings, users, and calendar data. Track icon state explicitly and suspend observation during observer-driven hydration to avoid freezing the browser.

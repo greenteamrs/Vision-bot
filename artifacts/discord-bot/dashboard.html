@@ -274,6 +274,8 @@
     padding: 28px;
     width: 420px;
     max-width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
   }
   .modal h3 { color: #c4b5fd; margin-bottom: 18px; font-size: 1rem; }
   .modal .field { margin-bottom: 12px; }
@@ -847,12 +849,15 @@
           <button class="btn-save" id="btn-users-dt-sync" onclick="syncDtDashboard(this)">🔄 Sync DropTracker Members</button>
           <button class="btn-save" id="btn-users-check-ranks" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow(this, 'user-rank-check-results')">🔍 Check Ranks</button>
           <button class="btn-save" id="btn-users-wom-sync" style="background:#14532d;border:1px solid #16a34a;" onclick="syncWomDashboard(this)">🌐 Sync from WiseOldMan</button>
+          <button class="btn-save" id="btn-users-stats-sync" onclick="syncUserStats(this)">Sync OSRS Stats</button>
         </div>
         <div id="user-rank-check-results" role="status" style="display:none;margin:0 0 16px;padding:12px 14px;border:1px solid #334155;border-radius:8px;background:#111827;color:#d1d5db;"></div>
         <div class="search-row">
           <input type="text" id="user-search" placeholder="Search by username or RS name..." oninput="debounceSearch()" />
         </div>
         <p style="color:#888;font-size:0.85rem;margin-bottom:12px;">Current Rank comes from Wise Old Man. DropTracker: ✓ confirmed in the last successful member sync; ✕ not confirmed. Use the sync buttons above to refresh.</p>
+        <p style="color:#888;font-size:0.85rem;margin-bottom:12px;">OSRS stats use the current RSN (not a sum of alternate accounts). Total level uses WOM where available; CA tier and collection log use RuneProfile and need a synced RuneProfile plugin. Automatic refresh runs on bot startup and every 12 hours. Manual values stay until cleared in Edit; locked values are skipped by sync.</p>
+        <p id="user-stats-status" role="status" style="color:#c4b5fd;font-size:0.85rem;margin-bottom:12px;"></p>
         <div class="card" style="padding: 0; overflow-x: auto;">
           <table>
             <thead id="users-thead">
@@ -861,6 +866,9 @@
                 <th class="sortable" onclick="setUserSort('rsName')">RS Name <span class="sort-arrow" id="sarr-rsName"></span></th>
                 <th>Current Rank (Wise Old Man)</th>
                 <th>DropTracker</th>
+                <th class="sortable" onclick="setUserSort('totalLevel')">Total Level <span class="sort-arrow" id="sarr-totalLevel"></span></th>
+                <th>Combat Achievement Tier</th>
+                <th class="sortable" onclick="setUserSort('collectionLogCount')">Collection Log <span class="sort-arrow" id="sarr-collectionLogCount"></span></th>
                 <th class="sortable" onclick="setUserSort('level')">Level <span class="sort-arrow" id="sarr-level">▼</span></th>
                 <th class="sortable" onclick="setUserSort('xp')">XP <span class="sort-arrow" id="sarr-xp"></span></th>
                 <th class="sortable" onclick="setUserSort('lootPoints')">LP <span class="sort-arrow" id="sarr-lootPoints"></span></th>
@@ -869,7 +877,7 @@
               </tr>
             </thead>
             <tbody id="users-table-body">
-              <tr><td colspan="9" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
+              <tr><td colspan="12" style="text-align:center; padding:20px; color:#888;">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -890,6 +898,10 @@
     <div class="field"><label>Level</label><input type="number" id="modal-level" /></div>
     <div class="field"><label>XP (current level progress)</label><input type="number" id="modal-xp" /></div>
     <div class="field"><label>Loot Points</label><input type="number" id="modal-lp" /></div>
+    <p style="color:#aaa;font-size:0.8rem;margin-bottom:12px;">Changing an OSRS stat makes it manual: sync will not overwrite it. Clear it to return to automatic sync on the next refresh. Blank means Unknown, not zero.</p>
+    <div class="field"><label>Total level</label><input type="number" id="modal-total-level" min="1" step="1" placeholder="Unknown / automatic" /></div>
+    <div class="field"><label>Combat Achievement tier</label><select id="modal-ca-tier"><option value="">Unknown / automatic</option><option>None</option><option>Easy</option><option>Medium</option><option>Hard</option><option>Elite</option><option>Master</option><option>Grandmaster</option></select></div>
+    <div class="field"><label>Collection log count</label><input type="number" id="modal-collection-log" min="0" step="1" placeholder="Unknown / automatic" /></div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancel</button>
       <button class="btn-save" onclick="saveUser()">Save Changes</button>
@@ -1481,7 +1493,7 @@
   }
 
   function updateSortArrows() {
-    ['username','rsName','level','xp','lootPoints','daysInClan'].forEach(f => {
+    ['username','rsName','level','xp','lootPoints','daysInClan','totalLevel','collectionLogCount'].forEach(f => {
       const el = document.getElementById(`sarr-${f}`);
       const th = el?.closest('th');
       if (!el) return;
@@ -1505,7 +1517,7 @@
 
     const tbody = document.getElementById('users-table-body');
     if (!data.users || data.users.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:20px;color:#888;">No users found.</td></tr>';
     } else {
       tbody.innerHTML = data.users.map(u => {
         const names = (u.rsNames && u.rsNames.length ? u.rsNames : (u.rsName ? [u.rsName] : []));
@@ -1519,6 +1531,7 @@
           <td style="color:#888">${esc(names.join(', ') || 'Missing RSN')}</td>
           <td>${esc(u.womRank || 'Unknown')}${u.permanentRank && u.permanentRank !== u.womRank ? `<br><small style="color:#a78bfa;">Original: ${esc(u.permanentRank)}</small>` : ''}</td>
           <td><span style="color:${u.droptrackerSetup === true ? '#4ade80' : '#f87171'};font-weight:700;" aria-label="${u.droptrackerSetup === true ? 'DropTracker confirmed' : 'DropTracker not confirmed'}" title="${u.droptrackerSetup === true ? 'Confirmed in last successful DropTracker sync' : 'No confirmed DropTracker setup — sync members to refresh'}">${u.droptrackerSetup === true ? '✓' : '✕'}</span></td>
+          ${['totalLevel','combatAchievementTier','collectionLogCount'].map(field => `<td>${esc(u[field] ?? 'Unknown')}${u.statsManual?.[field] ? '<br><small style="color:#a78bfa;">Manual</small>' : ''}</td>`).join('')}
           <td>${u.level}</td>
           <td>${u.xp}</td>
           <td>${u.lootPoints}</td>
@@ -1557,6 +1570,9 @@
       'modal-level': 'level',
       'modal-xp': 'xp',
       'modal-lp': 'lootPoints',
+      'modal-total-level': 'totalLevel',
+      'modal-ca-tier': 'combatAchievementTier',
+      'modal-collection-log': 'collectionLogCount',
     };
     Object.entries(fields).forEach(([id, field]) => {
       document.getElementById(id).dataset.lockKey = `user.${user.userId}.${field}`;
@@ -1568,6 +1584,13 @@
     document.getElementById('modal-level').value = user.level;
     document.getElementById('modal-xp').value = user.xp;
     document.getElementById('modal-lp').value = user.lootPoints;
+    document.getElementById('modal-total-level').value = user.totalLevel ?? '';
+    document.getElementById('modal-ca-tier').value = user.combatAchievementTier ?? '';
+    document.getElementById('modal-collection-log').value = user.collectionLogCount ?? '';
+    ['modal-total-level', 'modal-ca-tier', 'modal-collection-log'].forEach(id => {
+      const input = document.getElementById(id);
+      input.dataset.originalValue = String(input.value);
+    });
     document.getElementById('edit-modal').classList.add('open');
     hydrateDashboardLockControls(document.getElementById('edit-modal'));
   }
@@ -1588,7 +1611,17 @@
       level: Number(document.getElementById('modal-level').value),
       xp: Number(document.getElementById('modal-xp').value),
       lootPoints: Number(document.getElementById('modal-lp').value),
+      totalLevel: document.getElementById('modal-total-level').value === '' ? null : Number(document.getElementById('modal-total-level').value),
+      combatAchievementTier: document.getElementById('modal-ca-tier').value || null,
+      collectionLogCount: document.getElementById('modal-collection-log').value === '' ? null : Number(document.getElementById('modal-collection-log').value),
     };
+    // Do not turn stale, unchanged values into manual overrides if a background
+    // sync updated the account while this edit form was open.
+    for (const [id, field] of [['modal-total-level', 'totalLevel'],
+      ['modal-ca-tier', 'combatAchievementTier'], ['modal-collection-log', 'collectionLogCount']]) {
+      const input = document.getElementById(id);
+      if (String(input.value) === input.dataset.originalValue) delete data[field];
+    }
     const res = await api('PATCH', `/api/users/${userId}`, data);
     if (res.ok) {
       closeModal();
@@ -1970,6 +2003,35 @@
     document.getElementById('wom-search-results').style.display = 'none';
     document.getElementById('womSearchName').value = '';
     showToast(`Selected "${name}" (ID: ${id}) — click Save XP Settings to apply.`);
+  }
+
+  let userStatsPolling = false;
+  async function syncUserStats(button) {
+    if (userStatsPolling) return;
+    userStatsPolling = true;
+    button.disabled = true;
+    const status = document.getElementById('user-stats-status');
+    try {
+      let res = await api('POST', '/api/user-stats/sync');
+      let data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not start OSRS stats sync.');
+      while (data.status === 'running') {
+        status.textContent = `Syncing OSRS stats: ${data.processed}/${data.total}. This continues on the server if you leave this page.`;
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        res = await api('GET', '/api/user-stats/sync');
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not read sync progress.');
+      }
+      if (data.status !== 'complete') throw new Error(data.error || 'Sync was interrupted. Please try again.');
+      status.textContent = `Sync complete: ${data.updated} updated; ${data.missingRsn} without RSN; ${data.missingProfile} without RuneProfile; ${data.failed} provider errors. Manual/locked values and unavailable stats were kept.${data.warnings?.length ? ' ' + data.warnings.join(' ') : ''}`;
+      await loadUsers(currentPage);
+    } catch (error) {
+      status.textContent = error.message;
+      showToast(error.message, true);
+    } finally {
+      userStatsPolling = false;
+      button.disabled = false;
+    }
   }
 
   async function syncWomDashboard(button = null) {

@@ -46,6 +46,7 @@ const {
 const { hasVisionariesRole, createRankMemberScope } = require('./rank-members');
 const { womRankUpdates, resolvePermanentRank, unknownPermanentRanks } = require('./rank-history');
 const { buildPriorityUpdates, withPriorityLevels } = require('./rank-priority');
+const { STAT_FIELDS, manualStatUpdates, createUserStatsService } = require('./user-stats');
 
 
 // --- MongoDB: User Schema ---
@@ -64,6 +65,15 @@ const userSchema = new mongoose.Schema({
   womRank: { type: String, default: '' },
   permanentRank: { type: String, default: '' },
   droptrackerSetup: { type: Boolean, default: false },
+  totalLevel: { type: Number, default: null },
+  combatAchievementTier: { type: String, default: null },
+  collectionLogCount: { type: Number, default: null },
+  statsManual: {
+    totalLevel: { type: Boolean, default: false },
+    combatAchievementTier: { type: Boolean, default: false },
+    collectionLogCount: { type: Boolean, default: false },
+  },
+  statsSyncedAt: { type: Date, default: null },
   notifiedRankId: { type: String, default: null },
 });
 
@@ -146,6 +156,8 @@ async function getDashboardLockMap() {
   const rows = await DashboardLock.find({}).select('key locked').lean();
   return Object.fromEntries(rows.map(row => [row.key, row.locked === true]));
 }
+
+const userStatsService = createUserStatsService({ User, getSettings, getLocks: getDashboardLockMap });
 
 async function dashboardEditBlocked(authUser, res, keys) {
   if (!isDashboardLockEnforced(authUser?.role, true)) return false;
@@ -1082,6 +1094,9 @@ client.once('ready', async () => {
   console.log(`${client.user.tag} is online and ready!`);
   const settings = await getSettings();
   await seedCommands();
+  // Run only on the production bot, never while previewing locally in Replit.
+  userStatsService.start();
+  cron.schedule('0 */12 * * *', () => userStatsService.start());
   setInterval(() => refreshCommandNames().catch(() => {}), 60000);
 
   // Register slash commands in every guild
@@ -2853,6 +2868,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Background stats jobs return immediately; poll instead of holding a long HTTP request.
+    if (pathname === '/api/user-stats/sync' && req.method === 'POST') {
+      sendJson(res, 202, userStatsService.start());
+      return;
+    }
+    if (pathname === '/api/user-stats/sync' && req.method === 'GET') {
+      sendJson(res, 200, userStatsService.status());
+      return;
+    }
+
     // GET /api/users
     if (pathname === '/api/users' && req.method === 'GET') {
       const search = url.searchParams.get('search') || '';
@@ -2861,7 +2886,7 @@ const server = http.createServer(async (req, res) => {
       const query = search
         ? { $or: [{ username: { $regex: search, $options: 'i' } }, { rsName: { $regex: search, $options: 'i' } }, { rsNames: new RegExp(search, 'i') }] }
         : {};
-      const validSorts = { username: 1, rsName: 1, level: 1, xp: 1, lootPoints: 1 };
+      const validSorts = { username: 1, rsName: 1, level: 1, xp: 1, lootPoints: 1, totalLevel: 1, collectionLogCount: 1 };
       const rawSort = url.searchParams.get('sort');
       const sortDir = url.searchParams.get('dir') === 'asc' ? 1 : -1;
       let sortObj;
@@ -2918,6 +2943,10 @@ const server = http.createServer(async (req, res) => {
         }
         const existing = await User.findOne({ userId: userMatch[1] });
         if (!existing) { sendJson(res, 404, { error: 'User not found.' }); return; }
+        const statPatch = manualStatUpdates(existing, data);
+        for (const field of STAT_FIELDS) {
+          if (Object.hasOwn(statPatch, field)) update[field] = statPatch[field];
+        }
         const lockKeys = [];
         for (const field of Object.keys(update)) {
           if (!valuesDiffer(existing[field], update[field])) continue;
@@ -2925,6 +2954,7 @@ const server = http.createServer(async (req, res) => {
           lockKeys.push(`user.${userMatch[1]}.${lockField}`);
         }
         if (await dashboardEditBlocked(authUser, res, lockKeys)) return;
+        Object.assign(update, statPatch);
         const user = await User.findOneAndUpdate({ userId: userMatch[1] }, { $set: update }, { new: true });
         sendJson(res, 200, user);
       } catch (e) {

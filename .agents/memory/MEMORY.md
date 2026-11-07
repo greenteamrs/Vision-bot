@@ -3,3 +3,4 @@
 - [Dashboard field locks](dashboard-field-locks.md) — only the admin changes lock state; moderators can edit values only while unlocked.
 - [OSRS event system](osrs-events.md) — dashboard manages events; Discord is for member participation, across multiple active formats.
 - [Discord bot hosting](discord-bot-hosting.md) — The bot runs on Render; Replit secrets and workflow restarts do not update production.
+- [OSRS user stats](osrs-user-stats.md) — Automatic sync plus manual corrections; preserve manual/locked values and distinguish unknown data from zero.

@@ -843,10 +843,16 @@
 
       <div class="section" id="section-users">
         <div class="section-title">Users</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+          <button class="btn-save" id="btn-users-dt-sync" onclick="syncDtDashboard(this)">🔄 Sync DropTracker Members</button>
+          <button class="btn-save" id="btn-users-check-ranks" style="background:#1e3a5f;border:1px solid #2563eb;" onclick="checkRankUpsNow(this, 'user-rank-check-results')">🔍 Check Ranks</button>
+          <button class="btn-save" id="btn-users-wom-sync" style="background:#14532d;border:1px solid #16a34a;" onclick="syncWomDashboard(this)">🌐 Sync from WiseOldMan</button>
+        </div>
+        <div id="user-rank-check-results" role="status" style="display:none;margin:0 0 16px;padding:12px 14px;border:1px solid #334155;border-radius:8px;background:#111827;color:#d1d5db;"></div>
         <div class="search-row">
           <input type="text" id="user-search" placeholder="Search by username or RS name..." oninput="debounceSearch()" />
         </div>
-        <p style="color:#888;font-size:0.85rem;margin-bottom:12px;">Current Rank comes from Wise Old Man. DropTracker: ✓ confirmed in the last successful member sync; ✕ not confirmed. Use Sync Members in Droptracker to refresh.</p>
+        <p style="color:#888;font-size:0.85rem;margin-bottom:12px;">Current Rank comes from Wise Old Man. DropTracker: ✓ confirmed in the last successful member sync; ✕ not confirmed. Use the sync buttons above to refresh.</p>
         <div class="card" style="padding: 0; overflow-x: auto;">
           <table>
             <thead id="users-thead">
@@ -1964,8 +1970,9 @@
     showToast(`Selected "${name}" (ID: ${id}) — click Save XP Settings to apply.`);
   }
 
-  async function syncWomDashboard() {
-    const btn = document.getElementById('btn-wom-sync');
+  async function syncWomDashboard(button = null) {
+    const btn = button || document.getElementById('btn-wom-sync');
+    const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⏳ Syncing...';
     try {
@@ -1976,6 +1983,7 @@
           showToast(data.error, true);
         } else {
           showToast(`WOM sync complete — ${data.updated} user(s) updated out of ${data.total} clan members.`);
+          await loadUsers(currentPage);
         }
       } else {
         showToast(data.error || 'WOM sync failed.', true);
@@ -1984,7 +1992,7 @@
       showToast('Error contacting WOM.', true);
     }
     btn.disabled = false;
-    btn.textContent = '🌐 Sync from WiseOldMan';
+    btn.textContent = originalText;
   }
 
   // ---- DROPTRACKER ----
@@ -2085,19 +2093,20 @@
     } catch(e) { content.innerHTML = `<div class="card" style="color:#f87171;padding:20px;">❌ Error contacting bot server.</div>`; }
   }
 
-  async function syncDtDashboard() {
-    const btn = document.getElementById('btn-dt-sync');
+  async function syncDtDashboard(button = null) {
+    const btn = button || document.getElementById('btn-dt-sync');
+    const originalText = btn.textContent;
     btn.disabled = true; btn.textContent = '⏳ Syncing...';
     try {
       const res = await api('POST', '/api/droptracker/sync');
       const data = await res.json();
-      if (data.error) showToast(data.error, true);
+      if (!res.ok || data.error) showToast(data.error || 'DropTracker sync failed.', true);
       else {
         showToast(`Droptracker sync — ${data.updated} user(s) updated out of ${data.total} members.`);
         await loadUsers(currentPage);
       }
     } catch(e) { showToast('Error contacting bot server.', true); }
-    btn.disabled = false; btn.textContent = '🔄 Sync Members';
+    btn.disabled = false; btn.textContent = originalText;
   }
 
   // ===================== BINGO =====================
@@ -2631,9 +2640,10 @@
   }
   // ===================== END BINGO =====================
 
-  async function checkRankUpsNow() {
-    const btn = document.getElementById('btn-check-ranks');
-    const results = document.getElementById('rank-check-results');
+  async function checkRankUpsNow(button = null, resultsId = 'rank-check-results') {
+    const btn = button || document.getElementById('btn-check-ranks');
+    const originalText = btn.textContent;
+    const results = document.getElementById(resultsId);
     btn.disabled = true;
     btn.textContent = '⏳ Checking...';
     try {
@@ -2659,7 +2669,7 @@
       showToast('Error running check.', true);
     }
     btn.disabled = false;
-    btn.textContent = '🔍 Check Now';
+    btn.textContent = originalText;
   }
 
   // ---- EVENTS ----

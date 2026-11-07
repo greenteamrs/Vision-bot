@@ -428,7 +428,7 @@
       <p>Sign in to the moderator dashboard. For first login or a reset, enter your one-time setup code as the password.</p>
       <input type="text" id="username-input" placeholder="Username" autocomplete="username" />
       <input type="password" id="password-input" placeholder="Password or setup code" autocomplete="current-password" />
-      <button class="btn-primary" onclick="login()">Sign In</button>
+      <button class="btn-primary" id="login-button" onclick="login()">Sign In</button>
     </div>
     <div id="set-password-form" style="display:none;">
       <p>Choose your private dashboard password</p>
@@ -1077,17 +1077,34 @@
   async function login() {
     const username = document.getElementById('username-input').value.trim();
     const password = document.getElementById('password-input').value;
+    const button = document.getElementById('login-button');
+    const originalText = button.textContent;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    button.disabled = true;
+    button.textContent = 'Signing in…';
+    document.getElementById('login-error').textContent = '';
     try {
-      const res = await api('POST', '/api/auth/login', { username, password });
-      const data = await res.json();
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+        signal: controller.signal,
+      });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         document.getElementById('login-error').textContent = data.error || 'Could not sign in.';
         AUTH_TOKEN = '';
         return;
       }
+      if (!data.token || !data.user || !['admin', 'mod'].includes(data.user.role)) {
+        document.getElementById('login-error').textContent = 'Login response was incomplete. Refresh and try again.';
+        AUTH_TOKEN = '';
+        return;
+      }
       AUTH_TOKEN = data.token;
       document.getElementById('password-input').value = '';
-      if (data.mustSetPassword) {
+      if (data.mustSetPassword === true && data.user.role === 'mod') {
         document.getElementById('login-form').style.display = 'none';
         document.getElementById('set-password-form').style.display = 'block';
         document.getElementById('login-error').textContent = '';
@@ -1095,7 +1112,13 @@
       }
       enterDashboard(data.user);
     } catch (e) {
-      document.getElementById('login-error').textContent = 'Could not connect to bot.';
+      document.getElementById('login-error').textContent = e.name === 'AbortError'
+        ? 'Sign-in timed out. Refresh and try again.'
+        : 'Could not complete sign-in. Refresh and try again.';
+    } finally {
+      clearTimeout(timeout);
+      button.disabled = false;
+      button.textContent = originalText;
     }
   }
 

@@ -17,6 +17,8 @@ The bot’s daily status message should distinguish a normal successful daily ch
 
 Manual `/checkranks` and dashboard checks are audits, not notification jobs. They should report every user whose configured numeric thresholds qualify them for a notification-enabled rank above their recorded WOM rank, regardless of notification history.
 
+The user reiterated that `/checkranks` must return all eligible Visionaries members, ignoring notification-disabled promotion tiers. Do not truncate the Discord results; split long output into multiple messages.
+
 **Why:** The admin uses these manual checks to find rank promotions that have not happened yet, including cases where an alert was previously sent. The user clarified that notification-disabled ranks are manually given to selected people and must not be earned through system checks.
 
 **How to apply:** Keep this audit read-only and separate from the daily notification process; compare eligibility with WOM rank rather than notification state.

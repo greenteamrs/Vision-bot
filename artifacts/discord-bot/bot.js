@@ -2066,7 +2066,11 @@ async function handleConvertedSlashCommand(interaction) {
     if (commandName === 'checkranks') {
       if (!isAdmin(member) && !isMod(member)) return interaction.editReply('❌ Mods only.');
       const pending = await findPendingRankUps(interaction.guild);
-      return interaction.editReply(formatPendingRankUps(pending));
+      const [header, ...lines] = formatPendingRankUps(pending, {
+        maxLines: Infinity,
+        maxChars: Infinity,
+      }).split('\n');
+      return replyLongInteraction(interaction, header, lines);
     }
 
     if (commandName === 'help') {

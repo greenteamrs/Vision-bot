@@ -1788,7 +1788,10 @@
     }
     tbody.innerHTML = currentRanks.map((r, i) => `
       <tr>
-        <td style="font-weight:700;color:#c4b5fd">${r.priorityLevel}</td>
+        <td style="white-space:nowrap;"><span style="font-weight:700;color:#c4b5fd">${r.priorityLevel}</span><span style="display:inline-flex;gap:4px;margin-left:10px;vertical-align:middle;">
+          <button class="btn-tier" aria-label="Raise priority for ${escAttr(r.name)}" onclick="moveRank(${i},-1)" ${r.priorityLevel === 1 ? 'disabled' : ''}>↑</button>
+          <button class="btn-tier" aria-label="Lower priority for ${escAttr(r.name)}" onclick="moveRank(${i},1)" ${i === currentRanks.length - 1 ? 'disabled' : ''}>↓</button>
+        </span></td>
         <td style="font-weight:600;color:#c4b5fd">${esc(r.name)}</td>
         <td>${r.minDays} days</td>
         <td>${r.minLootPoints.toLocaleString()} LP</td>
@@ -1797,8 +1800,6 @@
         <td><label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" aria-label="Temporary rank: ${escAttr(r.name)}" data-lock-key="rank.${escAttr(r._id)}.isTemporary" ${r.isTemporary === true ? 'checked' : ''} onchange="setRankTemporary('${escAttr(r._id)}', this)" /> ${r.isTemporary === true ? 'Seasonal' : 'No'}</label></td>
         <td style="max-width:240px;white-space:normal;color:#cbd5e1">${esc(r.specialRequirement || '—')}</td>
         <td style="display:flex;gap:4px;align-items:center;">
-          <button class="btn-tier" onclick="moveRank(${i},-1)" ${r.priorityLevel === 1 ? 'disabled' : ''}>↑</button>
-          <button class="btn-tier" onclick="moveRank(${i},1)" ${i === currentRanks.length - 1 ? 'disabled' : ''}>↓</button>
           <button class="btn-edit" style="margin-left:4px;" onclick="openRankModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
           <button class="btn-edit" data-lock-action-key="rank.${escAttr(r._id)}.delete" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteRank('${r._id}', '${esc(r.name)}')">Delete</button>
         </td>

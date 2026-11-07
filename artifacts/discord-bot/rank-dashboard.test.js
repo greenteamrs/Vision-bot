@@ -80,8 +80,8 @@ test('ranks render highest first with priority level before the rank name', asyn
   await vm.runInContext('loadRanks()', context);
   const output = nodes.get('ranks-table-body').innerHTML;
   assert.ok(output.indexOf('Veteran') < output.indexOf('Recruit'));
-  assert.match(output, />1<\/td>\s*<td[^>]*>Veteran/);
-  assert.match(output, />2<\/td>\s*<td[^>]*>Recruit/);
+  assert.match(output, />1<\/span><span[^>]*>\s*<button[^>]*onclick="moveRank\(0,-1\)"[^>]*>↑<\/button>\s*<button[^>]*onclick="moveRank\(0,1\)"[^>]*>↓<\/button>\s*<\/span><\/td>\s*<td[^>]*>Veteran/);
+  assert.match(output, />2<\/span><span[^>]*>\s*<button[^>]*onclick="moveRank\(1,-1\)"[^>]*>↑<\/button>\s*<button[^>]*onclick="moveRank\(1,1\)"[^>]*>↓<\/button>\s*<\/span><\/td>\s*<td[^>]*>Recruit/);
   assert.match(html, /<th>Priority level<\/th>\s*<th>Rank Name<\/th>/);
 });
 

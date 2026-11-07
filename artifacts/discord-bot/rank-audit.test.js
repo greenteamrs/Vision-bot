@@ -7,7 +7,7 @@ const ranks = [
   { _id: 'r2', name: 'Raider', order: 2, minDays: 10, minLootPoints: 100, minLevel: 2 },
   {
     _id: 'r3', name: 'Veteran', order: 3, minDays: 30, minLootPoints: 500, minLevel: 5,
-    notifyOnEligibility: false, specialRequirement: 'Verify the required achievement.',
+    notifyOnEligibility: true, specialRequirement: 'Verify the required achievement.',
   },
 ];
 
@@ -37,6 +37,34 @@ test('rank audit excludes members already at or above their eligible rank', () =
   ];
 
   assert.deepEqual(findPendingRankUps({ ranks, users, daysInClan: user => user.days }), []);
+});
+
+test('rank audit excludes manually assigned ranks from promotion targets', () => {
+  const manualRanks = [...ranks, {
+    name: 'Selected member', order: 4, minDays: 0, minLootPoints: 0, minLevel: 0,
+    notifyOnEligibility: false,
+  }];
+  const pending = findPendingRankUps({
+    ranks: manualRanks,
+    users: [
+      { userId: 'waiting', womRank: 'Recruit', days: 40, lootPoints: 700, level: 6 },
+      { userId: 'promoted', womRank: 'Veteran', days: 40, lootPoints: 700, level: 6 },
+      { userId: 'selected', womRank: 'Selected member', days: 40, lootPoints: 700, level: 6 },
+    ],
+    daysInClan: user => user.days,
+  });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].userId, 'waiting');
+  assert.equal(pending[0].rankName, 'Veteran');
+});
+
+test('rank audit finds no promotions when every rank is manually assigned', () => {
+  const pending = findPendingRankUps({
+    ranks: ranks.map(rank => ({ ...rank, notifyOnEligibility: false })),
+    users: [{ userId: 'waiting', womRank: '', days: 100, lootPoints: 1000, level: 100 }],
+    daysInClan: user => user.days,
+  });
+  assert.deepEqual(pending, []);
 });
 
 test('rank audit treats an equal configured rank order as already reached', () => {

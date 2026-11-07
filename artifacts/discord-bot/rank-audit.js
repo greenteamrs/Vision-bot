@@ -11,6 +11,9 @@ function findPendingRankUps({ ranks, users, daysInClan }) {
     let qualifiedIndex = -1;
     for (let index = 0; index < ranks.length; index++) {
       const rank = ranks[index];
+      // Notification-disabled ranks are manually assigned, not earned by thresholds.
+      // Keep them in the full list only to recognize a member's current WOM rank.
+      if (rank.notifyOnEligibility === false) continue;
       if (days >= rank.minDays &&
           Number(user.lootPoints || 0) >= Number(rank.minLootPoints || 0) &&
           Number(user.level || 0) >= Number(rank.minLevel || 0)) {

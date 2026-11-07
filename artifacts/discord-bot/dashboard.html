@@ -1189,23 +1189,28 @@
 
   // ---- INIT ----
   async function init() {
-    try {
-      await loadDashboardLocks();
-    } catch (error) {
+    dashboardLocksReady = false;
+    hydrateDashboardLockControls();
+    loadDashboardLocks().catch(error => {
       dashboardLocksReady = false;
       hydrateDashboardLockControls();
       showToast(error.message || 'Could not load edit permissions.', true);
-    }
-    await loadStatus();
-    await loadSettings();
-    await loadCalendarEvents();
-    loadUsers(1);
+    });
+    const results = await Promise.allSettled([
+      loadStatus(),
+      loadSettings(),
+      loadCalendarEvents(),
+      loadUsers(1),
+    ]);
+    const failedLoad = results.find(result => result.status === 'rejected');
+    if (failedLoad) showToast(failedLoad.reason?.message || 'Some dashboard data could not be loaded.', true);
   }
 
   // ---- STATUS ----
   async function loadStatus() {
     try {
       const res = await api('GET', '/api/status');
+      if (!res.ok) throw new Error(`Status request failed (HTTP ${res.status}).`);
       const data = await res.json();
       const dot = document.getElementById('status-dot');
       const txt = document.getElementById('status-text');
@@ -1220,7 +1225,11 @@
       const up = data.uptime;
       const h = Math.floor(up / 3600), m = Math.floor((up % 3600) / 60);
       document.getElementById('ov-uptime').textContent = `${h}h ${m}m`;
-    } catch (e) {}
+    } catch (error) {
+      const statusText = document.getElementById('status-text');
+      if (statusText) statusText.textContent = 'Unavailable';
+      showToast(error.message || 'Could not load dashboard status.', true);
+    }
   }
 
   // ---- SETTINGS ----
@@ -1228,6 +1237,7 @@
 
   async function loadSettings() {
     const res = await api('GET', '/api/settings');
+    if (!res.ok) throw new Error(`Settings request failed (HTTP ${res.status}).`);
     const s = await res.json();
     currentSettings = s;
 
@@ -1436,6 +1446,7 @@
     currentPage = page;
     const search = document.getElementById('user-search').value;
     const res = await api('GET', `/api/users?page=${page}&search=${encodeURIComponent(search)}&sort=${userSort}&dir=${userSortDir}`);
+    if (!res.ok) throw new Error(`Users request failed (HTTP ${res.status}).`);
     const data = await res.json();
     updateSortArrows();
 
@@ -1562,7 +1573,8 @@
   // ---- CALENDAR ----
   async function loadCalendarEvents() {
     const res = await api('GET', '/api/calendar/events');
-    calendarEvents = res.ok ? await res.json() : [];
+    if (!res.ok) throw new Error(`Calendar request failed (HTTP ${res.status}).`);
+    calendarEvents = await res.json();
     renderUpcoming();
     if (document.getElementById('section-calendar')?.classList.contains('active')) renderCalendar();
   }

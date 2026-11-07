@@ -5,6 +5,8 @@ description: Dashboard edit permission policy for admin and moderator accounts.
 
 The dashboard admin alone can toggle per-value locks. Moderators may edit adjustable dashboard values only when those values are unlocked. Enforce lock checks on the server as well as disabling locked controls in the interface.
 
+Loading lock states must not block dashboard data or navigation; if lock data is delayed, keep moderator edits safely disabled while the rest of the dashboard continues loading.
+
 **Why:** The admin needs to delegate dashboard work without allowing other admins/moderators to change selected settings.
 
-**How to apply:** For every editable setting, name, or action, provide an admin-controlled lock state and reject moderator writes while that lock is active.
+**How to apply:** For every editable setting, name, or action, provide an admin-controlled lock state and reject moderator writes while that lock is active. Load lock state independently from status, settings, users, and calendar data.

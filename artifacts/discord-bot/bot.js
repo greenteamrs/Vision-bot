@@ -45,7 +45,7 @@ const {
 } = require('./rank-audit');
 const { hasVisionariesRole, createRankMemberScope } = require('./rank-members');
 const { womRankUpdates, resolvePermanentRank, unknownPermanentRanks } = require('./rank-history');
-const { buildPriorityUpdates } = require('./rank-priority');
+const { buildPriorityUpdates, withPriorityLevels } = require('./rank-priority');
 
 
 // --- MongoDB: User Schema ---
@@ -3000,12 +3000,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // POST /api/ranks/priorities — the first ID is priority 1 (highest).
+    // POST /api/ranks/priorities — explicit priorities, including equal tiers.
     if (pathname === '/api/ranks/priorities' && req.method === 'POST') {
       try {
         const data = await readBody(req);
         const ranks = await Rank.find().lean();
-        const updates = buildPriorityUpdates(ranks, data.rankIds);
+        const updates = buildPriorityUpdates(ranks, data.priorities);
         if (await dashboardEditBlocked(authUser, res, updates.map(rank => `rank.${rank.id}.order`))) return;
         if (updates.length) {
           await Rank.bulkWrite(updates.map(rank => ({
@@ -3022,7 +3022,7 @@ const server = http.createServer(async (req, res) => {
     // GET /api/ranks
     if (pathname === '/api/ranks' && req.method === 'GET') {
       const ranks = await Rank.find().sort({ order: 1, minLevel: 1 });
-      sendJson(res, 200, ranks);
+      sendJson(res, 200, withPriorityLevels(ranks));
       return;
     }
 

@@ -902,7 +902,7 @@
   <div class="modal">
     <h3 id="rank-modal-title">Add Rank</h3>
     <input type="hidden" id="rank-modal-id" />
-    <div class="field"><label>Priority level (1 = highest)</label><input type="number" id="rank-priority" value="1" min="1" step="1" /></div>
+    <div class="field"><label>Priority level (1 = highest)</label><input type="number" id="rank-priority" value="1" min="1" step="1" /><small style="color:#888;">Ranks with the same priority are equal tiers; switching between them is not a rank-up.</small></div>
     <div class="field"><label>Rank Name</label><input type="text" id="rank-name" placeholder="e.g. Sergeant" /></div>
     <div class="field"><label>Min Days in Clan</label><input type="number" id="rank-minDays" value="0" min="0" /></div>
     <div class="field"><label>Min Loot Points</label><input type="number" id="rank-minLootPoints" value="0" min="0" /></div>
@@ -1788,7 +1788,7 @@
     }
     tbody.innerHTML = currentRanks.map((r, i) => `
       <tr>
-        <td style="font-weight:700;color:#c4b5fd">${i + 1}</td>
+        <td style="font-weight:700;color:#c4b5fd">${r.priorityLevel}</td>
         <td style="font-weight:600;color:#c4b5fd">${esc(r.name)}</td>
         <td>${r.minDays} days</td>
         <td>${r.minLootPoints.toLocaleString()} LP</td>
@@ -1797,7 +1797,7 @@
         <td><label style="display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" aria-label="Temporary rank: ${escAttr(r.name)}" data-lock-key="rank.${escAttr(r._id)}.isTemporary" ${r.isTemporary === true ? 'checked' : ''} onchange="setRankTemporary('${escAttr(r._id)}', this)" /> ${r.isTemporary === true ? 'Seasonal' : 'No'}</label></td>
         <td style="max-width:240px;white-space:normal;color:#cbd5e1">${esc(r.specialRequirement || '—')}</td>
         <td style="display:flex;gap:4px;align-items:center;">
-          <button class="btn-tier" onclick="moveRank(${i},-1)" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="btn-tier" onclick="moveRank(${i},-1)" ${r.priorityLevel === 1 ? 'disabled' : ''}>↑</button>
           <button class="btn-tier" onclick="moveRank(${i},1)" ${i === currentRanks.length - 1 ? 'disabled' : ''}>↓</button>
           <button class="btn-edit" style="margin-left:4px;" onclick="openRankModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">Edit</button>
           <button class="btn-edit" data-lock-action-key="rank.${escAttr(r._id)}.delete" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteRank('${r._id}', '${esc(r.name)}')">Delete</button>
@@ -1826,24 +1826,26 @@
   }
 
   async function moveRank(index, dir) {
-    const swapIndex = index + dir;
-    if (swapIndex < 0 || swapIndex >= currentRanks.length) return;
+    const rank = currentRanks[index];
+    const priority = rank?.priorityLevel + dir;
+    if (!rank || !Number.isSafeInteger(priority) || priority < 1) return;
     if (currentDashboardUser?.role !== 'admin' &&
-        [currentRanks[index], currentRanks[swapIndex]].some(rank => lockIsActive(`rank.${rank._id}.order`))) {
-      return showToast('At least one of these priority levels is locked by the admin.', true);
+        lockIsActive(`rank.${rank._id}.order`)) {
+      return showToast('This priority level is locked by the admin.', true);
     }
-    const ids = currentRanks.map(rank => rank._id);
-    [ids[index], ids[swapIndex]] = [ids[swapIndex], ids[index]];
+    const priorities = currentRanks.map(item => ({
+      id: item._id, priorityLevel: item._id === rank._id ? priority : item.priorityLevel,
+    }));
     try {
-      await saveRankPriorities(ids);
+      await saveRankPriorities(priorities);
       await loadRanks();
     } catch (error) {
       showToast(error.message, true);
     }
   }
 
-  async function saveRankPriorities(rankIds) {
-    const res = await api('POST', '/api/ranks/priorities', { rankIds });
+  async function saveRankPriorities(priorities) {
+    const res = await api('POST', '/api/ranks/priorities', { priorities });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Could not update priority levels.');
   }
@@ -1869,9 +1871,7 @@
     document.getElementById('rank-minDays').value = rank?.minDays ?? 0;
     document.getElementById('rank-minLootPoints').value = rank?.minLootPoints ?? 0;
     document.getElementById('rank-minLevel').value = rank?.minLevel ?? 0;
-    const rankIndex = rank ? currentRanks.findIndex(item => item._id === rank._id) : -1;
-    document.getElementById('rank-priority').value = rankIndex >= 0 ? rankIndex + 1 : currentRanks.length + 1;
-    document.getElementById('rank-priority').max = rank ? currentRanks.length : currentRanks.length + 1;
+    document.getElementById('rank-priority').value = rank?.priorityLevel ?? Math.max(0, ...currentRanks.map(item => item.priorityLevel)) + 1;
     document.getElementById('rank-notify').checked = rank?.notifyOnEligibility !== false;
     document.getElementById('rank-temporary').checked = rank?.isTemporary === true;
     document.getElementById('rank-specialRequirement').value = rank?.specialRequirement || '';
@@ -1886,9 +1886,8 @@
   async function saveRank() {
     const id = document.getElementById('rank-modal-id').value;
     const priority = Number(document.getElementById('rank-priority').value);
-    const maxPriority = currentRanks.length + (id ? 0 : 1);
-    if (!Number.isInteger(priority) || priority < 1 || priority > maxPriority) {
-      showToast(`Priority level must be a whole number from 1 to ${maxPriority}.`, true);
+    if (!Number.isSafeInteger(priority) || priority < 1) {
+      showToast('Priority level must be a positive whole number.', true);
       return;
     }
     const data = {
@@ -1907,11 +1906,13 @@
       : await api('POST', '/api/ranks', data);
     if (res.ok) {
       const saved = await res.json();
-      if (!id || currentRanks.findIndex(rank => rank._id === id) + 1 !== priority) {
-        const ids = currentRanks.filter(rank => rank._id !== id).map(rank => rank._id);
-        ids.splice(priority - 1, 0, saved._id);
+      if (!id || currentRanks.find(rank => rank._id === id)?.priorityLevel !== priority) {
+        const priorities = currentRanks.filter(rank => rank._id !== id).map(rank => ({
+          id: rank._id, priorityLevel: rank.priorityLevel,
+        }));
+        priorities.push({ id: saved._id, priorityLevel: priority });
         try {
-          await saveRankPriorities(ids);
+          await saveRankPriorities(priorities);
         } catch (error) {
           showToast(`Rank saved, but priority was not changed: ${error.message}`, true);
           await loadRanks();

@@ -9,6 +9,12 @@ The dashboard hierarchy is named **Priority level**, with **1 highest**, shown b
 
 **Why:** The user requested this priority convention; changing the presentation must not accidentally invert promotion eligibility.
 
+Multiple ranks may share a priority level. Holding any rank at that level already satisfies that tier, even if the member qualifies for another rank at the same level.
+
+**Why:** The user explicitly wants equal-priority alternatives to be treated as equivalent, not reported as rank-ups.
+
+**How to apply:** Preserve shared priority numbers when saving or moving ranks. Only a strictly higher-priority eligible permanent rank can trigger a promotion result or automatic alert.
+
 For temporary WOM ranks, use the underlying permanent rank instead; see [Seasonal ranks](seasonal-ranks.md). Temporary tiers are never promotion targets.
 
 Ranks with notifications turned off are manually assigned to selected people. Exclude them from eligibility targets in both automatic alerts and manual checks. They may still be recognized as a member's current WOM rank to avoid suggesting a lower-ranked promotion.

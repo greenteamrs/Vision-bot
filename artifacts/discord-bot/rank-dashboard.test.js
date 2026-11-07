@@ -54,8 +54,8 @@ test('creating and editing ranks sends the temporary boolean including false', a
   await vm.runInContext('saveRank()', context);
   assert.equal(requests[0][0], 'POST');
   assert.equal(requests[0][2].isTemporary, true);
-  context.currentRanks = [{ _id: 'season', order: 1 }];
-  vm.runInContext("openRankModal({_id:'season',name:'Season Winner',isTemporary:true})", context);
+  context.currentRanks = [{ _id: 'season', order: 1, priorityLevel: 1 }];
+  vm.runInContext("openRankModal({_id:'season',name:'Season Winner',isTemporary:true,priorityLevel:1})", context);
   nodes.get('rank-temporary').checked = false;
   await vm.runInContext('saveRank()', context);
   const patch = requests.find(request => request[0] === 'PATCH');
@@ -72,8 +72,8 @@ test('all dashboard sections can fill available width and rank tables can scroll
 test('ranks render highest first with priority level before the rank name', async () => {
   const { context, nodes } = fixture();
   context.api = async () => ({ json: async () => [
-    { _id: 'low', name: 'Recruit', order: 0, minLootPoints: 0 },
-    { _id: 'high', name: 'Veteran', order: 20, minLootPoints: 500 },
+    { _id: 'low', name: 'Recruit', order: 0, priorityLevel: 2, minLootPoints: 0 },
+    { _id: 'high', name: 'Veteran', order: 20, priorityLevel: 1, minLootPoints: 500 },
   ] });
   context.esc = context.escAttr = value => String(value);
   vm.runInContext(html.slice(html.indexOf('  async function loadRanks('), html.indexOf('  async function setRankTemporary(')), context);
@@ -85,11 +85,11 @@ test('ranks render highest first with priority level before the rank name', asyn
   assert.match(html, /<th>Priority level<\/th>\s*<th>Rank Name<\/th>/);
 });
 
-test('editing priority level sends highest-first rank IDs and validates positive whole numbers', async () => {
+test('editing priority level permits a shared tier and validates positive whole numbers', async () => {
   const { context, nodes, requests } = fixture();
   context.currentRanks = [
-    { _id: 'high', name: 'Veteran', order: 20 },
-    { _id: 'low', name: 'Recruit', order: 0 },
+    { _id: 'high', name: 'Veteran', order: 20, priorityLevel: 1 },
+    { _id: 'low', name: 'Recruit', order: 0, priorityLevel: 2 },
   ];
   vm.runInContext("openRankModal(currentRanks[0])", context);
   assert.equal(nodes.get('rank-priority').value, 1);
@@ -103,5 +103,7 @@ test('editing priority level sends highest-first rank IDs and validates positive
   nodes.get('rank-priority').value = '2';
   await vm.runInContext('saveRank()', context);
   const reorder = requests.find(request => request[1] === '/api/ranks/priorities');
-  assert.deepEqual(Array.from(reorder[2].rankIds), ['low', 'high']);
+  assert.deepEqual(JSON.parse(JSON.stringify(reorder[2].priorities)), [
+    { id: 'low', priorityLevel: 2 }, { id: 'high', priorityLevel: 2 },
+  ]);
 });

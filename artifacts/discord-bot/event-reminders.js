@@ -1,4 +1,5 @@
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const { randomUUID } = require('node:crypto');
 
 function normalizeEventLink(value) {
   const text = String(value ?? '').trim();
@@ -19,6 +20,66 @@ function reminderMessage(event) {
 
 function createEventReminderService({ CalendarEvent, OsrsEvent, Delivery, client, isMod, isAdmin, now = () => new Date(), logger = console }) {
   let running = false;
+  async function getRecipients() {
+    const recipients = new Map();
+    for (const guild of client.guilds.cache.values()) {
+      await guild.roles.fetch();
+      const members = await guild.members.fetch();
+      for (const member of members.values()) {
+        if (!member.user.bot && (isMod(member) || isAdmin(member))) recipients.set(member.id, member);
+      }
+    }
+    return recipients;
+  }
+
+  async function resend(kind, id) {
+    const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
+    if (!client.isReady()) fail(503, 'The Discord bot is offline. Notifications can only be sent by the running bot on Render.');
+    if (!['calendar', 'event'].includes(kind) || !/^[a-f\d]{24}$/i.test(id)) fail(400, 'Invalid event.');
+    const record = await (kind === 'calendar' ? CalendarEvent : OsrsEvent).findById(id).lean();
+    if (!record) fail(404, 'Event not found.');
+    const start = kind === 'calendar' ? record.start : record.startsAt;
+    if (new Date(start) <= now() ||
+        (kind === 'event' && !['upcoming', 'active'].includes(record.status))) {
+      fail(400, 'Only scheduled events that have not started can send a notification.');
+    }
+    const event = { id: `${kind}:${id}`, name: record.title || record.name, start, link: record.link };
+    const recipients = await getRecipients();
+    if (!recipients.size) fail(400, 'No Discord moderators or administrators were found.');
+    const key = `resend:${event.id}`;
+    try {
+      // Persistent cooldown also protects against other dashboard sessions.
+      await Delivery.findOneAndUpdate({
+        key, nextAttemptAt: { $lte: now() },
+      }, {
+        $set: { nextAttemptAt: new Date(now().getTime() + 60 * 1000), status: 'manual' },
+        $setOnInsert: { key },
+        $inc: { attempts: 1 },
+      }, { upsert: true, new: true });
+    } catch (error) {
+      if (error.code === 11000) fail(429, 'A notification was just requested. Please wait one minute before resending.');
+      throw error;
+    }
+    const batch = randomUUID();
+    const result = { sent: 0, blocked: 0, failed: 0, total: recipients.size };
+    for (const [userId, member] of recipients) {
+      let status = 'sent';
+      let lastError = '';
+      try {
+        await member.send({ content: reminderMessage(event), allowedMentions: { parse: [] } });
+      } catch (error) {
+        status = [50007, 50013].includes(Number(error.code)) ? 'blocked' : 'failed';
+        lastError = String(error.code || 'DM delivery failed');
+        logger.warn(`[Event reminders] Manual ${event.id}: DM to ${userId} ${status} (${lastError})`);
+      }
+      result[status]++;
+      await Delivery.updateOne({ key: `manual:${event.id}:${batch}:${userId}` }, { $set: {
+        status, attempts: 1, sentAt: status === 'sent' ? now() : null, lastError,
+      } }, { upsert: true });
+    }
+    return result;
+  }
+
   async function run() {
     if (running) return;
     running = true;
@@ -34,15 +95,7 @@ function createEventReminderService({ CalendarEvent, OsrsEvent, Delivery, client
         ...managed.map(e => ({ id: `event:${e._id}`, name: e.name, start: e.startsAt, link: e.link })),
       ];
       if (!events.length) return;
-      const recipients = new Map();
-      for (const guild of client.guilds.cache.values()) {
-        // Fetch fresh members/roles so moderator changes are respected.
-        await guild.roles.fetch();
-        const members = await guild.members.fetch();
-        for (const member of members.values()) {
-          if (!member.user.bot && (isMod(member) || isAdmin(member))) recipients.set(member.id, member);
-        }
-      }
+      const recipients = await getRecipients();
       for (const event of events) {
         for (const [userId, member] of recipients) {
           const key = `${event.id}:${new Date(event.start).toISOString()}:${userId}`;
@@ -84,7 +137,7 @@ function createEventReminderService({ CalendarEvent, OsrsEvent, Delivery, client
       running = false;
     }
   }
-  return { run };
+  return { run, resend };
 }
 
 module.exports = { WEEK_MS, normalizeEventLink, reminderMessage, createEventReminderService };

@@ -14,3 +14,9 @@ Dashboard events should remind all Discord moderators one week before their star
 **Why:** the user requested advance reminders so moderators can announce upcoming events.
 
 **How to apply:** cover both Calendar entries and published scheduled event formats; do not notify for draft events. Use Discord moderator membership rather than dashboard account names, since those accounts are not linked to Discord recipients.
+
+Manual reminder resends are additional announcements; they do not cancel the scheduled one-week reminder.
+
+**Why:** moderators may resend before the one-week window, and that should not suppress the requested advance reminder.
+
+**How to apply:** keep manual delivery tracking separate from automatic reminder deduplication.

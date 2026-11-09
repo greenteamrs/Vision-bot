@@ -333,7 +333,7 @@
   .day-number { display:inline-flex; align-items:center; justify-content:center; width:25px; height:25px; border-radius:50%; font-size:.8rem; color:#e8eaed; }
   .calendar-event { margin-top:4px; padding:4px 6px; border-radius:4px; color:#202124; font-size:.75rem; font-weight:600; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .calendar-list { display:flex; flex-direction:column; gap:8px; }
-  .upcoming-event { display:flex; gap:10px; align-items:center; padding:9px 10px; background:#202124; border-radius:6px; border-left:4px solid #8ab4f8; }
+  .upcoming-event { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:9px 10px; background:#202124; border-radius:6px; border-left:4px solid #8ab4f8; }
   .upcoming-event small { color:#9aa0a6; display:block; margin-top:2px; }
   .calendar-year { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; padding:14px; }
   .mini-month h4 { color:#bdc1c6; margin-bottom:7px; font-size:.85rem; }
@@ -1691,7 +1691,27 @@
     el.innerHTML = upcoming.length ? upcoming.map(e => `<div class="upcoming-event" style="border-left-color:${e.color}">
       <div style="width:9px;height:9px;border-radius:50%;background:${e.color};flex-shrink:0"></div>
       <div><strong>${esc(e.title)}</strong><small>${esc(e.type || 'Event')} · ${fmtDate(e.start)} · ${fmtTime(e.start)}–${fmtTime(e.end)}</small></div>
+      ${new Date(e.start).getTime() > now ? `<button class="btn-edit" style="margin-left:auto;" data-lock-action-key="calendar.${escAttr(e._id)}.resend" onclick="resendEventNotification('calendar','${escAttr(e._id)}',this)">Resend notification</button>` : ''}
     </div>`).join('') : '<span style="color:#888;">No upcoming events.</span>';
+  }
+  async function resendEventNotification(kind, id, button) {
+    if (!confirm('Send this event reminder again to all Discord mods and administrators?')) return;
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Sending…';
+    try {
+      const prefix = kind === 'calendar' ? '/api/calendar/events' : '/api/events';
+      const res = await api('POST', `${prefix}/${encodeURIComponent(id)}/resend-notification`, {});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not resend notifications.');
+      showToast(`Notification sent to ${data.sent}/${data.total} mods. ${data.blocked} blocked, ${data.failed} failed.`, data.sent === 0);
+    } catch (error) {
+      showToast(error.message || 'Could not resend notifications.', true);
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+      hydrateDashboardLockControls(button.parentElement);
+    }
   }
   function setCalendarView(view) {
     calendarView = view;
@@ -2860,6 +2880,7 @@
           ${/^https?:\/\//i.test(event.link || '') ? `<p><a href="${escAttr(event.link)}" target="_blank" rel="noopener noreferrer">Open event / tracker</a></p>` : ''}
         </div>
         <div class="event-top-actions">
+          ${['upcoming','active'].includes(event.status) && new Date(event.startsAt) > new Date() ? `<button class="btn-edit" data-lock-action-key="event.${escAttr(event._id)}.resend" onclick="resendEventNotification('event','${escAttr(event._id)}',this)">Resend notification</button>` : ''}
           <button class="btn-edit" onclick="openEventEditor(${eventArg(event._id)})">Edit configuration</button>
           <button class="btn-danger" data-lock-action-key="event.${escAttr(event._id)}.delete" onclick="deleteManagedEvent(${eventArg(event._id)})">Delete</button>
         </div>

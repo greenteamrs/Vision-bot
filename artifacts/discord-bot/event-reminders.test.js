@@ -24,6 +24,7 @@ function fixture() {
     };
   });
   const model = (rows, field) => ({
+    findById(id) { return { lean: async () => rows.find(row => row._id === id) || null }; },
     find(query) {
       assert.deepEqual(Object.keys(query[field]), ['$gt', '$lte']);
       return { lean: async () => rows.filter(row =>
@@ -34,7 +35,7 @@ function fixture() {
   const Delivery = {
     async findOneAndUpdate(query, update) {
       let row = records.get(query.key);
-      if (row && (query.status.$nin.includes(row.status) || row.nextAttemptAt > query.nextAttemptAt.$lte)) {
+      if (row && (query.status?.$nin.includes(row.status) || row.nextAttemptAt > query.nextAttemptAt.$lte)) {
         throw Object.assign(new Error('duplicate'), { code: 11000 });
       }
       row = { key: query.key, status: 'pending', attempts: 0, ...row, ...update.$set };
@@ -42,12 +43,15 @@ function fixture() {
       records.set(query.key, row);
       return row;
     },
-    async updateOne({ key }, update) { Object.assign(records.get(key), update.$set); },
+    async updateOne({ key }, update) {
+      if (!records.has(key)) records.set(key, { key });
+      Object.assign(records.get(key), update.$set);
+    },
   };
   const dependencies = {
     CalendarEvent: model(calendar, 'start'), OsrsEvent: model(managed, 'startsAt'),
     Delivery, now: () => clock, isMod: m => m.mod, isAdmin: m => m.admin,
-    client: { guilds: { cache: new Map([['guild', {
+    client: { isReady: () => true, guilds: { cache: new Map([['guild', {
       roles: { fetch: async () => {} },
       members: { fetch: async () => new Map(mods.map(m => [m.id, m])) },
     }]]) } },
@@ -145,4 +149,68 @@ test('message stays within Discord limits and UI/API wire links with existing lo
   assert.match(bot, /update.link = normalizeEventLink\(data.link\)/);
   assert.match(service, /\['name', 'description', 'link'/);
   assert.match(bot, /cron.schedule\('\* \* \* \* \*', \(\) => eventReminders.run\(\)\)/);
+});
+
+test('manual resend delivers again with latest link and preserves automatic delivery records', async () => {
+  const f = fixture();
+  f.event._id = 'a'.repeat(24);
+  const service = f.service();
+  await service.run();
+  const autoKeys = [...f.records.keys()];
+  f.event.link = 'https://example.com/updated';
+  const result = await service.resend('calendar', f.event._id);
+  assert.deepEqual(result, { sent: 2, blocked: 0, failed: 0, total: 2 });
+  assert.equal(f.sent.length, 4);
+  assert.match(f.sent[2].content, /updated/);
+  for (const key of autoKeys) assert.equal(f.records.get(key).status, 'sent');
+  await service.run();
+  assert.equal(f.sent.length, 4);
+  await assert.rejects(f.service().resend('calendar', f.event._id), { status: 429 });
+  f.advance(61000);
+  await f.service().resend('calendar', f.event._id);
+  assert.equal(f.sent.length, 6);
+});
+
+test('manual resend reports blocked and failed DMs accurately without stopping other recipients', async () => {
+  const f = fixture();
+  f.event._id = 'a'.repeat(24);
+  f.mods[0].error = 50007;
+  assert.deepEqual(await f.service().resend('calendar', f.event._id), { sent: 1, blocked: 1, failed: 0, total: 2 });
+  f.advance(61000);
+  f.mods[0].error = 503;
+  assert.deepEqual(await f.service().resend('calendar', f.event._id), { sent: 1, blocked: 0, failed: 1, total: 2 });
+});
+
+test('manual resend rejects offline, missing, invalid, started, and draft events', async () => {
+  const f = fixture();
+  f.event._id = 'a'.repeat(24);
+  f.client.isReady = () => false;
+  await assert.rejects(f.service().resend('calendar', f.event._id), { status: 503 });
+  f.client.isReady = () => true;
+  await assert.rejects(f.service().resend('calendar', 'invalid'), { status: 400 });
+  await assert.rejects(f.service().resend('calendar', 'b'.repeat(24)), { status: 404 });
+  f.managed.push({ _id: f.event._id, name: 'Draft', startsAt: f.event.start, status: 'draft' });
+  await assert.rejects(f.service().resend('event', f.event._id), { status: 400 });
+  f.managed[0].status = 'upcoming';
+  assert.equal((await f.service().resend('event', f.event._id)).sent, 2);
+  f.event.start = new Date('2026-11-08T12:00:00Z');
+  await assert.rejects(f.service().resend('calendar', f.event._id), { status: 400 });
+  assert.equal(f.sent.length, 2);
+});
+
+test('dashboard resend controls use authenticated, lock-protected routes and report delivery results', () => {
+  const bot = fs.readFileSync(`${__dirname}/bot.js`, 'utf8');
+  const html = fs.readFileSync(`${__dirname}/dashboard.html`, 'utf8');
+  const route = bot.slice(bot.indexOf('const resendNotificationMatch'), bot.indexOf('if (await eventService.handleApi'));
+  assert.ok(bot.indexOf('const authUser = checkAuth(req)') < bot.indexOf('const resendNotificationMatch'));
+  assert.match(route, /dashboardEditBlocked\(authUser, res/);
+  assert.match(route, /eventReminders.resend\(kind, id\)/);
+  assert.match(html, /data-lock-action-key="calendar\.\$\{escAttr\(e._id\)\}\.resend"/);
+  assert.match(html, /data-lock-action-key="event\.\$\{escAttr\(event._id\)\}\.resend"/);
+  const handler = html.slice(html.indexOf('async function resendEventNotification'), html.indexOf('function setCalendarView'));
+  assert.match(handler, /confirm\(/);
+  assert.match(handler, /api\('POST'/);
+  assert.match(handler, /data.blocked/);
+  assert.match(handler, /finally/);
+  assert.match(handler, /hydrateDashboardLockControls/);
 });

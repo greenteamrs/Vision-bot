@@ -514,6 +514,10 @@ const client = new Client({
   ]
 });
 
+const eventReminders = createEventReminderService({
+  CalendarEvent, OsrsEvent, Delivery: EventReminderDelivery, client, isMod, isAdmin,
+});
+
 const PREFIX = "!";
 const XP_CHANNEL_ID = "1494732715063509113";
 const voiceJoinTime = {};
@@ -1106,9 +1110,6 @@ client.once('ready', async () => {
   await seedCommands();
   // Run only on the production bot, never while previewing locally in Replit.
   userStatsService.start();
-  const eventReminders = createEventReminderService({
-    CalendarEvent, OsrsEvent, Delivery: EventReminderDelivery, client, isMod, isAdmin,
-  });
   await EventReminderDelivery.init();
   eventReminders.run();
   cron.schedule('* * * * *', () => eventReminders.run());
@@ -2842,6 +2843,20 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         console.error('[DashboardAuth] Moderator password reset failed:', error.message);
         sendJson(res, 500, { error: 'Could not reset the moderator password.' });
+      }
+      return;
+    }
+
+    const resendNotificationMatch = pathname.match(/^\/api\/(calendar\/events|events)\/([a-f\d]{24})\/resend-notification$/i);
+    if (resendNotificationMatch && req.method === 'POST') {
+      const kind = resendNotificationMatch[1] === 'calendar/events' ? 'calendar' : 'event';
+      const id = resendNotificationMatch[2];
+      if (await dashboardEditBlocked(authUser, res, [`${kind}.${id}.resend`])) return;
+      try {
+        sendJson(res, 200, await eventReminders.resend(kind, id));
+      } catch (error) {
+        console.error('[Event reminders] Manual resend failed:', error.message);
+        sendJson(res, error.status || 500, { error: error.status ? error.message : 'Could not resend notifications. Check the bot logs before trying again.' });
       }
       return;
     }

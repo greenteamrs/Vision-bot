@@ -8,3 +8,9 @@ Support Team Bingo/task boards, boss or collection races, drop competitions, and
 **Why:** these were the event formats and operating rules the user selected while planning the reusable system.
 
 **How to apply:** preserve these defaults when extending event creation, moderation, scoring, or Discord participation.
+
+Dashboard events should remind all Discord moderators one week before their start to make a post in the event channel. An optional event/tracker link must be included in that DM when provided.
+
+**Why:** the user requested advance reminders so moderators can announce upcoming events.
+
+**How to apply:** cover both Calendar entries and published scheduled event formats; do not notify for draft events. Use Discord moderator membership rather than dashboard account names, since those accounts are not linked to Discord recipients.

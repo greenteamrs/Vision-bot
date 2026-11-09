@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { normalizeEventLink } = require('./event-reminders');
 
 const EVENT_FORMATS = ['bingo', 'race', 'drop', 'custom'];
 const EVENT_STATUSES = ['draft', 'upcoming', 'active', 'completed', 'archived'];
@@ -35,6 +36,7 @@ const eventParticipantSchema = new mongoose.Schema({
 const osrsEventSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 100 },
   description: { type: String, default: '', trim: true, maxlength: 2000 },
+  link: { type: String, default: '' },
   format: { type: String, required: true, enum: EVENT_FORMATS },
   status: { type: String, default: 'draft', enum: EVENT_STATUSES },
   startsAt: { type: Date, required: true },
@@ -176,6 +178,7 @@ function normalizeEventInput(input = {}, { partial = false } = {}) {
     return name;
   });
   assign('description', value => String(value || '').trim().slice(0, 2000));
+  assign('link', normalizeEventLink);
   assign('format', value => validEnum(value || 'custom', EVENT_FORMATS, 'event format'));
   assign('status', value => validEnum(value || 'draft', EVENT_STATUSES, 'event status'));
   assign('participationMode', value => validEnum(value || 'solo', PARTICIPATION_MODES, 'participation mode'));

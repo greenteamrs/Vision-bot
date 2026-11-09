@@ -22,6 +22,7 @@ const {
   leaderboardFor,
 } = require('./events-domain');
 const { createEventService } = require('./event-service');
+const { normalizeEventLink, createEventReminderService } = require('./event-reminders');
 const {
   SETUP_CODE_TTL_MS,
   SETUP_SESSION_TTL_SECONDS,
@@ -133,8 +134,19 @@ const calendarEventSchema = new mongoose.Schema({
   start: { type: Date, required: true },
   end: { type: Date, required: true },
   color: { type: String, default: '#8ab4f8' },
+  link: { type: String, default: '' },
 }, { timestamps: true });
 const CalendarEvent = mongoose.model('CalendarEvent', calendarEventSchema);
+
+const reminderDeliverySchema = new mongoose.Schema({
+  key: { type: String, unique: true, required: true },
+  status: { type: String, default: 'pending' },
+  attempts: { type: Number, default: 0 },
+  nextAttemptAt: { type: Date, default: Date.now },
+  sentAt: Date,
+  lastError: String,
+}, { timestamps: true });
+const EventReminderDelivery = mongoose.model('EventReminderDelivery', reminderDeliverySchema);
 
 // --- Dashboard moderator accounts ---
 const dashboardAccountSchema = new mongoose.Schema({
@@ -1094,6 +1106,12 @@ client.once('ready', async () => {
   await seedCommands();
   // Run only on the production bot, never while previewing locally in Replit.
   userStatsService.start();
+  const eventReminders = createEventReminderService({
+    CalendarEvent, OsrsEvent, Delivery: EventReminderDelivery, client, isMod, isAdmin,
+  });
+  await EventReminderDelivery.init();
+  eventReminders.run();
+  cron.schedule('* * * * *', () => eventReminders.run());
   cron.schedule('0 */12 * * *', () => userStatsService.start());
   setInterval(() => refreshCommandNames().catch(() => {}), 60000);
 
@@ -3116,6 +3134,7 @@ const server = http.createServer(async (req, res) => {
           'calendar.create.start',
           'calendar.create.end',
           'calendar.create.color',
+          'calendar.create.link',
         ])) return;
         const start = new Date(data.start);
         const end = new Date(data.end);
@@ -3125,6 +3144,7 @@ const server = http.createServer(async (req, res) => {
         }
         const event = await CalendarEvent.create({
           title: data.title.trim(),
+          link: normalizeEventLink(data.link),
           type: String(data.type || 'Event').trim(),
           start,
           end,
@@ -3143,6 +3163,7 @@ const server = http.createServer(async (req, res) => {
         if (!current) { sendJson(res, 404, { error: 'Event not found' }); return; }
         const update = {};
         if (data.title !== undefined) update.title = String(data.title).trim();
+        if (data.link !== undefined) update.link = normalizeEventLink(data.link);
         if (data.type !== undefined) update.type = String(data.type).trim();
         if (data.start !== undefined) update.start = new Date(data.start);
         if (data.end !== undefined) update.end = new Date(data.end);

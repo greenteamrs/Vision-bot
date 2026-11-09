@@ -63,7 +63,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
 
   function eventUpdateLockKeys(eventId, event, update) {
     const keys = [];
-    for (const field of ['name', 'description', 'format', 'status', 'participationMode', 'scoringMode', 'startsAt', 'endsAt']) {
+    for (const field of ['name', 'description', 'link', 'format', 'status', 'participationMode', 'scoringMode', 'startsAt', 'endsAt']) {
       if (update[field] !== undefined && valuesDiffer(event[field], update[field])) {
         keys.push(`event.${eventId}.${field}`);
       }

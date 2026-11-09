@@ -947,6 +947,8 @@
     <input type="hidden" id="event-id" />
     <div class="field"><label>Event title</label><input type="text" id="event-title" placeholder="e.g. Clan raid" /></div>
     <div class="field"><label>Type</label><input type="text" id="event-type" placeholder="e.g. Raid, Meeting, Reminder" /></div>
+    <div class="field"><label for="event-link">Event / tracker link (optional)</label><input type="url" id="event-link" maxlength="1000" placeholder="https://…" /></div>
+    <p style="color:#888;font-size:.8rem;">Mods and Discord administrators receive a DM seven days before the start, reminding them to post in the event channel. The link is included.</p>
     <div class="field-grid">
       <div class="field"><label>Start</label><input type="datetime-local" id="event-start" /></div>
       <div class="field"><label>End</label><input type="datetime-local" id="event-end" /></div>
@@ -1758,12 +1760,13 @@
     const existing = dateKey ? calendarEvents.find(e=>dayKey(e.start)===dateKey) : null;
     document.getElementById('event-id').value=existing?existing._id:'';
     const prefix = existing ? `calendar.${existing._id}` : 'calendar.create';
-    const eventFields = { 'event-title':'title', 'event-type':'type', 'event-start':'start', 'event-end':'end', 'event-color':'color' };
+    const eventFields = { 'event-title':'title', 'event-type':'type', 'event-start':'start', 'event-end':'end', 'event-color':'color', 'event-link':'link' };
     Object.entries(eventFields).forEach(([id, field]) => {
       document.getElementById(id).dataset.lockKey = `${prefix}.${field}`;
     });
     document.getElementById('event-title').value=existing?.title||'';
     document.getElementById('event-type').value=existing?.type||'Event';
+    document.getElementById('event-link').value=existing?.link||'';
     const base=dateKey?new Date(`${dateKey}T09:00`):new Date(); const end=new Date(base); end.setHours(base.getHours()+1);
     document.getElementById('event-start').value=localInputValue(existing?.start||base);
     document.getElementById('event-end').value=localInputValue(existing?.end||end);
@@ -1781,8 +1784,10 @@
   function closeEventModal(){document.getElementById('event-modal').classList.remove('open');}
   async function saveEvent(){
     const id=document.getElementById('event-id').value;
+    const link=document.getElementById('event-link').value.trim();
     const data={title:document.getElementById('event-title').value.trim(),type:document.getElementById('event-type').value.trim()||'Event',start:new Date(document.getElementById('event-start').value).toISOString(),end:new Date(document.getElementById('event-end').value).toISOString(),color:document.getElementById('event-color').value};
     if(!data.title||new Date(data.end)<new Date(data.start)) return showToast('Enter a title and a valid date range.',true);
+    data.link=link;
     const res=await api(id?'PATCH':'POST',id?`/api/calendar/events/${id}`:'/api/calendar/events',data);
     if(res.ok){closeEventModal();await loadCalendarEvents();renderCalendar();showToast(id?'Event updated.':'Event added.');}else {const error=await res.json().catch(()=>({}));showToast(error.error||'Could not save event.',true);}
   }
@@ -2852,6 +2857,7 @@
           <span class="event-status ${escAttr(statusClass)}">${esc(statusClass)}</span>
           <h2>${esc(event.name || 'Untitled event')}</h2>
           <p class="event-description">${esc(event.description || 'No event brief has been added.')}</p>
+          ${/^https?:\/\//i.test(event.link || '') ? `<p><a href="${escAttr(event.link)}" target="_blank" rel="noopener noreferrer">Open event / tracker</a></p>` : ''}
         </div>
         <div class="event-top-actions">
           <button class="btn-edit" onclick="openEventEditor(${eventArg(event._id)})">Edit configuration</button>
@@ -2913,6 +2919,7 @@
       <form id="managed-event-form" onsubmit="saveManagedEvent(event,${eventArg(id)})">
         <div class="event-form-grid">
           <div class="field"><label for="ev-name">Event name</label><input id="ev-name" data-lock-key="event.${escAttr(id || 'create')}.name" required maxlength="100" value="${escAttr(event.name || '')}" placeholder="Winter bossing league"></div>
+          <div class="field"><label for="ev-link">Event / tracker link (optional)</label><input id="ev-link" type="url" maxlength="1000" data-lock-key="event.${escAttr(id || 'create')}.link" value="${escAttr(event.link || '')}" placeholder="https://…"></div>
           <div class="field"><label for="ev-format">Format</label><select id="ev-format" data-lock-key="event.${escAttr(id || 'create')}.format">${formatOptions}</select></div>
           <div class="field wide"><label for="ev-description">Brief</label><textarea id="ev-description" data-lock-key="event.${escAttr(id || 'create')}.description" maxlength="2000" placeholder="What are members competing to do?">${esc(event.description || '')}</textarea></div>
           <div class="field"><label for="ev-status">Lifecycle</label><select id="ev-status" data-lock-key="event.${escAttr(id || 'create')}.status">${statusOptions}</select></div>
@@ -2931,6 +2938,7 @@
           <div class="field"><label for="ev-grid-size">Grid size</label><input id="ev-grid-size" data-lock-key="event.${escAttr(id || 'create')}.scoringConfig.gridSize" type="number" step="1" min="2" max="20" value="${escAttr(scoringDefaults.gridSize)}"></div>
         </div>
         <p style="color:#81958b;font-size:.76rem;margin-top:12px;">Adjust the supported scoring values for this preset. Bingo task boards use grid size and line bonus.</p>
+        <p style="color:#81958b;font-size:.76rem;">Upcoming/active events send mods and Discord administrators a DM seven days before the start, with the link and a reminder to post in the event channel. Drafts do not send reminders.</p>
         <div class="save-row">
           <button class="btn-save" type="submit" ${id ? '' : 'data-lock-guard-key="event.create.action"'}>${id ? 'Save configuration' : 'Create event'}</button>
           <button class="btn-cancel" type="button" onclick="${id ? 'loadEventDetail()' : 'cancelEventCreate()'}">Cancel</button>
@@ -2975,6 +2983,7 @@
     const scoringConfig = { pointsPerUnit, firstPlaceBonus, lineBonus, gridSize };
     const body = {
       name: document.getElementById('ev-name').value.trim(),
+      link: document.getElementById('ev-link').value.trim(),
       description: document.getElementById('ev-description').value.trim(),
       format: document.getElementById('ev-format').value,
       status: document.getElementById('ev-status').value,

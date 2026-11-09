@@ -24,6 +24,7 @@ const {
 const { createEventService } = require('./event-service');
 const { normalizeEventLink, createEventReminderService } = require('./event-reminders');
 const { BotDirectMessage, createDmInbox } = require('./dm-inbox');
+const { createPriceAlertService, fmt: formatPrice } = require('./price-alerts');
 const dmInbox = createDmInbox();
 const {
   SETUP_CODE_TTL_MS,
@@ -368,6 +369,17 @@ const SLASH_COMMANDS = [
       .addStringOption(option => option.setName('event').setDescription('Event to check').setRequired(true).setAutocomplete(true)))
     .addSubcommand(sub => sub.setName('leaderboard').setDescription('Show an event leaderboard')
       .addStringOption(option => option.setName('event').setDescription('Event leaderboard to view').setRequired(true).setAutocomplete(true))),
+  new SlashCommandBuilder().setName('pricealert').setDescription('Get a DM when an OSRS item reaches a price (mods)')
+    .addSubcommand(sub => sub.setName('add').setDescription('Create a price alert')
+      .addStringOption(option => option.setName('item').setDescription('Item name').setRequired(true).setAutocomplete(true))
+      .addStringOption(option => option.setName('direction').setDescription('Alert when the price is…').setRequired(true)
+        .addChoices({ name: 'at or below the target', value: 'below' }, { name: 'at or above the target', value: 'above' }))
+      .addStringOption(option => option.setName('price').setDescription('Target price, e.g. 1500000, 1.5m or 250k').setRequired(true).setMaxLength(20))
+      .addStringOption(option => option.setName('type').setDescription('Which wiki price to watch (default: buy)')
+        .addChoices({ name: 'Buy price (instant-buy)', value: 'buy' }, { name: 'Sell price (instant-sell)', value: 'sell' })))
+    .addSubcommand(sub => sub.setName('list').setDescription('List your price alerts'))
+    .addSubcommand(sub => sub.setName('remove').setDescription('Remove a price alert')
+      .addStringOption(option => option.setName('alert').setDescription('Alert to remove').setRequired(true).setAutocomplete(true))),
   new SlashCommandBuilder().setName('help').setDescription('Show available bot slash commands'),
 ].map(command => command.toJSON());
 
@@ -518,6 +530,7 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
+const priceAlerts = createPriceAlertService({ client });
 const eventReminders = createEventReminderService({
   CalendarEvent, OsrsEvent, Delivery: EventReminderDelivery, client, isMod, isAdmin,
 });
@@ -1118,6 +1131,7 @@ client.once('ready', async () => {
   await BotDirectMessage.init();
   eventReminders.run();
   cron.schedule('* * * * *', () => eventReminders.run());
+  cron.schedule('*/5 * * * *', () => priceAlerts.run());
   cron.schedule('0 */12 * * *', () => userStatsService.start());
   setInterval(() => refreshCommandNames().catch(() => {}), 60000);
 
@@ -2139,6 +2153,40 @@ async function handleConvertedSlashCommand(interaction) {
   }
 }
 
+async function handlePriceAlertCommand(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+  try {
+    if (!isAdmin(interaction.member) && !isMod(interaction.member)) {
+      return interaction.editReply('❌ Mods only.');
+    }
+    const sub = interaction.options.getSubcommand();
+    if (sub === 'add') {
+      const alert = await priceAlerts.add({
+        userId: interaction.user.id,
+        itemId: interaction.options.getString('item', true),
+        direction: interaction.options.getString('direction', true),
+        priceType: interaction.options.getString('type') || 'buy',
+        targetPrice: interaction.options.getString('price', true),
+      });
+      // Verify DMs work now so a silently blocked alert is not created.
+      try { await interaction.user.send('Price alerts are set up. I will DM you here when your target price is reached.'); }
+      catch { return interaction.editReply(`✅ Alert saved for **${alert.itemName}**, but I could not DM you. Enable DMs from server members so alerts can reach you.`); }
+      return interaction.editReply(`✅ I will DM you when the ${alert.priceType} price of **${alert.itemName}** is ${alert.direction === 'below' ? 'at or below' : 'at or above'} ${formatPrice(alert.targetPrice)} gp.`);
+    }
+    if (sub === 'list') {
+      const alerts = await priceAlerts.list(interaction.user.id);
+      if (!alerts.length) return interaction.editReply('You have no price alerts. Use `/pricealert add`.');
+      return interaction.editReply(alerts.map(alert =>
+        `• **${alert.itemName}** — ${alert.priceType} price ${alert.direction} ${formatPrice(alert.targetPrice)} gp${alert.triggered ? ' (sent; re-arms when the price moves back)' : ''}`).join('\n').slice(0, 1900));
+    }
+    const removed = await priceAlerts.remove(interaction.user.id, interaction.options.getString('alert', true));
+    return interaction.editReply(removed ? '✅ Price alert removed.' : '❌ Alert not found.');
+  } catch (error) {
+    if (!error.userFacing) console.error('[Price alerts] Command failed:', error.message);
+    return interaction.editReply(error.userFacing ? `❌ ${error.message}` : '❌ Could not process the price alert right now. Please try again.');
+  }
+}
+
 // --- Slash Commands ---
 client.on(Events.InteractionCreate, async interaction => {
   // Autocomplete
@@ -2147,6 +2195,23 @@ client.on(Events.InteractionCreate, async interaction => {
     const focused = options.getFocused(true);
 
     if (commandName === 'event') return eventService.handleAutocomplete(interaction);
+
+    if (commandName === 'pricealert') {
+      try {
+        if (!isAdmin(interaction.member) && !isMod(interaction.member)) return interaction.respond([]);
+        if (focused.name === 'item') {
+          const matches = await priceAlerts.searchItems(focused.value);
+          return interaction.respond(matches.map(item => ({ name: item.name.slice(0, 100), value: String(item.id) })));
+        }
+        const alerts = await priceAlerts.list(interaction.user.id);
+        const text = String(focused.value || '').toLowerCase();
+        return interaction.respond(alerts
+          .map(alert => ({ name: `${alert.itemName} ${alert.direction} ${formatPrice(alert.targetPrice)} (${alert.priceType})`.slice(0, 100), value: String(alert._id) }))
+          .filter(choice => choice.name.toLowerCase().includes(text)).slice(0, 25));
+      } catch (error) {
+        return interaction.respond([]).catch(() => {});
+      }
+    }
 
     if (commandName === 'bingo-approve' || commandName === 'bingo-reject') {
       if (focused.name === 'submission') {
@@ -2242,6 +2307,10 @@ client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'event') {
     await eventService.handleCommand(interaction);
+    return;
+  }
+  if (interaction.commandName === 'pricealert') {
+    await handlePriceAlertCommand(interaction);
     return;
   }
   await handleConvertedSlashCommand(interaction);

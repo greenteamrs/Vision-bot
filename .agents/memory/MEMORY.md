@@ -4,3 +4,4 @@
 - [OSRS event system](osrs-events.md) — dashboard manages events; Discord is for member participation, across multiple active formats.
 - [Discord bot hosting](discord-bot-hosting.md) — The bot runs on Render; Replit secrets and workflow restarts do not update production.
 - [OSRS user stats](osrs-user-stats.md) — Automatic sync plus manual corrections; preserve manual/locked values and distinguish unknown data from zero.
+- [DM inbox](dm-inbox.md) — badge counts unread messages; visible messages are read in a shared staff inbox.

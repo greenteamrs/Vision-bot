@@ -8,6 +8,7 @@ const dmSchema = new mongoose.Schema({
   displayName: { type: String, default: '' },
   content: { type: String, default: '' },
   sentAt: { type: Date, required: true },
+  readAt: { type: Date, default: null },
   attachments: [{
     _id: false,
     name: String,
@@ -51,9 +52,19 @@ function createDmInbox({ Message = BotDirectMessage } = {}) {
     return { messages: page, nextCursor: hasMore ? String(page[page.length - 1]._id) : null };
   }
   async function count() {
-    return { count: await Message.countDocuments({}) };
+    // null also matches legacy messages created before read tracking existed.
+    return { count: await Message.countDocuments({ readAt: null }) };
   }
-  return { capture, list, count };
+  async function markRead(ids) {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 50 ||
+        ids.some(id => typeof id !== 'string' || !/^[a-f\d]{24}$/i.test(id))) {
+      throw Object.assign(new Error('Provide between 1 and 50 valid message IDs.'), { status: 400 });
+    }
+    await Message.updateMany({ _id: { $in: [...new Set(ids)] }, readAt: null },
+      { $set: { readAt: new Date() } });
+    return count();
+  }
+  return { capture, list, count, markRead };
 }
 
 module.exports = { BotDirectMessage, createDmInbox };

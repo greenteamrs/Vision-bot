@@ -7,7 +7,15 @@ const { createDmInbox } = require('./dm-inbox');
 function fixture() {
   const rows = [];
   const Message = {
-    async countDocuments(query) { assert.deepEqual(query, {}); return rows.length; },
+    async countDocuments(query) {
+      assert.deepEqual(query, { readAt: null });
+      return rows.filter(row => row.readAt == null).length;
+    },
+    async updateMany(query, update) {
+      for (const row of rows) {
+        if (query._id.$in.includes(row._id) && row.readAt == null) row.readAt = update.$set.readAt;
+      }
+    },
     async updateOne({ messageId }, { $setOnInsert }, options) {
       assert.equal(options.upsert, true);
       if (!rows.some(row => row.messageId === messageId)) {
@@ -100,6 +108,85 @@ test('badge count includes the entire inbox, not only its first page', async () 
   assert.equal((await f.inbox.list()).messages.length, 50);
 });
 
+test('reading displayed messages reduces unread count, persists across service instances, and leaves new/unseen messages unread', async () => {
+  const f = fixture();
+  for (let i = 0; i < 53; i++) await f.inbox.capture({ ...f.message, id: `message-${i}` });
+  const page = await f.inbox.list();
+  assert.equal((await f.inbox.count()).count, 53, 'GET list does not mark messages read');
+  const shownIds = page.messages.slice(0, 2).map(message => message._id);
+  assert.deepEqual(await f.inbox.markRead(shownIds), { count: 51 });
+  const readAt = f.rows.find(row => row._id === shownIds[0]).readAt;
+  assert.ok(readAt instanceof Date);
+  await f.inbox.markRead(shownIds);
+  assert.equal(f.rows.find(row => row._id === shownIds[0]).readAt, readAt);
+  await f.inbox.capture({ ...f.message, id: 'new-after-page-loaded' });
+  assert.deepEqual(await f.inbox.markRead(shownIds), { count: 52 });
+  assert.equal(f.rows.at(-1).readAt, undefined, 'new arrivals are not marked read');
+  const unreadIds = f.rows.filter(row => !row.readAt).map(row => row._id);
+  await f.inbox.markRead(unreadIds.slice(0, 50));
+  assert.deepEqual(await f.inbox.markRead(unreadIds.slice(50)), { count: 0 });
+});
+
+test('read requests validate IDs and list size and never accept broad updates', async () => {
+  const f = fixture();
+  for (const ids of [undefined, [], ['bad'], [{ $ne: null }], Array(51).fill('a'.repeat(24))]) {
+    await assert.rejects(f.inbox.markRead(ids), { status: 400 });
+  }
+  const bot = fs.readFileSync(`${__dirname}/bot.js`, 'utf8');
+  assert.ok(bot.indexOf("pathname === '/api/bot-dms/read'") > bot.indexOf('const authUser = checkAuth(req)'));
+  assert.match(bot, /await dmInbox.markRead\(data.ids\)/);
+});
+
+test('only messages actually visible in the active inbox are marked read and the badge updates immediately', async () => {
+  const html = fs.readFileSync(`${__dirname}/dashboard.html`, 'utf8');
+  const source = html.slice(html.indexOf('let dmNextCursor = null;'), html.indexOf('async function loadBotDms'));
+  const visible = { dataset: { dmId: 'a'.repeat(24), dmRead: 'false' } };
+  const offscreen = { dataset: { dmId: 'b'.repeat(24), dmRead: 'false' } };
+  let active = true, callback, badgeCount, fail = false;
+  const requests = [];
+  const nodes = {
+    'section-bot-dms': { classList: { contains: () => active } },
+    'dm-status': { textContent: '' },
+  };
+  const document = {
+    hidden: false, getElementById: id => nodes[id],
+    querySelectorAll: () => [visible, offscreen],
+  };
+  const context = vm.createContext({
+    document, AUTH_TOKEN: 'test-token', dmBadgeGeneration: 0, dmBadgeBusy: false,
+    renderDmBadgeCount: count => { badgeCount = count; },
+    IntersectionObserver: class {
+      constructor(cb) { callback = cb; }
+      disconnect() {}
+      observe() {}
+      unobserve() {}
+    },
+    api: async (method, path, body) => {
+      requests.push({ method, path, ids: Array.from(body.ids) });
+      return { ok: !fail, json: async () => fail ? { error: 'Read update failed' } : { count: 1 } };
+    },
+  });
+  vm.runInContext(source, context);
+  context.observeDmReads();
+  document.hidden = true;
+  await callback([{ target: visible, isIntersecting: true }]);
+  document.hidden = false;
+  active = false;
+  await callback([{ target: visible, isIntersecting: true }]);
+  assert.equal(requests.length, 0);
+  active = true;
+  await callback([{ target: visible, isIntersecting: true }, { target: offscreen, isIntersecting: false }]);
+  assert.deepEqual(requests, [{ method: 'POST', path: '/api/bot-dms/read', ids: ['a'.repeat(24)] }]);
+  assert.equal(badgeCount, 1);
+  assert.equal(visible.dataset.dmRead, 'true');
+  assert.equal(offscreen.dataset.dmRead, 'false');
+  fail = true;
+  await callback([{ target: offscreen, isIntersecting: true }]);
+  assert.equal(offscreen.dataset.dmRead, 'false');
+  assert.equal(offscreen.dataset.dmReading, 'false');
+  assert.equal(nodes['dm-status'].textContent, 'Read update failed');
+});
+
 test('sidebar badge hides zero, shows exact totals, polls and preserves the last count on failure', async () => {
   const html = fs.readFileSync(`${__dirname}/dashboard.html`, 'utf8');
   const source = html.slice(html.indexOf('let dmBadgeTimer = null;'), html.indexOf('let dmNextCursor = null;'));
@@ -129,7 +216,7 @@ test('sidebar badge hides zero, shows exact totals, polls and preserves the last
   await context.refreshDmBadge();
   assert.equal(nodes['dm-count-badge'].textContent, '1200');
   assert.equal(nodes['dm-count-badge'].hidden, false);
-  assert.equal(nodes['dm-count-badge']['aria-label'], '1200 saved direct messages');
+  assert.equal(nodes['dm-count-badge']['aria-label'], '1200 unread direct messages');
   status = 503;
   await context.refreshDmBadge();
   assert.equal(nodes['dm-count-badge'].textContent, '1200');
@@ -168,6 +255,7 @@ test('dashboard renders DM text safely, includes safe attachment links, paginate
     innerHTML: '', textContent: '', disabled: false, children: [], style: {},
     insertAdjacentHTML(_, text) { this.innerHTML += text; },
   }]));
+  nodes['section-bot-dms'] = { classList: { contains: () => true } };
   let response = { messages: [{
     displayName: '<script>bad()</script>', username: 'sender', authorId: 'user-1',
     content: '<img src=x onerror=bad()>', sentAt: new Date().toISOString(),

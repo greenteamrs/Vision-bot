@@ -542,7 +542,7 @@
             <h3>Incoming direct messages</h3>
             <button class="btn-edit" id="dm-refresh" onclick="loadBotDms(); refreshDmBadge()">Refresh</button>
           </div>
-          <p style="color:#999;font-size:.82rem;">New DMs sent to the bot after this feature is deployed are saved here, newest received first. Visible to dashboard admins and moderators. This is a read-only inbox; older Discord history is not imported. Discord attachment links may expire.</p>
+          <p style="color:#999;font-size:.82rem;">New DMs sent to the bot after this feature is deployed are saved here, newest received first. Visible to dashboard admins and moderators. Messages are marked read for all staff when shown on screen; the red badge counts unread DMs. Older Discord history is not imported. Discord attachment links may expire.</p>
           <p id="dm-status" role="status" style="margin-top:12px;color:#aaa;"></p>
           <div id="dm-list"></div>
           <button class="btn-edit" id="dm-older" style="display:none;margin-top:14px;" onclick="loadBotDms(true)">Load older messages</button>
@@ -1689,6 +1689,10 @@
     if (name === 'bot-dms') refreshDmBadge();
   }
 
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && document.getElementById('section-bot-dms')?.classList.contains('active')) observeDmReads();
+  });
+
   let dmBadgeTimer = null;
   let dmBadgeBusy = false;
   let dmBadgeGeneration = 0;
@@ -1706,6 +1710,13 @@
     stopDmBadge();
     refreshDmBadge();
     dmBadgeTimer = setInterval(refreshDmBadge, 15000);
+  }
+  function renderDmBadgeCount(count) {
+    const badge = document.getElementById('dm-count-badge');
+    badge.textContent = String(count);
+    badge.hidden = count === 0;
+    badge.setAttribute('aria-label', `${count} unread direct messages`);
+    document.getElementById('nav-bot-dms').title = `${count} unread DMs`;
   }
   async function refreshDmBadge() {
     if (!AUTH_TOKEN || !currentDashboardUser || dmBadgeBusy) return;
@@ -1727,10 +1738,7 @@
         return;
       }
       if (!res.ok || !Number.isSafeInteger(data.count) || data.count < 0) throw new Error('Could not update the DM count.');
-      badge.textContent = String(data.count);
-      badge.hidden = data.count === 0;
-      badge.setAttribute('aria-label', `${data.count} saved direct messages`);
-      nav.title = `${data.count} saved DMs — total, not unread`;
+      renderDmBadgeCount(data.count);
     } catch (error) {
       if (generation === dmBadgeGeneration) nav.title = 'DM count could not be updated; any displayed count may be out of date.';
     } finally {
@@ -1741,6 +1749,41 @@
 
   let dmNextCursor = null;
   let dmRequestVersion = 0;
+  let dmReadObserver = null;
+  function observeDmReads() {
+    if (typeof IntersectionObserver === 'undefined') return;
+    dmReadObserver?.disconnect();
+    dmReadObserver = new IntersectionObserver(async entries => {
+      if (document.hidden || !document.getElementById('section-bot-dms').classList.contains('active')) return;
+      const elements = entries.filter(entry => entry.isIntersecting &&
+        entry.target.dataset.dmRead !== 'true' && entry.target.dataset.dmReading !== 'true')
+        .map(entry => entry.target);
+      if (!elements.length) return;
+      const token = AUTH_TOKEN;
+      elements.forEach(el => { el.dataset.dmReading = 'true'; });
+      try {
+        const res = await api('POST', '/api/bot-dms/read', { ids: elements.map(el => el.dataset.dmId) });
+        const data = await res.json();
+        if (!res.ok || !Number.isSafeInteger(data.count) || data.count < 0) {
+          throw new Error(data.error || 'Could not mark messages as read. Refresh the inbox to retry.');
+        }
+        if (token !== AUTH_TOKEN) return;
+        elements.forEach(el => {
+          el.dataset.dmRead = 'true';
+          dmReadObserver?.unobserve(el);
+        });
+        // Ignore older count requests that were started before this read update.
+        dmBadgeGeneration++;
+        dmBadgeBusy = false;
+        renderDmBadgeCount(data.count);
+      } catch (error) {
+        if (token === AUTH_TOKEN) document.getElementById('dm-status').textContent = error.message;
+      } finally {
+        elements.forEach(el => { el.dataset.dmReading = 'false'; });
+      }
+    }, { threshold: 0.01 });
+    document.querySelectorAll('#dm-list article[data-dm-read="false"]').forEach(el => dmReadObserver.observe(el));
+  }
   async function loadBotDms(older = false) {
     if (older && !dmNextCursor) return;
     const version = ++dmRequestVersion;
@@ -1755,10 +1798,10 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not load messages.');
       if (!Array.isArray(data.messages)) throw new Error('Invalid inbox response.');
-      if (version !== dmRequestVersion) return;
+      if (version !== dmRequestVersion || !document.getElementById('section-bot-dms').classList.contains('active')) return;
       const html = data.messages.map(message => {
         const attachments = (message.attachments || []).filter(a => /^https:\/\//i.test(a.url || ''));
-        return `<article style="border-top:1px solid #343347;padding:16px 0;">
+        return `<article data-dm-id="${escAttr(message._id)}" data-dm-read="${message.readAt ? 'true' : 'false'}" style="border-top:1px solid #343347;padding:16px 0;">
           <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><strong>${esc(message.displayName || message.username || message.authorId)}</strong><time>${esc(new Date(message.sentAt).toLocaleString())}</time></div>
           <div style="color:#999;font-size:.78rem;margin:4px 0;">${esc(message.username || '')} · Discord ID: ${esc(message.authorId)}</div>
           <div style="white-space:pre-wrap;overflow-wrap:anywhere;">${esc(message.content || (attachments.length ? '(Attachment)' : '(No text content)'))}</div>
@@ -1770,6 +1813,7 @@
       dmNextCursor = data.nextCursor || null;
       more.style.display = dmNextCursor ? 'inline-block' : 'none';
       status.textContent = list.children.length ? `${list.children.length} messages shown.` : 'No DMs received yet.';
+      observeDmReads();
     } catch (error) {
       if (version === dmRequestVersion) status.textContent = error.message || 'Could not load messages.';
     } finally {

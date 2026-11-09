@@ -2860,6 +2860,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/bot-dms/read' && req.method === 'POST') {
+      try {
+        const data = await readBody(req);
+        sendJson(res, 200, await dmInbox.markRead(data.ids));
+      } catch (error) {
+        console.error('[Bot DMs] Could not mark messages read:', error.message);
+        sendJson(res, error.status || 503, { error: error.status ? error.message : 'Could not mark messages as read. Please refresh the inbox to retry.' });
+      }
+      return;
+    }
+
     if (pathname === '/api/bot-dms/count' && req.method === 'GET') {
       try {
         sendJson(res, 200, await dmInbox.count());

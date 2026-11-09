@@ -32,7 +32,7 @@ function fixture() {
     if (path === '/mapping') return [{ id: 4151, name: 'Abyssal whip' }, { id: 11802, name: 'Armadyl godsword' }, { id: 4152, name: 'Whip lash' }];
     return { data: state.prices };
   };
-  const service = createPriceAlertService({ Alert, client, fetchJson, now: () => clock, logger: { warn: m => logs.push(m), error: m => logs.push(m) } });
+  const service = createPriceAlertService({ Alert, client, fetchJson, now: () => clock, logger: { log: () => {}, warn: m => logs.push(m), error: m => logs.push(m) } });
   return { service, rows, sent, logs, state, advance: ms => { clock = new Date(clock.getTime() + ms); } };
 }
 

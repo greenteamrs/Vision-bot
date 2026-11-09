@@ -125,6 +125,7 @@ function createPriceAlertService({
       const alerts = await Alert.find({}).lean();
       if (!alerts.length) return;
       const prices = (await get('/latest')).data || {};
+      let sentCount = 0;
       for (const alert of alerts) {
         const price = currentPrice(prices[String(alert.itemId)], alert.priceType);
         if (price === null) continue;
@@ -147,6 +148,8 @@ function createPriceAlertService({
           const user = await client.users.fetch(alert.userId);
           await user.send({ content: alertMessage(alert, price), allowedMentions: { parse: [] } });
           await Alert.updateOne({ _id: alert._id }, { $set: { triggered: true, lastNotifiedAt: now(), nextAttemptAt: null } });
+          sentCount++;
+          logger.log(`[Price alerts] Sent ${alert.itemName} alert to ${alert.userId} (price ${price}).`);
         } catch (error) {
           logger.warn(`[Price alerts] DM to ${alert.userId} failed (${error.code || error.message}); retrying later.`);
         }

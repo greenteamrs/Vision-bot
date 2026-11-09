@@ -42,7 +42,8 @@ test('parses plain, comma, decimal and k/m/b prices and rejects invalid ones', (
   assert.equal(parsePrice('2,5m'), 2500000);
   assert.equal(parsePrice('250K'), 250000);
   assert.equal(parsePrice('2.1b'), 2100000000);
-  for (const bad of ['', '0', '-5', 'abc', '3b', '1e6', '1.2.3']) assert.equal(parsePrice(bad), null);
+  assert.equal(parsePrice('2500000000'), 2500000000);
+  for (const bad of ['', '0', '-5', 'abc', '1e6', '1.2.3', '200b']) assert.equal(parsePrice(bad), null);
 });
 
 test('item search prefers names starting with the query and caps suggestions', async () => {

@@ -5,7 +5,7 @@ const USER_AGENT = 'VisionaryBot price alerts - OSRS clan Discord bot';
 const MAPPING_TTL_MS = 6 * 60 * 60 * 1000;
 const RETRY_DM_MS = 30 * 60 * 1000;
 const MAX_ALERTS_PER_USER = 25;
-const MAX_PRICE = 2_147_483_647;
+const MAX_PRICE = 100_000_000_000;
 
 const priceAlertSchema = new mongoose.Schema({
   userId: { type: String, required: true, index: true },

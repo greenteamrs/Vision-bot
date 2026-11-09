@@ -8,3 +8,9 @@ Price alerts use the OSRS Wiki real-time prices API (prices.runescape.wiki), whi
 **Why:** the user asked for DMs to them personally when an item reaches a price on that site.
 
 **How to apply:** keep alerts personal to the creator, keep API polling light (single /latest call every 5 minutes), and never hammer the wiki.
+
+Keep alerts after delivery rather than automatically deleting them; re-arm after the price moves back across the target.
+
+**Why:** the user explicitly approved this behavior and confirmed that the test DM arrived.
+
+**How to apply:** preserve repeat-crossing behavior unless the user requests a change.

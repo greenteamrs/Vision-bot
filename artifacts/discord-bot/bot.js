@@ -2860,6 +2860,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/bot-dms/count' && req.method === 'GET') {
+      try {
+        sendJson(res, 200, await dmInbox.count());
+      } catch (error) {
+        console.error('[Bot DMs] Could not count inbox:', error.message);
+        sendJson(res, 503, { error: 'Could not update the DM count.' });
+      }
+      return;
+    }
+
     if (pathname === '/api/bot-dms' && req.method === 'GET') {
       try {
         sendJson(res, 200, await dmInbox.list(params.get('before') || ''));

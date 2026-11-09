@@ -103,6 +103,8 @@
   }
   nav button:hover { background: #1f1f35; color: #e0e0f0; }
   nav button.active { background: #2d1b69; color: #a78bfa; font-weight: 600; }
+  #nav-bot-dms { position:relative; padding-right:54px; }
+  .dm-count-badge { position:absolute; right:8px; top:3px; min-width:20px; height:20px; padding:0 5px; border-radius:999px; background:#dc2626; color:#fff; font-size:.72rem; font-weight:700; line-height:20px; text-align:center; }
 
   main { flex: 1; min-width: 0; width: 100%; padding: 28px; overflow: auto; }
 
@@ -467,7 +469,7 @@
       <button onclick="showSection('droptracker', this)">💰 Droptracker</button>
       <button onclick="showSection('bingo', this)">🎯 Bingo</button>
       <button onclick="showSection('events', this)">Events</button>
-      <button onclick="showSection('bot-dms', this)">Bot DMs</button>
+      <button id="nav-bot-dms" onclick="showSection('bot-dms', this)">Bot DMs<span id="dm-count-badge" class="dm-count-badge" hidden aria-live="polite" aria-atomic="true"></span></button>
     </nav>
 
     <main>
@@ -538,7 +540,7 @@
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <h3>Incoming direct messages</h3>
-            <button class="btn-edit" id="dm-refresh" onclick="loadBotDms()">Refresh</button>
+            <button class="btn-edit" id="dm-refresh" onclick="loadBotDms(); refreshDmBadge()">Refresh</button>
           </div>
           <p style="color:#999;font-size:.82rem;">New DMs sent to the bot after this feature is deployed are saved here, newest received first. Visible to dashboard admins and moderators. This is a read-only inbox; older Discord history is not imported. Discord attachment links may expire.</p>
           <p id="dm-status" role="status" style="margin-top:12px;color:#aaa;"></p>
@@ -1136,6 +1138,7 @@
 
   // ---- AUTH ----
   async function login() {
+    stopDmBadge();
     const username = document.getElementById('username-input').value.trim();
     const password = document.getElementById('password-input').value;
     const button = document.getElementById('login-button');
@@ -1213,6 +1216,7 @@
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
     document.getElementById('nav-mod-accounts').style.display = currentDashboardUser.role === 'admin' ? 'block' : 'none';
+    startDmBadge();
     init();
   }
 
@@ -1682,6 +1686,57 @@
     if (name === 'bingo') loadBingoState();
     if (name === 'events') loadEvents();
     if (name === 'bot-dms') loadBotDms();
+    if (name === 'bot-dms') refreshDmBadge();
+  }
+
+  let dmBadgeTimer = null;
+  let dmBadgeBusy = false;
+  let dmBadgeGeneration = 0;
+  function stopDmBadge() {
+    clearInterval(dmBadgeTimer);
+    dmBadgeTimer = null;
+    dmBadgeBusy = false;
+    dmBadgeGeneration++;
+    const badge = document.getElementById('dm-count-badge');
+    badge.hidden = true;
+    badge.textContent = '';
+    document.getElementById('nav-bot-dms').removeAttribute('title');
+  }
+  function startDmBadge() {
+    stopDmBadge();
+    refreshDmBadge();
+    dmBadgeTimer = setInterval(refreshDmBadge, 15000);
+  }
+  async function refreshDmBadge() {
+    if (!AUTH_TOKEN || !currentDashboardUser || dmBadgeBusy) return;
+    const generation = dmBadgeGeneration;
+    dmBadgeBusy = true;
+    const nav = document.getElementById('nav-bot-dms');
+    const badge = document.getElementById('dm-count-badge');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const res = await fetch('/api/bot-dms/count', {
+        headers: { Authorization: `Bearer ${AUTH_TOKEN}` }, signal: controller.signal,
+      });
+      const data = await res.json();
+      if (generation !== dmBadgeGeneration) return;
+      if (res.status === 401 || res.status === 403) {
+        stopDmBadge();
+        nav.title = 'Sign in again to update the DM count.';
+        return;
+      }
+      if (!res.ok || !Number.isSafeInteger(data.count) || data.count < 0) throw new Error('Could not update the DM count.');
+      badge.textContent = String(data.count);
+      badge.hidden = data.count === 0;
+      badge.setAttribute('aria-label', `${data.count} saved direct messages`);
+      nav.title = `${data.count} saved DMs — total, not unread`;
+    } catch (error) {
+      if (generation === dmBadgeGeneration) nav.title = 'DM count could not be updated; any displayed count may be out of date.';
+    } finally {
+      clearTimeout(timeout);
+      if (generation === dmBadgeGeneration) dmBadgeBusy = false;
+    }
   }
 
   let dmNextCursor = null;

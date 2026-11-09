@@ -50,7 +50,10 @@ function createDmInbox({ Message = BotDirectMessage } = {}) {
     const page = messages.slice(0, 50);
     return { messages: page, nextCursor: hasMore ? String(page[page.length - 1]._id) : null };
   }
-  return { capture, list };
+  async function count() {
+    return { count: await Message.countDocuments({}) };
+  }
+  return { capture, list, count };
 }
 
 module.exports = { BotDirectMessage, createDmInbox };

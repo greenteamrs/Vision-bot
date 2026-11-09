@@ -7,6 +7,7 @@ const { createDmInbox } = require('./dm-inbox');
 function fixture() {
   const rows = [];
   const Message = {
+    async countDocuments(query) { assert.deepEqual(query, {}); return rows.length; },
     async updateOne({ messageId }, { $setOnInsert }, options) {
       assert.equal(options.upsert, true);
       if (!rows.some(row => row.messageId === messageId)) {
@@ -89,6 +90,62 @@ test('storage errors propagate rather than reporting a message saved successfull
   const f = fixture();
   const inbox = createDmInbox({ Message: { updateOne: async () => { throw new Error('DB offline'); } } });
   await assert.rejects(inbox.capture(f.message), /DB offline/);
+});
+
+test('badge count includes the entire inbox, not only its first page', async () => {
+  const f = fixture();
+  assert.deepEqual(await f.inbox.count(), { count: 0 });
+  for (let i = 0; i < 62; i++) await f.inbox.capture({ ...f.message, id: `message-${i}` });
+  assert.deepEqual(await f.inbox.count(), { count: 62 });
+  assert.equal((await f.inbox.list()).messages.length, 50);
+});
+
+test('sidebar badge hides zero, shows exact totals, polls and preserves the last count on failure', async () => {
+  const html = fs.readFileSync(`${__dirname}/dashboard.html`, 'utf8');
+  const source = html.slice(html.indexOf('let dmBadgeTimer = null;'), html.indexOf('let dmNextCursor = null;'));
+  const nodes = Object.fromEntries(['nav-bot-dms', 'dm-count-badge'].map(id => [id, {
+    hidden: true, textContent: '', title: '',
+    setAttribute(name, value) { this[name] = value; },
+    removeAttribute(name) { delete this[name]; },
+  }]));
+  let response = { count: 0 };
+  let status = 200;
+  let interval;
+  const context = vm.createContext({
+    AUTH_TOKEN: 'test-session', currentDashboardUser: { role: 'mod' }, AbortController,
+    document: { getElementById: id => nodes[id] },
+    setTimeout: () => 1, clearTimeout: () => {}, clearInterval: () => { interval = null; },
+    setInterval: (fn, ms) => { assert.equal(ms, 15000); interval = fn; return 1; },
+    fetch: async (path, options) => {
+      assert.equal(path, '/api/bot-dms/count');
+      assert.equal(options.headers.Authorization, 'Bearer test-session');
+      return { ok: status === 200, status, json: async () => response };
+    },
+  });
+  vm.runInContext(source, context);
+  await context.refreshDmBadge();
+  assert.equal(nodes['dm-count-badge'].hidden, true);
+  response = { count: 1200 };
+  await context.refreshDmBadge();
+  assert.equal(nodes['dm-count-badge'].textContent, '1200');
+  assert.equal(nodes['dm-count-badge'].hidden, false);
+  assert.equal(nodes['dm-count-badge']['aria-label'], '1200 saved direct messages');
+  status = 503;
+  await context.refreshDmBadge();
+  assert.equal(nodes['dm-count-badge'].textContent, '1200');
+  assert.match(nodes['nav-bot-dms'].title, /out of date/);
+  context.startDmBadge();
+  assert.equal(typeof interval, 'function');
+  // Finish the outstanding initial refresh before exercising session expiry.
+  await new Promise(resolve => setImmediate(resolve));
+  status = 401;
+  await context.refreshDmBadge();
+  assert.equal(nodes['dm-count-badge'].hidden, true);
+  assert.equal(interval, null);
+  assert.match(nodes['nav-bot-dms'].title, /Sign in again/);
+  const bot = fs.readFileSync(`${__dirname}/bot.js`, 'utf8');
+  assert.ok(bot.indexOf("pathname === '/api/bot-dms/count'") > bot.indexOf('const authUser = checkAuth(req)'));
+  assert.match(html, /id="dm-count-badge".*hidden aria-live="polite"/);
 });
 
 test('Discord DM intents/partials enabled, DMs exit before server commands, and inbox requires dashboard authentication', () => {

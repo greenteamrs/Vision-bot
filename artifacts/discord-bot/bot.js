@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes, StringSelectMenuBuilder, ActionRowBuilder , EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events, SlashCommandBuilder, REST, Routes, StringSelectMenuBuilder, ActionRowBuilder , EmbedBuilder } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
 const fs = require('fs');
@@ -23,6 +23,8 @@ const {
 } = require('./events-domain');
 const { createEventService } = require('./event-service');
 const { normalizeEventLink, createEventReminderService } = require('./event-reminders');
+const { BotDirectMessage, createDmInbox } = require('./dm-inbox');
+const dmInbox = createDmInbox();
 const {
   SETUP_CODE_TTL_MS,
   SETUP_SESSION_TTL_SECONDS,
@@ -511,7 +513,9 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMembers,
-  ]
+    GatewayIntentBits.DirectMessages,
+  ],
+  partials: [Partials.Channel],
 });
 
 const eventReminders = createEventReminderService({
@@ -1111,6 +1115,7 @@ client.once('ready', async () => {
   // Run only on the production bot, never while previewing locally in Replit.
   userStatsService.start();
   await EventReminderDelivery.init();
+  await BotDirectMessage.init();
   eventReminders.run();
   cron.schedule('* * * * *', () => eventReminders.run());
   cron.schedule('0 */12 * * *', () => userStatsService.start());
@@ -1267,6 +1272,14 @@ function parseLootPointAmount(rawValue) {
 // --- Message Handler ---
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
+  if (!message.guildId) {
+    try {
+      await dmInbox.capture(message);
+    } catch (error) {
+      console.error('[Bot DMs] Could not save incoming DM:', error.message);
+    }
+    return; // Never run server commands or grant XP for DMs.
+  }
 
   // XP for chatting — Visionaries role only
   try {
@@ -2843,6 +2856,16 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         console.error('[DashboardAuth] Moderator password reset failed:', error.message);
         sendJson(res, 500, { error: 'Could not reset the moderator password.' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/bot-dms' && req.method === 'GET') {
+      try {
+        sendJson(res, 200, await dmInbox.list(params.get('before') || ''));
+      } catch (error) {
+        console.error('[Bot DMs] Could not load inbox:', error.message);
+        sendJson(res, error.status || 503, { error: error.status ? error.message : 'Could not load bot DMs. Please try again.' });
       }
       return;
     }

@@ -467,6 +467,7 @@
       <button onclick="showSection('droptracker', this)">💰 Droptracker</button>
       <button onclick="showSection('bingo', this)">🎯 Bingo</button>
       <button onclick="showSection('events', this)">Events</button>
+      <button onclick="showSection('bot-dms', this)">Bot DMs</button>
     </nav>
 
     <main>
@@ -529,6 +530,20 @@
             </div>
           </div>
           <div id="calendar-content"></div>
+        </div>
+      </div>
+
+      <div class="section" id="section-bot-dms">
+        <div class="section-title">Bot DMs</div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <h3>Incoming direct messages</h3>
+            <button class="btn-edit" id="dm-refresh" onclick="loadBotDms()">Refresh</button>
+          </div>
+          <p style="color:#999;font-size:.82rem;">New DMs sent to the bot after this feature is deployed are saved here, newest received first. Visible to dashboard admins and moderators. This is a read-only inbox; older Discord history is not imported. Discord attachment links may expire.</p>
+          <p id="dm-status" role="status" style="margin-top:12px;color:#aaa;"></p>
+          <div id="dm-list"></div>
+          <button class="btn-edit" id="dm-older" style="display:none;margin-top:14px;" onclick="loadBotDms(true)">Load older messages</button>
         </div>
       </div>
 
@@ -1666,6 +1681,45 @@
     if (name === 'ranks') loadRanks();
     if (name === 'bingo') loadBingoState();
     if (name === 'events') loadEvents();
+    if (name === 'bot-dms') loadBotDms();
+  }
+
+  let dmNextCursor = null;
+  let dmRequestVersion = 0;
+  async function loadBotDms(older = false) {
+    if (older && !dmNextCursor) return;
+    const version = ++dmRequestVersion;
+    const list = document.getElementById('dm-list');
+    const status = document.getElementById('dm-status');
+    const refresh = document.getElementById('dm-refresh');
+    const more = document.getElementById('dm-older');
+    refresh.disabled = more.disabled = true;
+    status.textContent = 'Loading messages…';
+    try {
+      const res = await api('GET', '/api/bot-dms' + (older ? `?before=${encodeURIComponent(dmNextCursor)}` : ''));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not load messages.');
+      if (!Array.isArray(data.messages)) throw new Error('Invalid inbox response.');
+      if (version !== dmRequestVersion) return;
+      const html = data.messages.map(message => {
+        const attachments = (message.attachments || []).filter(a => /^https:\/\//i.test(a.url || ''));
+        return `<article style="border-top:1px solid #343347;padding:16px 0;">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><strong>${esc(message.displayName || message.username || message.authorId)}</strong><time>${esc(new Date(message.sentAt).toLocaleString())}</time></div>
+          <div style="color:#999;font-size:.78rem;margin:4px 0;">${esc(message.username || '')} · Discord ID: ${esc(message.authorId)}</div>
+          <div style="white-space:pre-wrap;overflow-wrap:anywhere;">${esc(message.content || (attachments.length ? '(Attachment)' : '(No text content)'))}</div>
+          ${attachments.map(a => `<p style="margin-top:8px;"><a href="${escAttr(a.url)}" target="_blank" rel="noopener noreferrer">${esc(a.name || 'Attachment')}</a></p>`).join('')}
+        </article>`;
+      }).join('');
+      if (older) list.insertAdjacentHTML('beforeend', html);
+      else list.innerHTML = html;
+      dmNextCursor = data.nextCursor || null;
+      more.style.display = dmNextCursor ? 'inline-block' : 'none';
+      status.textContent = list.children.length ? `${list.children.length} messages shown.` : 'No DMs received yet.';
+    } catch (error) {
+      if (version === dmRequestVersion) status.textContent = error.message || 'Could not load messages.';
+    } finally {
+      if (version === dmRequestVersion) refresh.disabled = more.disabled = false;
+    }
   }
 
   // ---- CALENDAR ----

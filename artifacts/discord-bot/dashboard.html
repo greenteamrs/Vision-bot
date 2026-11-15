@@ -873,7 +873,7 @@
           <input type="text" id="user-search" placeholder="Search by username or RS name..." oninput="debounceSearch()" />
         </div>
         <p style="color:#888;font-size:0.85rem;margin-bottom:12px;">Current Rank comes from Wise Old Man. DropTracker: ✓ confirmed in the last successful member sync; ✕ not confirmed. Use the sync buttons above to refresh.</p>
-        <p style="color:#888;font-size:0.85rem;margin-bottom:12px;">OSRS stats use the current RSN (not a sum of alternate accounts). Total level uses WOM where available; CA tier and collection log use RuneProfile and need a synced RuneProfile plugin. Automatic refresh runs on bot startup and every 12 hours. Manual values stay until cleared in Edit; locked values are skipped by sync.</p>
+        <p style="color:#888;font-size:0.85rem;margin-bottom:12px;">OSRS stats use the current RSN (not a sum of alternate accounts). Total level and collection-log count update first from WOM where available. Combat Achievements then sync separately from RuneProfile, which needs a synced RuneProfile plugin; RuneProfile also fills stats missing from WOM. Automatic refresh runs on bot startup and every 12 hours. Manual values stay until cleared in Edit; locked values are skipped by sync.</p>
         <p id="user-stats-status" role="status" style="color:#c4b5fd;font-size:0.85rem;margin-bottom:12px;"></p>
         <div class="card" style="padding: 0; overflow-x: auto;">
           <table>
@@ -2198,8 +2198,15 @@
       let res = await api('POST', '/api/user-stats/sync');
       let data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not start OSRS stats sync.');
+      let bulkShown = false;
       while (data.status === 'running') {
-        status.textContent = `Syncing OSRS stats: ${data.processed}/${data.total}. This continues on the server if you leave this page.`;
+        if (data.womComplete && !bulkShown) {
+          await loadUsers(currentPage);
+          bulkShown = true;
+        }
+        status.textContent = data.phase === 'wom'
+          ? `Updating total level and collection-log counts from WOM: ${data.womProcessed}/${data.total}.`
+          : `WOM phase finished; available level and collection-log updates are shown. Syncing Combat Achievements and missing stats: ${data.processed}/${data.total}. This continues on the server if you leave this page.`;
         await new Promise(resolve => setTimeout(resolve, 2500));
         res = await api('GET', '/api/user-stats/sync');
         data = await res.json();

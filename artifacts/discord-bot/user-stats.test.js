@@ -49,7 +49,8 @@ test('manual stats validate strictly; unchanged fields remain automatic and clea
 });
 
 function fixture({ users = [{ userId: '1', rsName: 'Example', rsNames: [] }],
-  locks = {}, response = profile, providerStatus = 200, wom = 2200, failDb = false } = {}) {
+  locks = {}, response = profile, providerStatus = 200, wom = 2200, logged,
+  womStatus = 200, beforeProfile, failDb = false } = {}) {
   let clock = 0;
   const writes = [], urls = [], waits = [];
   const User = {
@@ -73,8 +74,12 @@ function fixture({ users = [{ userId: '1', rsName: 'Example', rsNames: [] }],
     fetchImpl: async (url, options) => {
       urls.push(url);
       assert.ok(options.signal);
-      if (url.includes('wiseoldman')) return { ok: true, json: async () =>
-        [{ player: { username: 'Example' }, data: { data: { skills: { overall: { level: wom } } } } }] };
+      if (url.includes('wiseoldman')) return { ok: womStatus === 200, status: womStatus, json: async () =>
+        [{ player: { username: 'Example' }, data: { data: {
+          skills: { overall: { level: wom } },
+          activities: { collections_logged: { score: logged } },
+        } } }] };
+      if (beforeProfile) await beforeProfile({ users, service, writes });
       return { ok: providerStatus === 200, status: providerStatus,
         headers: { get: () => null }, json: async () => response };
     },
@@ -104,6 +109,70 @@ test('background sync is single-flight, uses one WOM bulk request and paces Rune
   assert.deepEqual(f.waits, [2100]);
   assert.equal(f.users[0].totalLevel, 2200); // WOM preferred over RuneProfile
   assert.equal(f.users[0].collectionLogCount, 0);
+});
+
+test('all WOM updates are saved before RuneProfile starts; collection log prefers WOM including zero', async () => {
+  for (const logged of [0, 750]) {
+    const f = fixture({ logged, users: [
+      { userId: '1', rsName: 'Example', rsNames: [] },
+      { userId: '2', rsName: 'Example', rsNames: [] },
+    ], beforeProfile({ users, service }) {
+      assert.equal(service.status().phase, 'combat');
+      assert.equal(service.status().womComplete, true);
+      assert.equal(service.status().womProcessed, 2);
+      for (const user of users) {
+        assert.equal(user.totalLevel, 2200);
+        assert.equal(user.collectionLogCount, logged);
+      }
+    } });
+    f.service.start();
+    assert.equal((await f.finish()).updated, 2, 'counts users once across both phases');
+    assert.equal(f.users[0].collectionLogCount, logged);
+    assert.equal(f.users[0].combatAchievementPoints, 60);
+  }
+});
+
+test('unranked/missing WOM collection scores fall back to RuneProfile, not zero', async () => {
+  for (const logged of [-1, undefined, null, 1.5]) {
+    const f = fixture({ logged, response: { ...profile, collectionLog: { obtained: 650 } } });
+    f.service.start();
+    await f.finish();
+    assert.equal(f.users[0].collectionLogCount, 650);
+  }
+});
+
+test('WOM failure still allows RuneProfile fallback with an explicit warning', async () => {
+  const f = fixture({ womStatus: 500 });
+  f.service.start();
+  const status = await f.finish();
+  assert.match(status.warnings[0], /WOM:.*500/);
+  assert.equal(f.users[0].totalLevel, 2100);
+  assert.equal(f.users[0].collectionLogCount, 0);
+});
+
+test('skips RuneProfile when every remaining field is manual or locked', async () => {
+  const f = fixture({ logged: 750,
+    users: [{ userId: '1', rsName: 'Example', rsNames: [],
+      combatAchievementTier: 'Elite', statsManual: { combatAchievementTier: true } }],
+    locks: { 'user.1.combatAchievementPoints': true } });
+  f.service.start();
+  await f.finish();
+  assert.equal(f.urls.length, 1);
+  assert.equal(f.users[0].collectionLogCount, 750);
+  assert.equal(f.users[0].combatAchievementTier, 'Elite');
+});
+
+test('both phases preserve manual and locked values, including locks added during sync', async () => {
+  const locks = { 'user.1.collectionLogCount': true };
+  const f = fixture({ logged: 750, locks,
+    users: [{ userId: '1', rsName: 'Example', rsNames: [], collectionLogCount: 600,
+      totalLevel: 2300, statsManual: { totalLevel: true } }],
+    beforeProfile() { locks['user.1.combatAchievementPoints'] = true; } });
+  f.service.start();
+  await f.finish();
+  assert.equal(f.users[0].totalLevel, 2300);
+  assert.equal(f.users[0].collectionLogCount, 600);
+  assert.equal(f.users[0].combatAchievementPoints, undefined);
 });
 
 test('sync preserves manual and locked values and uses conditional identity/override writes', async () => {
@@ -228,6 +297,26 @@ test('stats sync button polls background progress, refreshes results, and restor
     assert.match(node.textContent, fail ? /Unauthorized/ : /Sync complete: 1 updated/);
     assert.deepEqual(requests[0], ['POST', '/api/user-stats/sync']);
   }
+});
+
+test('dashboard shows WOM results while Combat Achievements are still syncing', async () => {
+  const node = { textContent: '' }, button = { disabled: false };
+  const refreshStatuses = [];
+  let polls = 0;
+  const context = vm.createContext({
+    document: { getElementById: () => node },
+    setTimeout: fn => fn(), currentPage: 1, showToast() {},
+    loadUsers: async () => refreshStatuses.push(polls),
+    api: async method => ({ ok: true, json: async () => method === 'POST'
+      ? { status: 'running', phase: 'wom', total: 2, womProcessed: 0 }
+      : ++polls === 1
+        ? { status: 'running', phase: 'combat', womComplete: true, processed: 0, total: 2 }
+        : { status: 'complete', updated: 2, missingRsn: 0, missingProfile: 0, failed: 0 } }),
+  });
+  vm.runInContext(html.slice(html.indexOf('  let userStatsPolling'), html.indexOf('  async function syncWomDashboard(')), context);
+  await context.syncUserStats(button);
+  assert.deepEqual(refreshStatuses, [1, 2]);
+  assert.equal(button.disabled, false);
 });
 
 test('user PATCH validates stats and enforces moderator field locks before saving manual flags', async () => {

@@ -98,47 +98,70 @@ function createUserStatsService({ User, getSettings, getLocks, fetchImpl = fetch
       state.total = users.length;
       const settings = await getSettings();
       const wom = new Map();
-      if (String(settings.womGroupId || '').trim()) {
-        try {
-          const rows = await getJson(`https://api.wiseoldman.net/v2/groups/${encodeURIComponent(settings.womGroupId)}/bulk-hiscores`);
-          if (!Array.isArray(rows)) throw new Error('Invalid WOM bulk stats response.');
-          for (const row of rows) {
-            const level = row.data?.data?.skills?.overall?.level;
-            if (isCount(level) && level > 0) {
-              wom.set(normalizeRsn(row.player?.username), level);
-            }
-          }
-        } catch (error) { state.warnings.push(`WOM: ${error.message}`); }
-      }
-      for (const user of users) {
-        const rsn = primaryRsn(user);
-        if (!rsn) { state.missingRsn++; state.processed++; continue; }
-        const stats = {};
-        try {
-          const profile = await getJson(`https://api.runeprofile.com/v1/accounts/${encodeURIComponent(rsn)}`, true);
-          if (profile === null) state.missingProfile++;
-          else Object.assign(stats, profileStats(profile, rsn));
-        } catch (error) {
-          state.failed++;
-          if (state.warnings.length < 10) state.warnings.push(`${rsn}: ${error.message}`);
-        }
-        // WOM remains the preferred source for total level.
-        if (wom.has(normalizeRsn(rsn))) stats.totalLevel = wom.get(normalizeRsn(rsn));
-        // Read locks at write time, and use conditional writes so manual edits,
-        // account changes, and deleted users cannot be overwritten mid-sync.
+      const updatedUsers = new Set();
+      async function saveStats(user, stats) {
+        // Re-read locks at write time and protect concurrent manual edits/RSN changes.
         const locks = await getLocks();
-        let updated = false;
         for (const field of STAT_FIELDS) {
-          if (stats[field] === undefined || locks[`user.${user.userId}.${field}`]) continue;
+          if (stats[field] === undefined || user.statsManual?.[field] ||
+              locks[`user.${user.userId}.${field}`]) continue;
           const result = await User.updateOne({
             userId: user.userId,
             rsName: user.rsName ?? null,
             rsNames: user.rsNames ?? null,
             [`statsManual.${field}`]: { $ne: true },
           }, { $set: { [field]: stats[field], statsSyncedAt: new Date(now()) } });
-          if (result.matchedCount) updated = true;
+          if (result.matchedCount) updatedUsers.add(user.userId);
         }
-        if (updated) state.updated++;
+        state.updated = updatedUsers.size;
+      }
+      state.phase = 'wom';
+      if (String(settings.womGroupId || '').trim()) {
+        try {
+          const rows = await getJson(`https://api.wiseoldman.net/v2/groups/${encodeURIComponent(settings.womGroupId)}/bulk-hiscores`);
+          if (!Array.isArray(rows)) throw new Error('Invalid WOM bulk stats response.');
+          for (const row of rows) {
+            const stats = {};
+            const level = row.data?.data?.skills?.overall?.level;
+            const logged = row.data?.data?.activities?.collections_logged?.score;
+            if (isCount(level) && level > 0) stats.totalLevel = level;
+            if (isCount(logged)) stats.collectionLogCount = logged;
+            wom.set(normalizeRsn(row.player?.username), stats);
+          }
+        } catch (error) { state.warnings.push(`WOM: ${error.message}`); }
+      }
+      // Commit the entire bulk result before starting slow per-account requests.
+      for (const user of users) {
+        const stats = wom.get(normalizeRsn(primaryRsn(user)));
+        if (stats && Object.keys(stats).length) await saveStats(user, stats);
+        state.womProcessed++;
+      }
+      state.womComplete = true;
+      state.phase = 'combat';
+      for (const user of users) {
+        const rsn = primaryRsn(user);
+        if (!rsn) { state.missingRsn++; state.processed++; continue; }
+        const bulkStats = wom.get(normalizeRsn(rsn)) || {};
+        const locks = await getLocks();
+        const needed = STAT_FIELDS.filter(field => bulkStats[field] === undefined &&
+          !user.statsManual?.[field] && !locks[`user.${user.userId}.${field}`]);
+        if (!needed.length) { state.processed++; continue; }
+        const stats = {};
+        try {
+          const profile = await getJson(`https://api.runeprofile.com/v1/accounts/${encodeURIComponent(rsn)}`, true);
+          if (profile === null) state.missingProfile++;
+          else {
+            const parsed = profileStats(profile, rsn);
+            // RuneProfile supplies CA, plus fallback values missing from WOM.
+            for (const field of needed) {
+              if (parsed[field] !== undefined) stats[field] = parsed[field];
+            }
+          }
+        } catch (error) {
+          state.failed++;
+          if (state.warnings.length < 10) state.warnings.push(`${rsn}: ${error.message}`);
+        }
+        if (Object.keys(stats).length) await saveStats(user, stats);
         state.processed++;
       }
       state.status = 'complete';
@@ -155,7 +178,8 @@ function createUserStatsService({ User, getSettings, getLocks, fetchImpl = fetch
     start() {
       if (!running) {
         running = true;
-        state = { status: 'running', total: 0, processed: 0, updated: 0,
+        state = { status: 'running', phase: 'wom', womProcessed: 0, womComplete: false,
+          total: 0, processed: 0, updated: 0,
           missingRsn: 0, missingProfile: 0, failed: 0, warnings: [],
           startedAt: new Date(now()).toISOString() };
         void run();

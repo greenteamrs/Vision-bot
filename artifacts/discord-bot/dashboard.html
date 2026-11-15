@@ -1078,7 +1078,8 @@
         button = makeDashboardLockButton(key);
         control.parentElement?.insertBefore(button, control);
       } else setLockButtonState(button, key);
-      control.disabled = currentDashboardUser.role !== 'admin' && lockIsActive(key);
+      control.disabled = control.dataset.actionDisabled === 'true' ||
+        (currentDashboardUser.role !== 'admin' && lockIsActive(key));
     });
 
     root.querySelectorAll('[data-lock-guard-key]').forEach(control => {
@@ -1561,6 +1562,7 @@
           <td>${daysCell}</td>
           <td style="display:flex;gap:6px;">
             <button class="btn-edit" onclick="openEditModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>
+            <button class="btn-edit" data-lock-action-key="user.${escAttr(u.userId)}.refreshStats" data-action-disabled="${!String(u.rsName || u.rsNames?.at(-1) || '').trim() || memberStatsRefreshing.has(u.userId)}" onclick="refreshMemberStats('${escAttr(u.userId)}', this)" ${String(u.rsName || u.rsNames?.at(-1) || '').trim() && !memberStatsRefreshing.has(u.userId) ? '' : 'disabled'}>${memberStatsRefreshing.has(u.userId) ? 'Refreshing…' : 'Refresh stats'}</button>
             <button class="btn-edit" data-lock-action-key="user.${escAttr(u.userId)}.delete" style="color:#f87171;border-color:#7f1d1d;" onclick="deleteUser('${esc(u.userId)}', '${esc(u.username || u.userId)}')">Delete</button>
           </td>
         </tr>`;
@@ -2188,6 +2190,50 @@
     showToast(`Selected "${name}" (ID: ${id}) — click Save XP Settings to apply.`);
   }
 
+  const memberStatsRefreshing = new Set();
+  async function refreshMemberStats(userId, button) {
+    if (memberStatsRefreshing.has(userId)) return;
+    memberStatsRefreshing.add(userId);
+    const originalText = button.textContent;
+    button.dataset.actionDisabled = 'true';
+    button.disabled = true;
+    button.textContent = 'Refreshing…';
+    const status = document.getElementById('user-stats-status');
+    const endpoint = `/api/users/${encodeURIComponent(userId)}/stats/refresh`;
+    let accepted = false;
+    try {
+      let res = await api('POST', endpoint);
+      let data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not refresh member stats.');
+      accepted = true;
+      while (data.status === 'running') {
+        status.textContent = 'Refreshing this member only. Manual and locked values will be kept.';
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        res = await api('GET', endpoint);
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not read member refresh progress.');
+      }
+      if (data.status !== 'complete') throw new Error(data.error || 'Member refresh failed.');
+      const warning = data.failed || data.missingProfile || data.warnings?.length;
+      status.textContent = `Member refresh finished: ${data.updated} updated; ${data.missingProfile} without RuneProfile; ${data.failed} provider errors. Manual/locked values and unavailable stats were kept.${data.warnings?.length ? ' ' + data.warnings.join(' ') : ''}`;
+      showToast(warning ? 'Member refresh finished with missing data or provider warnings.' : 'Member stats refreshed.', !!warning);
+    } catch (error) {
+      status.textContent = error.message;
+      showToast(error.message, true);
+    } finally {
+      memberStatsRefreshing.delete(userId);
+      button.dataset.actionDisabled = 'false';
+      button.textContent = originalText;
+      button.disabled = false;
+      hydrateDashboardLockControls(document.getElementById('users-table-body'));
+      // Reload even after a failed job: one provider may already have saved data.
+      if (accepted) {
+        try { await loadUsers(currentPage); }
+        catch (error) { showToast(error.message || 'Could not reload members.', true); }
+      }
+    }
+  }
+
   let userStatsPolling = false;
   async function syncUserStats(button) {
     if (userStatsPolling) return;
@@ -2198,6 +2244,7 @@
       let res = await api('POST', '/api/user-stats/sync');
       let data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not start OSRS stats sync.');
+      if (data.scope === 'member') throw new Error('A member stats refresh is already running. Try the clan sync when it finishes.');
       let bulkShown = false;
       while (data.status === 'running') {
         if (data.womComplete && !bulkShown) {

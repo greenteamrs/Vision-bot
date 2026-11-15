@@ -77,6 +77,7 @@ test('Users table displays WOM rank, confirmation icons and missing-RSN text', a
     updateSortArrows() {}, renderPagination() {},
     esc: value => String(value), escAttr: value => String(value),
     userSort: 'level', userSortDir: 'desc',
+    memberStatsRefreshing: new Set(),
   });
   vm.runInContext(html.slice(html.indexOf('  async function loadUsers('), html.indexOf('  function renderPagination(')), context);
   await vm.runInContext('loadUsers(1)', context);

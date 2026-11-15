@@ -3022,6 +3022,24 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Per-member jobs share the provider slot, never the clan-wide entry point.
+    const memberStatsMatch = pathname.match(/^\/api\/users\/([0-9]+)\/stats\/refresh$/);
+    if (memberStatsMatch && ['POST', 'GET'].includes(req.method)) {
+      const userId = memberStatsMatch[1];
+      try {
+        if (req.method === 'POST') {
+          if (await dashboardEditBlocked(authUser, res, [`user.${userId}.refreshStats`])) return;
+          sendJson(res, 202, await userStatsService.startMember(userId));
+        } else {
+          const status = userStatsService.memberStatus(userId);
+          sendJson(res, status ? 200 : 404, status || { error: 'No refresh found for this member.' });
+        }
+      } catch (error) {
+        sendJson(res, error.statusCode || 500, { error: error.statusCode ? error.message : 'Could not refresh member stats.' });
+      }
+      return;
+    }
+
     // GET /api/users
     if (pathname === '/api/users' && req.method === 'GET') {
       const search = url.searchParams.get('search') || '';

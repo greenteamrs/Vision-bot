@@ -70,6 +70,7 @@ function createUserStatsService({ User, getSettings, getLocks, fetchImpl = fetch
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), now = () => Date.now() }) {
   let running = false;
   let state = { status: 'idle' };
+  const memberStates = new Map();
   let lastProfileRequest = null;
 
   async function getJson(url, profile = false) {
@@ -92,11 +93,11 @@ function createUserStatsService({ User, getSettings, getLocks, fetchImpl = fetch
     return response.json();
   }
 
-  async function run() {
+  async function run(member = null) {
     try {
-      const users = await User.find({}).lean();
+      const users = member ? [member] : await User.find({}).lean();
       state.total = users.length;
-      const settings = await getSettings();
+      const settings = member ? {} : await getSettings();
       const wom = new Map();
       const updatedUsers = new Set();
       async function saveStats(user, stats) {
@@ -116,9 +117,18 @@ function createUserStatsService({ User, getSettings, getLocks, fetchImpl = fetch
         state.updated = updatedUsers.size;
       }
       state.phase = 'wom';
-      if (String(settings.womGroupId || '').trim()) {
+      if (member || String(settings.womGroupId || '').trim()) {
         try {
-          const rows = await getJson(`https://api.wiseoldman.net/v2/groups/${encodeURIComponent(settings.womGroupId)}/bulk-hiscores`);
+          let rows;
+          if (member) {
+            const player = await getJson(`https://api.wiseoldman.net/v2/players/${encodeURIComponent(primaryRsn(member))}`);
+            if (normalizeRsn(player?.username) !== normalizeRsn(primaryRsn(member))) {
+              throw new Error('WOM returned a different account.');
+            }
+            rows = [{ player, data: player.latestSnapshot }];
+          } else {
+            rows = await getJson(`https://api.wiseoldman.net/v2/groups/${encodeURIComponent(settings.womGroupId)}/bulk-hiscores`);
+          }
           if (!Array.isArray(rows)) throw new Error('Invalid WOM bulk stats response.');
           for (const row of rows) {
             const stats = {};
@@ -173,15 +183,44 @@ function createUserStatsService({ User, getSettings, getLocks, fetchImpl = fetch
       running = false;
     }
   }
+  function initialize(userId = null) {
+    state = { status: 'running', scope: userId === null ? 'clan' : 'member', userId,
+      phase: 'wom', womProcessed: 0, womComplete: false,
+      total: 0, processed: 0, updated: 0,
+      missingRsn: 0, missingProfile: 0, failed: 0, warnings: [],
+      startedAt: new Date(now()).toISOString() };
+    if (userId !== null) memberStates.set(userId, state);
+  }
+  function snapshot(value) {
+    return value ? { ...value, warnings: [...(value.warnings || [])] } : null;
+  }
   return {
-    status: () => ({ ...state, warnings: [...(state.warnings || [])] }),
+    status: () => snapshot(state),
+    memberStatus: userId => snapshot(memberStates.get(userId)),
+    async startMember(userId) {
+      if (running) {
+        throw Object.assign(new Error('A stats sync is already running. Try again when it finishes.'), { statusCode: 409 });
+      }
+      // Claim the shared provider slot before the first await, including lookups.
+      running = true;
+      try {
+        const member = await User.findOne({ userId }).lean();
+        if (!member) throw Object.assign(new Error('User not found.'), { statusCode: 404 });
+        if (!primaryRsn(member)) {
+          throw Object.assign(new Error('Add an RSN before refreshing this member.'), { statusCode: 400 });
+        }
+        initialize(userId);
+        void run(member);
+        return snapshot(state);
+      } catch (error) {
+        running = false;
+        throw error;
+      }
+    },
     start() {
       if (!running) {
         running = true;
-        state = { status: 'running', phase: 'wom', womProcessed: 0, womComplete: false,
-          total: 0, processed: 0, updated: 0,
-          missingRsn: 0, missingProfile: 0, failed: 0, warnings: [],
-          startedAt: new Date(now()).toISOString() };
+        initialize();
         void run();
       }
       return this.status();

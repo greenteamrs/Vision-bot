@@ -421,6 +421,63 @@
   @media (max-width:600px) { .event-list { grid-template-columns:1fr; } .event-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .event-form-grid,.event-inline-form { grid-template-columns:1fr; } .event-form-grid .wide,.event-inline-form .wide { grid-column:auto; } .event-row { align-items:flex-start;flex-wrap:wrap; } .event-row-actions { width:100%; } }
   @media (max-width:700px) { main { padding:16px; } nav { width:155px; } .calendar-day { min-height:78px; padding:4px; } .calendar-year { grid-template-columns:repeat(2,1fr); } .calendar-event { font-size:.65rem; } }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  /* ADVENT TEST — a distinct operations surface within the existing Vision dashboard */
+  .advent-shell { --adv-accent:#86c7bb; --adv-gold:#d8bd7c; --adv-ink:#e4ece7; --adv-muted:#91a49b; color:var(--adv-ink); }
+  .advent-head { display:flex;justify-content:space-between;align-items:flex-end;gap:18px;flex-wrap:wrap;margin-bottom:16px; }
+  .advent-head .section-title { margin:3px 0 5px;color:#c9ded4; }
+  .advent-kicker { color:#d8bd7c;font:700 .68rem ui-monospace,SFMono-Regular,monospace;letter-spacing:.16em;text-transform:uppercase; }
+  .advent-head p,.advent-muted { color:#9aada4;font-size:.86rem;line-height:1.5; }
+  .advent-warning { padding:12px 15px;border:1px solid #765d2a;background:#2b2518;color:#f0d58d;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+  .advent-warning strong { letter-spacing:.08em; }
+  .advent-shell .card { background:#18221f;border-color:#2b3a35;border-radius:10px; }
+  .advent-shell .card h3 { color:#c9ded4; }
+  .advent-toolbar { display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap; }
+  .advent-shell input,.advent-shell select,.advent-shell textarea { color:#e0ebe5;background:#111b19;border:1px solid #30423c;border-radius:7px;padding:9px 11px;font:inherit; }
+  .advent-shell input:focus,.advent-shell select:focus,.advent-shell textarea:focus { outline:1px solid #86c7bb;border-color:#86c7bb; }
+  .advent-shell input:disabled,.advent-shell textarea:disabled { opacity:.55; }
+  .advent-settings { display:grid;grid-template-columns:repeat(2,minmax(170px,1fr)) auto;gap:12px;align-items:end; }
+  .advent-settings label,.advent-day-editor label,.advent-review label { display:block;color:#95a89e;font-size:.78rem;margin-bottom:5px; }
+  .advent-settings input { width:100%; }
+  .advent-shell .btn-save { background:#276456;color:#effbf6; }
+  .advent-shell .btn-save:hover { background:#327764; }
+  .advent-shell .btn-edit { color:#b4d9cc;background:#203b33;border-color:#3b6557; }
+  .advent-shell .btn-danger { background:#532b28;border-color:#71413b;color:#f0b5a9;padding:7px 11px; }
+  .advent-shell button:disabled { opacity:.42;cursor:not-allowed; }
+  .advent-runbar { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+  .advent-run-state { display:flex;align-items:center;gap:10px; }
+  .advent-run-state strong { font-size:1.1rem;text-transform:capitalize; }
+  .advent-pill { display:inline-flex;border-radius:99px;padding:4px 9px;background:#293832;color:#b1c6ba;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em; }
+  .advent-pill.running { background:#18372d;color:#8ce0bd; }.advent-pill.paused { background:#39311f;color:#e0ca8c; }.advent-pill.completed { background:#29312e;color:#aab8b0; }
+  .advent-actions { display:flex;gap:7px;flex-wrap:wrap; }
+  .advent-grid { display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px; }
+  .advent-door { min-height:94px;text-align:left;border:1px solid #344840;background:#131d1a;border-radius:9px;padding:11px;color:#dce9e2;cursor:pointer;position:relative;transition:transform .16s,border-color .16s,background .16s; }
+  .advent-door:hover { transform:translateY(-2px);border-color:#86c7bb;background:#1b2b25; }
+  .advent-door.today { border-color:#d8bd7c;box-shadow:inset 0 0 0 1px #d8bd7c; }
+  .advent-door.opened { background:#1a3028;border-color:#477461; }
+  .advent-door.closed { opacity:.8; }
+  .advent-door-number { display:block;font:700 1.18rem ui-monospace,SFMono-Regular,monospace;color:#d8bd7c;margin-bottom:8px; }
+  .advent-door-status { font-size:.68rem;color:#93a79d;text-transform:uppercase;letter-spacing:.08em; }
+  .advent-door-title { display:block;color:#dce9e2;font-size:.76rem;line-height:1.35;margin-top:5px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical; }
+  .advent-detail-grid { display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,.85fr);gap:16px;align-items:start; }
+  .advent-day-editor textarea { width:100%;min-height:105px;resize:vertical; }
+  .advent-save-row { display:flex;align-items:center;gap:10px;margin-top:10px; }
+  .advent-submissions { display:flex;flex-direction:column;gap:10px; }
+  .advent-submission { display:grid;grid-template-columns:94px minmax(0,1fr);gap:13px;padding:11px;background:#131d1a;border:1px solid #2a3a34;border-radius:8px; }
+  .advent-thumb { width:94px;height:80px;object-fit:cover;border-radius:6px;background:#0c1411;border:1px solid #2a3a34; }
+  .advent-sub-main { min-width:0; }
+  .advent-sub-top { display:flex;justify-content:space-between;gap:8px;align-items:flex-start; }
+  .advent-sub-top strong { overflow-wrap:anywhere;color:#dce9e2; }
+  .advent-sub-meta { color:#8da198;font-size:.75rem;margin:4px 0 7px; }
+  .advent-sub-actions { display:flex;gap:6px;flex-wrap:wrap;margin-top:8px; }
+  .advent-review { grid-column:1/-1;border-top:1px solid #293832;padding-top:9px; }
+  .advent-review input { width:min(100%,560px); }
+  .advent-empty { text-align:center;padding:24px;color:#8fa197;background:#131d1a;border-radius:8px; }
+  .advent-announcements { display:flex;flex-direction:column;gap:7px; }
+  .advent-announcement { display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 11px;border-top:1px solid #293832;color:#b9c9c1;font-size:.82rem; }
+  .advent-statusline { min-height:19px;color:#92a89d;font-size:.8rem; }
+  .advent-error { color:#efaaa1!important; }
+  @media(max-width:850px) { .advent-detail-grid { grid-template-columns:1fr; } .advent-grid { grid-template-columns:repeat(5,minmax(0,1fr)); } }
+  @media(max-width:600px) { .advent-grid { grid-template-columns:repeat(3,minmax(0,1fr));gap:6px; }.advent-door { min-height:82px;padding:8px; }.advent-settings { grid-template-columns:1fr; }.advent-submission { grid-template-columns:72px minmax(0,1fr);gap:9px; }.advent-thumb { width:72px;height:68px; } }
 </style>
 </head>
 <body>
@@ -469,6 +526,7 @@
       <button onclick="showSection('droptracker', this)">💰 Droptracker</button>
       <button onclick="showSection('bingo', this)">🎯 Bingo</button>
       <button onclick="showSection('events', this)">Events</button>
+      <button onclick="showSection('advent', this)">Advent test</button>
       <button id="nav-bot-dms" onclick="showSection('bot-dms', this)">Bot DMs<span id="dm-count-badge" class="dm-count-badge" hidden aria-live="polite" aria-atomic="true"></span></button>
     </nav>
 
@@ -548,6 +606,67 @@
           <button class="btn-edit" id="dm-older" style="display:none;margin-top:14px;" onclick="loadBotDms(true)">Load older messages</button>
         </div>
       </div>
+
+      <!-- ADVENT TEST EVENT -->
+      <section class="section advent-shell" id="section-advent">
+        <div class="advent-head">
+          <div><div class="advent-kicker">Vision · seasonal operations</div><div class="section-title">Advent test event</div>
+            <p>Build the December challenge calendar and review member proof before any live launch.</p></div>
+          <button type="button" class="btn-edit" onclick="loadAdvent(true)">Refresh state</button>
+        </div>
+        <div class="advent-warning"><strong>TEST ONLY</strong><span>Test channel <code>1572351838823653397</code> · all run times are UTC · no live activation is available here.</span></div>
+        <p id="advent-load-status" class="advent-statusline" role="status" aria-live="polite"></p>
+        <div class="card">
+          <div class="advent-runbar">
+            <div class="advent-run-state"><span id="advent-run-pill" class="advent-pill">Loading</span><strong id="advent-run-copy">Awaiting test state</strong><span id="advent-run-timer" class="advent-muted"></span></div>
+            <div class="advent-actions" id="advent-run-controls"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Test configuration</h3>
+          <div class="advent-settings">
+            <div><label for="advent-year">Calendar year</label><input id="advent-year" type="number" min="2020" max="2200" data-lock-key="advent.test.year"></div>
+            <div><label for="advent-duration">Day duration · seconds (60–86,400)</label><input id="advent-duration" type="number" min="60" max="86400" step="1" data-lock-key="advent.test.dayDurationSeconds"></div>
+            <button class="btn-save" id="advent-save-config" type="button" onclick="saveAdventConfig()">Save settings</button>
+          </div>
+          <p class="advent-muted" style="margin-top:10px;">Settings can only be changed while the test run is idle. Future challenge text is staff-only.</p>
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+            <div><h3 style="margin:0 0 4px;">25-door challenge calendar</h3><span class="advent-muted">Select a door to edit its staff-only challenge text.</span></div>
+            <div class="advent-muted">Opened <strong id="advent-opened-count">—</strong> / 25</div>
+          </div>
+          <div id="advent-doors" class="advent-grid" aria-label="Advent challenge days"></div>
+        </div>
+        <div class="advent-detail-grid">
+          <div class="card advent-day-editor">
+            <h3 id="advent-day-heading">Select a door</h3>
+            <label for="advent-challenge-text">Challenge text <span class="advent-muted">(staff-only preview)</span></label>
+            <textarea id="advent-challenge-text" maxlength="2000" placeholder="Choose one of the 25 doors to edit its challenge." disabled></textarea>
+            <div class="advent-save-row"><button class="btn-save" id="advent-save-challenge" type="button" onclick="saveAdventChallenge()" disabled>Save challenge</button><span id="advent-challenge-status" class="advent-statusline"></span></div>
+          </div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+              <h3 style="margin:0">Announcements</h3>
+              <button class="btn-edit" id="advent-calendar-preview-button" type="button" onclick="previewAdventCalendar()">Preview calendar image</button>
+              <button class="btn-edit" id="advent-calendar-download" type="button" onclick="downloadAdventCalendar()">Download calendar image</button>
+            </div>
+            <div id="advent-calendar-preview" style="display:none;margin-top:12px;">
+              <img id="advent-calendar-image" alt="Advent test calendar preview" style="display:block;max-width:100%;max-height:620px;object-fit:contain;border:1px solid #30423c;border-radius:8px;background:#111b19;" />
+              <button class="btn-edit" type="button" style="margin-top:8px;" onclick="closeAdventCalendarPreview()">Close preview</button>
+            </div>
+            <div id="advent-announcements" class="advent-announcements"><div class="advent-empty">No announcement state loaded.</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+            <div><h3 style="margin:0 0 4px;">Member proof submissions</h3><span class="advent-muted">Review evidence before accepting a challenge.</span></div>
+            <div class="advent-toolbar"><select id="advent-filter-status" aria-label="Filter submissions" onchange="renderAdventSubmissions()"><option value="all">All statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+              <select id="advent-filter-day" aria-label="Filter submissions by day" onchange="renderAdventSubmissions()"><option value="all">All days</option></select></div>
+          </div>
+          <div id="advent-submissions" class="advent-submissions"><div class="advent-empty">Loading submissions…</div></div>
+        </div>
+      </section>
 
       <!-- MODERATOR ACCOUNTS -->
       <div class="section" id="section-mod-accounts">
@@ -1687,6 +1806,8 @@
     if (name === 'ranks') loadRanks();
     if (name === 'bingo') loadBingoState();
     if (name === 'events') loadEvents();
+    if (name === 'advent') { loadAdvent(); startAdventPolling(); }
+    else stopAdventPolling();
     if (name === 'bot-dms') loadBotDms();
     if (name === 'bot-dms') refreshDmBadge();
   }
@@ -3484,6 +3605,275 @@
     } catch (error) {
       showToast(error.message || 'Event change could not be saved.', true);
     }
+  }
+
+  // ---- ADVENT TEST EVENT ----
+  let adventState = null;
+  let adventSelectedDay = null;
+  let adventBusy = false;
+  let adventPollTimer = null;
+  let adventRequestGeneration = 0;
+
+  function startAdventPolling() {
+    stopAdventPolling();
+    if (document.getElementById('section-advent')?.classList.contains('active')) {
+      adventPollTimer = setInterval(() => loadAdvent(false, true), 15000);
+    }
+  }
+  function stopAdventPolling() {
+    if (adventPollTimer) clearInterval(adventPollTimer);
+    adventPollTimer = null;
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && document.getElementById('section-advent')?.classList.contains('active')) loadAdvent(false, true);
+  });
+  function adventDirty(input) { return input?.dataset.dirty === 'true'; }
+  function adventSetStatus(text, error = false) {
+    const el = document.getElementById('advent-load-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('advent-error', error);
+  }
+  async function loadAdvent(force = false, silent = false) {
+    if (adventBusy) return;
+    if (!silent) adventSetStatus(force ? 'Refreshing test state…' : 'Loading test state…');
+    const generation = ++adventRequestGeneration;
+    try {
+      const res = await api('GET', '/api/advent/test');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Could not load Advent test state (HTTP ${res.status}).`);
+      if (generation !== adventRequestGeneration) return;
+      if (!data || !data.config || !data.run || !Array.isArray(data.config.challenges)) throw new Error('Advent test response was incomplete.');
+      adventState = data;
+      renderAdvent();
+      adventSetStatus(`State updated ${new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', timeZone:'UTC', timeZoneName:'short' })}.`);
+    } catch (error) {
+      adventSetStatus(error.message || 'Unable to load test state.', true);
+    }
+  }
+  function renderAdvent() {
+    if (!adventState) return;
+    const { config, run, submissions = [], announcements = [] } = adventState;
+    if (!adventDirty(document.getElementById('advent-year'))) document.getElementById('advent-year').value = config.year ?? '';
+    if (!adventDirty(document.getElementById('advent-duration'))) document.getElementById('advent-duration').value = config.dayDurationSeconds ?? 86400;
+    const idle = run.state === 'idle';
+    ['advent-year','advent-duration'].forEach(id => {
+      const control = document.getElementById(id);
+      control.dataset.lockBaseDisabled = String(!idle || adventBusy);
+      control.disabled = !idle || adventBusy;
+    });
+    document.getElementById('advent-save-config').disabled = !idle || adventBusy;
+    const pill = document.getElementById('advent-run-pill');
+    pill.textContent = run.state || 'unknown'; pill.className = `advent-pill ${escAttr(run.state || '')}`;
+    document.getElementById('advent-run-copy').textContent = run.state === 'idle' ? 'Test run is idle'
+      : run.state === 'completed' ? 'Test run completed' : `Day ${Math.min(25, Math.max(1, Number(run.day) || 1))} of 25`;
+    document.getElementById('advent-run-timer').textContent = run.dayEndsAt ? `Day ends ${formatAdventUtc(run.dayEndsAt)}` : '';
+    document.getElementById('advent-opened-count').textContent = Number(run.opened) || 0;
+    renderAdventControls(run);
+    renderAdventDoors(config.challenges, run);
+    renderAdventAnnouncements(announcements);
+    renderAdventSubmissions();
+    const dayFilter = document.getElementById('advent-filter-day');
+    const previous = dayFilter.value;
+    if (dayFilter.options.length !== 26) {
+      dayFilter.innerHTML = '<option value="all">All days</option>' + Array.from({ length:25 }, (_, i) => `<option value="${i + 1}">Day ${i + 1}</option>`).join('');
+    }
+    dayFilter.value = previous || 'all';
+    renderAdventSubmissions();
+    hydrateDashboardLockControls(document.getElementById('section-advent'));
+  }
+  function formatAdventUtc(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'UTC time unavailable';
+    return `${date.toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'UTC' })} UTC`;
+  }
+  function renderAdventControls(run) {
+    const host = document.getElementById('advent-run-controls');
+    const buttons = [];
+    if (run.state === 'idle') buttons.push(['start','Start test run','btn-save']);
+    if (run.state === 'running') buttons.push(['pause','Pause','btn-edit'], ['advance','Advance one day','btn-edit']);
+    if (run.state === 'paused') buttons.push(['resume','Resume','btn-save'], ['advance','Advance (starts next day)','btn-edit']);
+    if (run.state !== 'idle') buttons.push(['reset','Reset test','btn-danger']);
+    if (run.state === 'running' || run.state === 'paused') buttons.push(['announce','Retry announcement','btn-edit']);
+    const behavior = run.state === 'paused'
+      ? '<span class="advent-muted">Resume preserves remaining day time. Advance starts the next day.</span>'
+      : run.state === 'running' ? '<span class="advent-muted">Pausing preserves the remaining day time.</span>' : '';
+    host.innerHTML = buttons.map(([action,label,cls]) => `<button type="button" class="${cls}" data-lock-action-key="advent.test.${action}" data-action-disabled="${adventBusy}" onclick="adventAction('${action}')">${label}</button>`).join('') + behavior;
+    hydrateDashboardLockControls(host);
+  }
+  function renderAdventDoors(challenges, run) {
+    const host = document.getElementById('advent-doors');
+    host.innerHTML = Array.from({ length:25 }, (_, index) => {
+      const day = index + 1;
+      const opened = day <= (Number(run.opened) || 0);
+      const today = day === Number(run.day) && run.state !== 'idle' && run.state !== 'completed';
+      const state = today ? 'today' : opened ? 'opened' : 'closed';
+      const title = challenges[index] || '';
+      return `<button type="button" class="advent-door ${state}" aria-label="Day ${day}, ${today ? 'today' : opened ? 'opened' : 'closed'}" aria-pressed="${day === adventSelectedDay}" onclick="selectAdventDay(${day})"><span class="advent-door-number">${String(day).padStart(2,'0')}</span><span class="advent-door-status">${today ? 'Current day' : opened ? 'Opened' : 'Closed'}</span><span class="advent-door-title">${esc(title || 'Challenge not written')}</span></button>`;
+    }).join('');
+    if (adventSelectedDay) updateAdventDayEditor();
+  }
+  function selectAdventDay(day) {
+    const currentInput = document.getElementById('advent-challenge-text');
+    if (adventSelectedDay && adventDirty(currentInput) &&
+        currentInput.value !== (adventState?.config?.challenges?.[adventSelectedDay - 1] || '') &&
+        !confirm('Discard the unsaved challenge text for this door?')) return;
+    adventSelectedDay = Math.max(1, Math.min(25, Number(day)));
+    currentInput.dataset.dirty = 'false';
+    updateAdventDayEditor();
+    renderAdventDoors(adventState?.config?.challenges || [], adventState?.run || { opened:0, day:0, state:'idle' });
+  }
+  function updateAdventDayEditor() {
+    const input = document.getElementById('advent-challenge-text');
+    if (!adventSelectedDay || !adventState) return;
+    const day = adventSelectedDay;
+    document.getElementById('advent-day-heading').textContent = `Day ${day} challenge`;
+    input.disabled = false;
+    input.dataset.lockKey = `advent.test.challenge.${day}`;
+    if (!adventDirty(input)) input.value = adventState.config.challenges[day - 1] || '';
+    document.getElementById('advent-save-challenge').disabled = adventBusy;
+    hydrateDashboardLockControls(document.getElementById('section-advent'));
+  }
+  document.getElementById('advent-challenge-text').addEventListener('input', event => { event.currentTarget.dataset.dirty = 'true'; });
+  ['advent-year','advent-duration'].forEach(id => document.getElementById(id).addEventListener('input', event => {
+    event.currentTarget.dataset.dirty = 'true';
+  }));
+  async function saveAdventConfig() {
+    if (!adventState || adventBusy) return;
+    const year = Number(document.getElementById('advent-year').value);
+    const dayDurationSeconds = Number(document.getElementById('advent-duration').value);
+    if (!Number.isInteger(year) || year < 2020 || year > 2200) return showToast('Enter a valid calendar year.', true);
+    if (!Number.isInteger(dayDurationSeconds) || dayDurationSeconds < 60 || dayDurationSeconds > 86400) return showToast('Day duration must be from 60 to 86,400 seconds.', true);
+    await adventMutation(() => api('PATCH', '/api/advent/test', { year, dayDurationSeconds }), 'Advent test settings saved.', () => {
+      document.getElementById('advent-year').dataset.dirty = 'false';
+      document.getElementById('advent-duration').dataset.dirty = 'false';
+    });
+  }
+  async function saveAdventChallenge() {
+    if (!adventSelectedDay || !adventState || adventBusy) return;
+    const input = document.getElementById('advent-challenge-text');
+    const text = input.value.trim();
+    await adventMutation(() => api('PATCH', `/api/advent/test/challenges/${adventSelectedDay}`, { text }), `Day ${adventSelectedDay} challenge saved.`, () => { input.dataset.dirty = 'false'; });
+  }
+  async function adventAction(action) {
+    if (adventBusy) return;
+    const body = { action };
+    if (action === 'reset') {
+      const confirmation = prompt('Reset the test run? Existing submissions will be archived, not deleted or cleared. Edited challenges will be retained. Type RESET TEST to confirm.');
+      if (confirmation === null) return;
+      body.confirmation = confirmation;
+      if (confirmation !== 'RESET TEST') return showToast('Reset cancelled: confirmation did not match.', true);
+    }
+    const message = { start:'Test run started.', pause:'Test run paused.', resume:'Test run resumed.', advance:'Advanced the test run.', reset:'Test run reset.', announce:'Announcement retry requested.' }[action] || 'Test action completed.';
+    await adventMutation(() => api('POST', '/api/advent/test/actions', body), message);
+  }
+  async function adventMutation(request, success, afterSuccess) {
+    if (adventBusy) return;
+    adventBusy = true;
+    adventRequestGeneration++;
+    adventSetStatus('Saving test change…');
+    renderAdvent();
+    try {
+      const res = await request();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Test change failed (HTTP ${res.status}).`);
+      if (!data.config || !data.run) throw new Error('The server returned an incomplete Advent test state.');
+      adventState = data;
+      afterSuccess?.();
+      adventSetStatus(success);
+      showToast(success);
+    } catch (error) {
+      showToast(error.message || 'Advent test change failed.', true);
+      adventSetStatus(error.message || 'Advent test change failed.', true);
+    } finally {
+      adventBusy = false;
+      renderAdvent();
+    }
+  }
+  function renderAdventSubmissions() {
+    const host = document.getElementById('advent-submissions');
+    const reviewDrafts = new Map([...host.querySelectorAll('.advent-review input')].map(input => [input.id, input.value]));
+    if (!adventState || !Array.isArray(adventState.submissions)) {
+      host.innerHTML = '<div class="advent-empty">Submissions are not available.</div>'; return;
+    }
+    const status = document.getElementById('advent-filter-status').value;
+    const day = document.getElementById('advent-filter-day').value;
+    const rows = adventState.submissions.filter(item => (status === 'all' || item.status === status) && (day === 'all' || Number(item.day) === Number(day)));
+    if (!rows.length) {
+      host.innerHTML = `<div class="advent-empty">${adventState.submissions.length ? 'No submissions match these filters.' : 'No member proof has been submitted yet.'}</div>`; return;
+    }
+    host.innerHTML = rows.map(item => {
+      const id = escAttr(item._id || '');
+      const url = safeAdventUrl(item.proofUrl);
+      const statusClass = ['pending','approved','rejected'].includes(item.status) ? item.status : 'pending';
+      const image = url ? `<a href="${escAttr(url)}" target="_blank" rel="noopener noreferrer" aria-label="Open proof for ${escAttr(item.username || 'member')}"><img class="advent-thumb" src="${escAttr(url)}" alt="Proof image from ${escAttr(item.username || 'member')}" loading="lazy" onerror="this.style.display='none'"></a>` : '<div class="advent-thumb" aria-label="No proof image"></div>';
+      const actions = item.status === 'pending' ? `<div class="advent-sub-actions"><button type="button" class="btn-save" data-lock-action-key="advent.test.submission.${id}.review" data-action-disabled="${adventBusy}" onclick="reviewAdventSubmission('${id}','approved')">Approve</button><button type="button" class="btn-danger" data-lock-action-key="advent.test.submission.${id}.review" data-action-disabled="${adventBusy}" onclick="reviewAdventSubmission('${id}','rejected')">Reject</button></div>` : '';
+      const note = item.reviewNote ? `<div class="advent-muted">Review note: ${esc(item.reviewNote)}</div>` : '';
+      const submissionNote = item.note ? `<div class="advent-muted">Member note: ${esc(item.note)}</div>` : '';
+      const challenge = item.challenge ? `<div class="advent-muted">Challenge: ${esc(item.challenge)}</div>` : '';
+      const reviewId = `advent-review-${id}`;
+      return `<article class="advent-submission">${image}<div class="advent-sub-main"><div class="advent-sub-top"><strong>${esc(item.username || 'Unknown member')}</strong><span class="advent-pill ${statusClass}">${esc(statusClass)}</span></div><div class="advent-sub-meta">Day ${Number(item.day) || '—'} · ${esc(item.createdAt ? formatAdventUtc(item.createdAt) : 'Time unavailable')}</div>${challenge}${submissionNote}${url ? `<a class="event-proof" href="${escAttr(url)}" target="_blank" rel="noopener noreferrer">Open full proof</a>` : '<span class="advent-muted">No proof URL provided</span>'}${note}${actions}</div>${item.status === 'pending' ? `<div class="advent-review"><label for="${reviewId}">Review note</label><input id="${reviewId}" type="text" maxlength="1000" placeholder="Optional staff review note" value="${escAttr(reviewDrafts.get(reviewId) || '')}"></div>` : ''}</article>`;
+    }).join('');
+    hydrateDashboardLockControls(host);
+  }
+  function safeAdventUrl(value) {
+    try { const url = new URL(value, location.href); return ['http:','https:'].includes(url.protocol) ? url.href : ''; } catch { return ''; }
+  }
+  async function reviewAdventSubmission(id, status) {
+    if (adventBusy || !id || !['approved','rejected'].includes(status)) return;
+    const note = document.getElementById(`advent-review-${id}`)?.value.trim() || '';
+    await adventMutation(() => api('POST', `/api/advent/test/submissions/${encodeURIComponent(id)}/review`, { status, note }), `Submission ${status}.`);
+  }
+  function renderAdventAnnouncements(announcements) {
+    const host = document.getElementById('advent-announcements');
+    if (!announcements.length) { host.innerHTML = '<div class="advent-empty">No announcements have been recorded.</div>'; return; }
+    host.innerHTML = announcements.slice().sort((a,b) => Number(a.day) - Number(b.day)).map(item => {
+      const failed = item.status === 'failed' || item.error;
+      return `<div class="advent-announcement"><span>Day ${Number(item.day) || '—'} · ${esc(item.status || 'unknown')}${item.messageId ? ` · Message ${esc(item.messageId)}` : ''}${item.error ? ` · ${esc(item.error)}` : ''}${item.message ? ` · ${esc(item.message)}` : ''}</span>${failed ? '<button type="button" class="btn-edit" data-lock-action-key="advent.test.announce" onclick="adventAction(&quot;announce&quot;)">Retry</button>' : ''}</div>`;
+    }).join('');
+    hydrateDashboardLockControls(host);
+  }
+  async function downloadAdventCalendar() {
+    const button = document.getElementById('advent-calendar-download');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      const res = await api('GET', '/api/advent/test/calendar.png');
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || `Calendar image request failed (HTTP ${res.status}).`);
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `vision-advent-test-${adventState?.config?.year || 'calendar'}.png`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (error) { showToast(error.message || 'Could not download calendar image.', true); }
+    finally { button.disabled = false; }
+  }
+  let adventCalendarObjectUrl = null;
+  async function previewAdventCalendar() {
+    const button = document.getElementById('advent-calendar-preview-button');
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      const res = await api('GET', '/api/advent/test/calendar.png');
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error || `Calendar image request failed (HTTP ${res.status}).`);
+      }
+      const blob = await res.blob();
+      if (adventCalendarObjectUrl) URL.revokeObjectURL(adventCalendarObjectUrl);
+      adventCalendarObjectUrl = URL.createObjectURL(blob);
+      document.getElementById('advent-calendar-image').src = adventCalendarObjectUrl;
+      document.getElementById('advent-calendar-preview').style.display = 'block';
+    } catch (error) { showToast(error.message || 'Could not preview calendar image.', true); }
+    finally { button.disabled = false; }
+  }
+  function closeAdventCalendarPreview() {
+    document.getElementById('advent-calendar-preview').style.display = 'none';
   }
 </script>
 </body>

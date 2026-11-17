@@ -22,6 +22,7 @@ const {
   leaderboardFor,
 } = require('./events-domain');
 const { createEventService } = require('./event-service');
+const { createAdventService } = require('./advent-service');
 const { normalizeEventLink, createEventReminderService } = require('./event-reminders');
 const { BotDirectMessage, createDmInbox } = require('./dm-inbox');
 const { createPriceAlertService, fmt: formatPrice } = require('./price-alerts');
@@ -852,6 +853,7 @@ const eventService = createEventService({
   sendJson,
   dashboardEditBlocked,
 });
+const adventService = createAdventService({ client, readBody, sendJson, dashboardEditBlocked });
 
 function formatGp(n) {
   if (!n && n !== 0) return '?';
@@ -1129,6 +1131,10 @@ client.once('ready', async () => {
   userStatsService.start();
   await EventReminderDelivery.init();
   await BotDirectMessage.init();
+  await adventService.init();
+  setInterval(() => adventService.run().catch(error => {
+    console.error('[Advent] Test scheduler failed:', error.message);
+  }), 15000);
   eventReminders.run();
   cron.schedule('* * * * *', () => eventReminders.run());
   cron.schedule('*/5 * * * *', () => priceAlerts.run());
@@ -1296,6 +1302,13 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   // XP for chatting — Visionaries role only
+  try {
+    if (await adventService.handleMessage(message)) return;
+  } catch (error) {
+    console.error('[Advent] Could not handle test submission:', error.message);
+    return;
+  }
+
   try {
     if (hasVisionariesRole(message.member)) {
       const s = await getSettings();
@@ -2974,6 +2987,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (await adventService.handleApi(req, res, pathname, params, authUser)) return;
     if (await eventService.handleApi(req, res, pathname, params, authUser)) return;
 
     // GET /api/settings

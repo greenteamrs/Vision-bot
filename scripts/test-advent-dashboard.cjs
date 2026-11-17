@@ -7,10 +7,11 @@ const os = require('node:os');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID } = require('../artifacts/discord-bot/advent-domain');
+const { createCanvas } = require('../artifacts/discord-bot/node_modules/@napi-rs/canvas');
 
 async function main() {
   const fixture = {
-    config: { year: 2026, challenges: [...DEFAULT_CHALLENGES], dayDurationSeconds: 60, channelId: TEST_CHANNEL_ID },
+    config: { year: 2026, challenges: [...DEFAULT_CHALLENGES], dayDurationSeconds: 60, channelId: TEST_CHANNEL_ID, calendarImages: [] },
     run: { id: 'browser-fixture', state: 'idle', day: 0, opened: 0, dayEndsAt: null },
     submissions: [{
       _id: '000000000000000000000001', day: 1, username: 'Test member', challenge: DEFAULT_CHALLENGES[0],
@@ -27,9 +28,19 @@ async function main() {
     }
     const parts = [];
     for await (const part of req) parts.push(part);
-    const body = parts.length ? JSON.parse(Buffer.concat(parts)) : {};
+    const raw = Buffer.concat(parts);
+    const imageRequest = /^\/api\/advent\/test\/images\/\d+$/.test(req.url);
+    const body = parts.length && !imageRequest ? JSON.parse(raw) : {};
     requests.push({ method: req.method, url: req.url, body });
-    if (req.method === 'PATCH' && req.url.includes('/challenges/')) {
+    if (imageRequest) {
+      const day = Number(req.url.split('/').at(-1));
+      fixture.config.calendarImages = fixture.config.calendarImages.filter(image => image.day !== day);
+      if (req.method === 'POST') {
+        assert.equal(req.headers['content-type'], 'image/png');
+        assert.equal(raw.subarray(1, 4).toString(), 'PNG');
+        fixture.config.calendarImages.push({ day, size: raw.length, updatedAt: new Date().toISOString() });
+      }
+    } else if (req.method === 'PATCH' && req.url.includes('/challenges/')) {
       fixture.config.challenges[Number(req.url.split('/').at(-1)) - 1] = body.text;
     } else if (req.method === 'PATCH') {
       Object.assign(fixture.config, body);
@@ -111,6 +122,17 @@ async function main() {
       showSection('advent',document.querySelector('button[onclick*="showSection(\\'advent\\'"]'));
       loadAdvent();`);
     assert.equal(await evaluate(`document.querySelectorAll('.advent-door').length`), 25);
+    assert.equal(await evaluate(`document.getElementById('advent-image-day').options.length`), 26);
+    const imageBase64 = createCanvas(32, 24).toBuffer('image/png').toString('base64');
+    await evaluate(`{
+      const data = new DataTransfer();
+      data.items.add(new File([Uint8Array.from(atob('${imageBase64}'), c=>c.charCodeAt(0))], 'calendar.png', {type:'image/png'}));
+      document.getElementById('advent-image-file').files=data.files;
+    } uploadAdventImage();`);
+    assert.equal(fixture.config.calendarImages[0].day, 0);
+    assert.equal(await evaluate(`document.getElementById('advent-image-status').textContent.includes('1 / 26')`), true);
+    await evaluate(`window.confirm=()=>true; removeAdventImage();`);
+    assert.equal(fixture.config.calendarImages.length, 0);
     await evaluate(`selectAdventDay(3); document.getElementById('advent-challenge-text').value='Browser edited challenge';
       document.getElementById('advent-challenge-text').dataset.dirty='true'; saveAdventChallenge();`);
     assert.equal(fixture.config.challenges[2], 'Browser edited challenge');
@@ -130,6 +152,12 @@ async function main() {
     fs.mkdirSync(outputDir, { recursive: true });
     const desktop = await cmd('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(outputDir, 'dashboard-desktop.png'), Buffer.from(desktop.data, 'base64'));
+    const imagePanel = await evaluate(`(() => {
+      const box=document.getElementById('advent-image-day').closest('.card').getBoundingClientRect();
+      return {x:box.left+scrollX,y:box.top+scrollY,width:box.width,height:box.height,scale:1};
+    })()`);
+    const uploads = await cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: imagePanel });
+    fs.writeFileSync(path.join(outputDir, 'calendar-image-uploads.png'), Buffer.from(uploads.data, 'base64'));
     await cmd('Emulation.setDeviceMetricsOverride', { width: 420, height: 1000, deviceScaleFactor: 1, mobile: true });
     const mobile = await cmd('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(outputDir, 'dashboard-mobile.png'), Buffer.from(mobile.data, 'base64'));
@@ -139,7 +167,7 @@ async function main() {
     assert.equal(fixture.run.state, 'idle');
     assert.ok(requests.some(req => req.url.endsWith('/challenges/3') && req.body.text === 'Browser edited challenge'));
     assert.deepEqual(errors, []);
-    console.log('PASS: Advent desktop/mobile browser flows, editable challenge, polling draft, start, day advance, review, reset and input state.');
+    console.log('PASS: Advent desktop/mobile browser flows, 26 image slots, image upload/removal, editable challenge, polling draft, start, day advance, review and reset.');
   } finally {
     socket?.close();
     browser.kill('SIGTERM');

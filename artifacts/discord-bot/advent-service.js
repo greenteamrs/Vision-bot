@@ -3,6 +3,7 @@ const { AttachmentBuilder } = require('discord.js');
 const models = require('./advent-models');
 const { TEST_CHANNEL_ID, clock, challengeText, settingsInput, actionUpdate, assertAccepting } = require('./advent-domain');
 const { renderCalendar } = require('./advent-calendar');
+const { imageDay, normalizePng, readImageBody, createAdventImageStore } = require('./advent-images');
 
 function createAdventService({
   client, readBody, sendJson, dashboardEditBlocked,
@@ -10,6 +11,7 @@ function createAdventService({
   AdventSubmission = models.AdventSubmission,
   AdventAnnouncement = models.AdventAnnouncement,
   now = Date.now,
+  imageStore = createAdventImageStore(),
 }) {
   // One queue covers actions, submissions and announcements: an advance cannot
   // switch days halfway through accepting proof or building the daily image.
@@ -48,6 +50,19 @@ function createAdventService({
     return target;
   }
 
+  async function calendarImage(config, run) {
+    const day = Math.min(25, run.opened);
+    const custom = (config.calendarImages || []).find(image => image.day === day);
+    return custom ? imageStore.get(custom.fileId) : renderCalendar(config, run);
+  }
+
+  async function removeUnusedImage(fileId) {
+    if (!fileId) return;
+    try { await imageStore.remove(fileId); } catch (error) {
+      console.error('[Advent] Could not clean up unused calendar image:', error.message);
+    }
+  }
+
   async function freshProof(submission) {
     // Discord signs attachment links. Refresh expired links from their source
     // message instead of persisting image bytes or depending on a permanent URL.
@@ -81,6 +96,7 @@ function createAdventService({
       config: {
         year: config.year, challenges: config.challenges,
         dayDurationSeconds: config.dayDurationSeconds, channelId: TEST_CHANNEL_ID,
+        calendarImages: (config.calendarImages || []).map(({ day, size, updatedAt }) => ({ day, size, updatedAt })),
       },
       run: clock(config, now()), submissions, announcements,
     };
@@ -125,7 +141,7 @@ function createAdventService({
             image: { url: 'attachment://advent-calendar.png' },
             footer: { text: marker },
           }],
-          files: [new AttachmentBuilder(renderCalendar(config, run), { name: 'advent-calendar.png' })],
+          files: [new AttachmentBuilder(await calendarImage(config, run), { name: 'advent-calendar.png' })],
           allowedMentions: { parse: [] },
           nonce, enforceNonce: true,
         });
@@ -199,12 +215,44 @@ function createAdventService({
       }
       if (req.method === 'GET' && pathname === `${base}/calendar.png`) {
         const config = await getConfig();
+        const run = _params?.has('day')
+          ? { day: imageDay(_params.get('day')), opened: imageDay(_params.get('day')) }
+          : clock(config, now());
+        const bytes = await calendarImage(config, run);
         res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
-        res.end(renderCalendar(config, clock(config, now())));
+        res.end(bytes);
         return true;
       }
       if (!['admin', 'mod'].includes(authUser?.role)) {
         sendJson(res, 403, { error: 'Staff access required.' });
+        return true;
+      }
+      const imageSlot = pathname.match(/^\/api\/advent\/test\/images\/(\d+)$/);
+      if (imageSlot && ['POST', 'DELETE'].includes(req.method)) {
+        const day = imageDay(imageSlot[1]);
+        if (await dashboardEditBlocked(authUser, res, [`advent.test.image.${day}`])) {
+          req.resume?.();
+          return true;
+        }
+        const bytes = req.method === 'POST' ? await normalizePng(await readImageBody(req)) : null;
+        await serial(async () => {
+          const config = await getConfig();
+          const previous = (config.calendarImages || []).find(image => image.day === day);
+          const calendarImages = (config.calendarImages || []).filter(image => image.day !== day);
+          let newId;
+          try {
+            if (bytes) {
+              newId = await imageStore.put(bytes, day);
+              calendarImages.push({ day, fileId: newId, size: bytes.length, updatedAt: new Date(now()) });
+            }
+            await update(config, { calendarImages });
+          } catch (error) {
+            await removeUnusedImage(newId);
+            throw error;
+          }
+          await removeUnusedImage(previous?.fileId);
+          sendJson(res, 200, await snapshot());
+        });
         return true;
       }
       const challenge = pathname.match(/^\/api\/advent\/test\/challenges\/(\d+)$/);

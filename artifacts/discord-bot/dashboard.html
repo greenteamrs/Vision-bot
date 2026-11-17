@@ -659,6 +659,20 @@
           </div>
         </div>
         <div class="card">
+          <h3>Your calendar pictures</h3>
+          <p class="advent-muted">Upload 26 pictures whenever you are ready: one fully closed, then one showing each day opened. Each slot is independent; missing pictures use the generated calendar. Pictures are kept when resetting a test.</p>
+          <div class="advent-toolbar" style="margin-top:12px;">
+            <label for="advent-image-day">Calendar stage</label>
+            <select id="advent-image-day" onchange="closeAdventCalendarPreview();renderAdventImages()" aria-label="Calendar picture stage"></select>
+            <input id="advent-image-file" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose a calendar picture">
+            <button id="advent-image-upload" type="button" class="btn-save" onclick="uploadAdventImage()">Upload or replace</button>
+            <button id="advent-image-view" type="button" class="btn-edit" onclick="previewAdventCalendar(Number(document.getElementById('advent-image-day').value))">Preview selected stage</button>
+            <button id="advent-image-remove" type="button" class="btn-danger" onclick="removeAdventImage()">Use generated picture</button>
+          </div>
+          <p id="advent-image-status" class="advent-muted" role="status" style="margin-top:10px;"></p>
+          <p class="advent-muted">PNG, JPG or WebP; up to 5 MB after conversion, maximum 4096 × 4096 pixels. Upload the complete calendar picture for each stage. Replacing a picture affects previews and future announcements, not messages already sent.</p>
+        </div>
+        <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
             <div><h3 style="margin:0 0 4px;">Member proof submissions</h3><span class="advent-muted">Review evidence before accepting a challenge.</span></div>
             <div class="advent-toolbar"><select id="advent-filter-status" aria-label="Filter submissions" onchange="renderAdventSubmissions()"><option value="all">All statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
@@ -3672,6 +3686,7 @@
     renderAdventControls(run);
     renderAdventDoors(config.challenges, run);
     renderAdventAnnouncements(announcements);
+    renderAdventImages();
     renderAdventSubmissions();
     const dayFilter = document.getElementById('advent-filter-day');
     const previous = dayFilter.value;
@@ -3854,12 +3869,66 @@
     finally { button.disabled = false; }
   }
   let adventCalendarObjectUrl = null;
-  async function previewAdventCalendar() {
+  function renderAdventImages() {
+    const select = document.getElementById('advent-image-day');
+    const selected = Number(select.value || 0);
+    const images = adventState?.config?.calendarImages || [];
+    select.innerHTML = Array.from({length:26}, (_, day) => `<option value="${day}">${day === 0 ? 'Fully closed' : `Day ${day} opened`}${images.some(image => image.day === day) ? ' · uploaded' : ''}</option>`).join('');
+    select.value = String(selected);
+    const custom = images.find(image => image.day === selected);
+    for (const id of ['advent-image-upload', 'advent-image-remove']) {
+      const button = document.getElementById(id);
+      button.dataset.lockActionKey = `advent.test.image.${selected}`;
+      button.dataset.actionDisabled = String(adventBusy || (id === 'advent-image-remove' && !custom));
+    }
+    document.getElementById('advent-image-file').disabled = adventBusy;
+    document.getElementById('advent-image-day').disabled = adventBusy;
+    document.getElementById('advent-image-view').disabled = adventBusy;
+    document.getElementById('advent-image-status').textContent = `${images.length} / 26 custom pictures uploaded. ${custom ? 'This stage uses your uploaded picture.' : 'This stage uses the generated calendar.'}`;
+    hydrateDashboardLockControls(document.getElementById('section-advent'));
+  }
+  async function uploadAdventImage() {
+    if (adventBusy) return;
+    const input = document.getElementById('advent-image-file');
+    const file = input.files?.[0];
+    const day = Number(document.getElementById('advent-image-day').value);
+    if (!file) return showToast('Choose a calendar picture first.', true);
+    if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      return showToast('Choose a PNG, JPG or WebP image no larger than 5 MB.', true);
+    }
+    // Keep upload preparation inside the mutation so duplicate clicks cannot
+    // start parallel decodes or upload into a stage selected later.
+    await adventMutation(async () => {
+      const image = await createImageBitmap(file);
+      let png;
+      try {
+        if (image.width > 4096 || image.height > 4096 || image.width * image.height > 16000000) {
+          throw new Error('Choose a picture no larger than 4096 × 4096 pixels and 16 megapixels.');
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width; canvas.height = image.height;
+        canvas.getContext('2d').drawImage(image, 0, 0);
+        png = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      } finally { image.close(); }
+      if (!png || png.size > 5 * 1024 * 1024) throw new Error('The converted PNG exceeds 5 MB. Choose a smaller picture.');
+      return fetch(`/api/advent/test/images/${day}`, {
+        method:'POST', headers:{'Content-Type':'image/png', Authorization:`Bearer ${AUTH_TOKEN}`}, body:png,
+      });
+    }, 'Calendar picture uploaded.', () => { input.value = ''; closeAdventCalendarPreview(); });
+  }
+  async function removeAdventImage() {
+    if (adventBusy) return;
+    const day = Number(document.getElementById('advent-image-day').value);
+    if (!confirm('Remove this custom picture and use the generated calendar for this stage instead?')) return;
+    await adventMutation(() => api('DELETE', `/api/advent/test/images/${day}`),
+      'This stage now uses the generated calendar.', closeAdventCalendarPreview);
+  }
+  async function previewAdventCalendar(day = null) {
     const button = document.getElementById('advent-calendar-preview-button');
     if (button.disabled) return;
     button.disabled = true;
     try {
-      const res = await api('GET', '/api/advent/test/calendar.png');
+      const res = await api('GET', `/api/advent/test/calendar.png${day === null ? '' : `?day=${day}`}`);
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
         throw new Error(error.error || `Calendar image request failed (HTTP ${res.status}).`);

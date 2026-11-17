@@ -4,6 +4,9 @@ const fs = require('node:fs');
 const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID, clock, actionUpdate, settingsInput, challengeText, assertAccepting } = require('./advent-domain');
 const { createAdventService } = require('./advent-service');
 const { renderCalendar } = require('./advent-calendar');
+const { Readable } = require('node:stream');
+const { createCanvas } = require('@napi-rs/canvas');
+const { normalizePng, MAX_IMAGE_BYTES, readImageBody } = require('./advent-images');
 
 const START = Date.parse('2026-12-01T00:00:00Z');
 const defaults = () => ({
@@ -65,6 +68,13 @@ function fixture() {
   const AdventTest = fakeModel({ defaults, unique: ['_id'] });
   const AdventSubmission = fakeModel({ unique: ['runId', 'day', 'userId'] });
   const AdventAnnouncement = fakeModel({ unique: ['runId', 'day'] });
+  const imageFiles = new Map();
+  let fileSeq = 0;
+  const imageStore = {
+    async put(bytes) { const id = `image-${++fileSeq}`; imageFiles.set(id, bytes); return id; },
+    async get(id) { if (!imageFiles.has(id)) throw new Error('Image not found'); return imageFiles.get(id); },
+    async remove(id) { imageFiles.delete(id); },
+  };
   const client = {
     user: { id: 'bot' },
     channels: { fetch: async id => {
@@ -82,7 +92,7 @@ function fixture() {
     } },
   };
   const service = createAdventService({
-    client, AdventTest, AdventSubmission, AdventAnnouncement, now: () => time,
+    client, AdventTest, AdventSubmission, AdventAnnouncement, imageStore, now: () => time,
     readBody: async req => req.body,
     sendJson: (res, code, data) => Object.assign(res, { code, data }),
     dashboardEditBlocked: async (_auth, res) => {
@@ -91,8 +101,15 @@ function fixture() {
     },
   });
   async function api(method, suffix = '', body = {}, role = 'admin') {
-    const response = {};
-    await service.handleApi({ method, body }, response, `/api/advent/test${suffix}`, null, { role, sub: 'staff' });
+    const response = {
+      writeHead(code, headers) { Object.assign(this, { code, headers }); },
+      end(bytes) { this.bytes = bytes; },
+    };
+    const req = Buffer.isBuffer(body)
+      ? Object.assign(Readable.from([body]), { method, headers: { 'content-type': 'image/png' } })
+      : { method, body };
+    const url = new URL(`/api/advent/test${suffix}`, 'http://test');
+    await service.handleApi(req, response, url.pathname, url.searchParams, { role, sub: 'staff' });
     return response;
   }
   async function message({ content = '!advent submit', channelId = TEST_CHANNEL_ID, image = true, userId = 'member1' } = {}) {
@@ -104,7 +121,7 @@ function fixture() {
     });
   }
   Object.assign(f, {
-    service, api, message, sent, replies, AdventTest, AdventSubmission, AdventAnnouncement,
+    service, api, message, sent, replies, AdventTest, AdventSubmission, AdventAnnouncement, imageFiles,
     advance: milliseconds => { time += milliseconds; },
   });
   return f;
@@ -308,4 +325,64 @@ test('dashboard contract and protected bot integration remain wired', () => {
   assert.ok(bot.indexOf('const authUser = checkAuth(req)') < bot.indexOf('await adventService.handleApi'));
   assert.match(bot, /adventService\.handleMessage\(message\)/);
   assert.match(bot, /adventService\.init\(\)/);
+});
+
+test('custom images cover closed stage and every day, persist across resets and feed announcements', async () => {
+  const f = fixture();
+  const png = createCanvas(32, 24).toBuffer('image/png');
+  const normalized = await normalizePng(png);
+  for (let day = 0; day <= 25; day++) {
+    assert.equal((await f.api('POST', `/images/${day}`, png)).code, 200);
+  }
+  assert.equal((await f.api('GET')).data.config.calendarImages.length, 26);
+  assert.equal(f.imageFiles.size, 26);
+  assert.deepEqual((await f.api('GET', '/calendar.png?day=0')).bytes, normalized);
+  assert.deepEqual((await f.api('GET', '/calendar.png?day=25')).bytes, normalized);
+  await f.api('POST', '/actions', { action: 'start' });
+  assert.deepEqual(f.sent[0].files[0].attachment, normalized);
+  await f.api('POST', '/actions', { action: 'reset', confirmation: 'RESET TEST' });
+  assert.equal((await f.api('GET')).data.config.calendarImages.length, 26);
+});
+
+test('replacing or removing custom pictures cleans up storage and restores generated fallback', async () => {
+  const f = fixture();
+  const png = createCanvas(32, 24).toBuffer('image/png');
+  await f.api('POST', '/images/1', png);
+  const originalId = [...f.imageFiles.keys()][0];
+  await f.api('POST', '/images/1', png);
+  assert.equal(f.imageFiles.has(originalId), false);
+  assert.equal(f.imageFiles.size, 1);
+  await f.api('DELETE', '/images/1');
+  assert.equal(f.imageFiles.size, 0);
+  const result = await f.api('GET', '/calendar.png?day=1');
+  assert.equal(result.bytes.readUInt32BE(16), 1200);
+  assert.equal((await f.api('GET')).data.config.calendarImages.length, 0);
+});
+
+test('image endpoints reject invalid slots, malformed data and locked or non-staff uploads', async () => {
+  const f = fixture();
+  const png = createCanvas(32, 24).toBuffer('image/png');
+  assert.equal((await f.api('POST', '/images/26', png)).code, 400);
+  assert.equal((await f.api('GET', '/calendar.png?day=26')).code, 400);
+  assert.equal((await f.api('POST', '/images/0', Buffer.from('not png'))).code, 400);
+  assert.equal((await f.api('POST', '/images/0', png, 'member')).code, 403);
+  f.blocked = true;
+  assert.equal((await f.api('POST', '/images/0', png, 'mod')).code, 403);
+  assert.equal(f.imageFiles.size, 0);
+});
+
+test('upload limits check both declared and actual bytes, dimensions and decoded PNG validity', async () => {
+  const png = createCanvas(32, 24).toBuffer('image/png');
+  assert.equal((await normalizePng(png)).readUInt32BE(16), 32);
+  await assert.rejects(normalizePng(Buffer.alloc(MAX_IMAGE_BYTES + 1)), /5 MB/);
+  const huge = Buffer.from(png);
+  huge.writeUInt32BE(100000, 16);
+  await assert.rejects(normalizePng(huge), /4096/);
+  const corrupt = Buffer.from(png);
+  corrupt.fill(0, 33);
+  await assert.rejects(normalizePng(corrupt), /decoded/);
+  assert.throws(() => readImageBody({ headers: { 'content-type': 'image/svg+xml' } }), /image\/png/);
+  assert.throws(() => readImageBody({ headers: { 'content-type': 'image/png', 'content-length': MAX_IMAGE_BYTES + 1 } }), /5 MB/);
+  const stream = Object.assign(Readable.from([Buffer.alloc(MAX_IMAGE_BYTES), Buffer.alloc(1)]), { headers: { 'content-type': 'image/png' } });
+  await assert.rejects(readImageBody(stream), /5 MB/);
 });

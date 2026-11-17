@@ -112,12 +112,20 @@ function fixture() {
     await service.handleApi(req, response, url.pathname, url.searchParams, { role, sub: 'staff' });
     return response;
   }
-  async function message({ content = '!advent submit', channelId = TEST_CHANNEL_ID, image = true, userId = 'member1' } = {}) {
-    await service.handleMessage({
-      content, channelId, guildId: 'guild', id: 'original-message',
-      author: { id: userId, username: userId, bot: false },
-      attachments: { find: predicate => image && predicate({ contentType: 'image/png' }) ? { id: 'pic1', url: 'https://cdn.discordapp.com/attachments/pic.png' } : undefined },
-      reply: async payload => replies.push(payload.content),
+  async function message({ channelId = TEST_CHANNEL_ID, image = true, userId = 'member1', note = '', contentType = 'image/png' } = {}) {
+    await service.handleCommand({
+      channelId, guildId: 'guild',
+      user: { id: userId, username: userId },
+      options: {
+        getAttachment: name => name === 'screenshot' && image ? { id: 'pic1', name: 'proof.png', contentType, url: 'https://cdn.discordapp.com/attachments/pic.png' } : null,
+        getString: name => name === 'note' ? note : null,
+      },
+      deferReply: async () => {},
+      editReply: async payload => {
+        replies.push(payload.content);
+        return { id: 'saved-proof-message', attachments: { first: () => ({ id: 'saved-proof', url: 'https://cdn.discordapp.com/attachments/saved-proof.png' }) } };
+      },
+      reply: async payload => { assert.equal(payload.ephemeral, true); replies.push(payload.content); },
     });
   }
   Object.assign(f, {
@@ -202,6 +210,7 @@ test('start sends one image announcement without mentioning anyone, retries do n
   assert.equal(f.sent.length, 1);
   assert.equal(f.sent[0].files.length, 1);
   assert.match(f.sent[0].embeds[0].description, /tempoross/);
+  assert.match(f.sent[0].embeds[0].description, /\/adventsubmit/);
   assert.doesNotMatch(f.sent[0].embeds[0].description, /tormented|vale offerings/);
   assert.deepEqual(f.sent[0].allowedMentions, { parse: [] });
   await f.service.run();
@@ -231,8 +240,13 @@ test('screenshot submission supports review, daily duplicates and rejected resub
   await f.api('POST', '/actions', { action: 'start' });
   await f.message({ image: false });
   assert.match(f.replies.at(-1), /Attach a screenshot/);
-  await f.message();
+  await f.message({ contentType: 'application/pdf' });
+  assert.match(f.replies.at(-1), /Attach a screenshot/);
+  await f.message({ note: 'My daily proof' });
   assert.match(f.replies.at(-1), /submitted/);
+  assert.equal(f.AdventSubmission.rows[0].note, 'My daily proof');
+  assert.equal(f.AdventSubmission.rows[0].messageId, 'saved-proof-message');
+  assert.equal(f.AdventSubmission.rows[0].attachmentId, 'saved-proof');
   await f.message();
   assert.match(f.replies.at(-1), /already have/);
   const id = f.AdventSubmission.rows[0]._id;
@@ -262,7 +276,7 @@ test('test channel isolation applies to messages and all outbound announcements'
   const f = fixture();
   await f.api('POST', '/actions', { action: 'start' });
   await f.message({ channelId: 'live-channel' });
-  assert.equal(f.replies.length, 0);
+  assert.match(f.replies.at(-1), /test-only/);
   assert.equal(f.AdventSubmission.rows.length, 0);
   assert.equal((await f.api('POST', '/actions', { action: 'go-live' })).code, 400);
   assert.equal((await f.api('POST', '/actions', { action: 'advance' }, 'member')).code, 403);
@@ -323,7 +337,10 @@ test('dashboard contract and protected bot integration remain wired', () => {
     assert.ok(html.includes(fragment), fragment);
   }
   assert.ok(bot.indexOf('const authUser = checkAuth(req)') < bot.indexOf('await adventService.handleApi'));
-  assert.match(bot, /adventService\.handleMessage\(message\)/);
+  assert.match(bot, /adventService\.handleCommand\(interaction\)/);
+  assert.match(bot, /setName\('adventsubmit'\)/);
+  assert.match(bot, /setName\('screenshot'\).*setRequired\(true\)/);
+  assert.doesNotMatch(bot, /adventService\.handleMessage/);
   assert.match(bot, /adventService\.init\(\)/);
 });
 

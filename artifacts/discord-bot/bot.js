@@ -354,6 +354,10 @@ const SLASH_COMMANDS = [
   new SlashCommandBuilder().setName('syncdroptracker').setDescription('Sync members from Droptracker (mods)'),
   new SlashCommandBuilder().setName('syncwom').setDescription('Sync clan join dates from Wise Old Man (mods)'),
   new SlashCommandBuilder().setName('checkranks').setDescription('Run a rank-up check now (mods)'),
+  new SlashCommandBuilder().setName('adventsubmit').setDescription('Submit a screenshot for today’s advent challenge')
+    .setDMPermission(false)
+    .addAttachmentOption(o => o.setName('screenshot').setDescription('Picture proving today’s challenge').setRequired(true))
+    .addStringOption(o => o.setName('note').setDescription('Optional note for the reviewers').setMaxLength(1000)),
   new SlashCommandBuilder().setName('event').setDescription('Join and track OSRS clan events')
     .addSubcommand(sub => sub.setName('list').setDescription('List upcoming and active events'))
     .addSubcommand(sub => sub.setName('join').setDescription('Join an event or choose a team')
@@ -1302,13 +1306,6 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   // XP for chatting — Visionaries role only
-  try {
-    if (await adventService.handleMessage(message)) return;
-  } catch (error) {
-    console.error('[Advent] Could not handle test submission:', error.message);
-    return;
-  }
-
   try {
     if (hasVisionariesRole(message.member)) {
       const s = await getSettings();
@@ -2318,6 +2315,10 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName === 'adventsubmit') {
+    await adventService.handleCommand(interaction);
+    return;
+  }
   if (interaction.commandName === 'event') {
     await eventService.handleCommand(interaction);
     return;

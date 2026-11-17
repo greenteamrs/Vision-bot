@@ -130,7 +130,7 @@ function createAdventService({
         const completed = run.day > 25;
         const description = completed
           ? 'The test calendar is complete. Picture submissions are closed. Staff can still review submissions in the dashboard.'
-          : `**${config.challenges[run.day - 1]}**\n\nComplete this challenge during the current test day. Attach a screenshot to \`!advent submit\` in this channel. Staff will review it.\nCloses <t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>.\n${config.dayDurationSeconds !== 86400 ? `Accelerated test: one day lasts ${config.dayDurationSeconds} seconds.` : 'The test clock simulates a December day; advance it from the dashboard.'}`;
+          : `**${config.challenges[run.day - 1]}**\n\nComplete this challenge during the current test day. Use \`/adventsubmit\` with your screenshot in this channel. Staff will review it.\nCloses <t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>.\n${config.dayDurationSeconds !== 86400 ? `Accelerated test: one day lasts ${config.dayDurationSeconds} seconds.` : 'The test clock simulates a December day; advance it from the dashboard.'}`;
         const nonce = crypto.createHash('sha256').update(marker).digest('hex').slice(0, 24);
         sent = await target.send({
           content: `**TEST ONLY — ${completed ? 'Advent calendar complete' : `December ${run.day} advent challenge`}**`,
@@ -165,26 +165,44 @@ function createAdventService({
     });
   }
 
-  async function handleMessage(message) {
-    if (message.author.bot || !message.guildId || !/^!advent(?:\s|$)/i.test(message.content || '')) return false;
-    // Test mode must not announce or reply in live channels.
-    if (message.channelId !== TEST_CHANNEL_ID) return false;
+  async function handleCommand(interaction) {
+    if (!interaction.guildId || interaction.channelId !== TEST_CHANNEL_ID) {
+      await interaction.reply({
+        content: `Advent is test-only. Use /adventsubmit in <#${TEST_CHANNEL_ID}>.`,
+        ephemeral: true, allowedMentions: { parse: [] },
+      });
+      return;
+    }
+    await interaction.deferReply();
     await serial(async () => {
       try {
-        if (!/^!advent\s+submit(?:\s|$)/i.test(message.content)) {
-          throw new Error('Attach your screenshot and send `!advent submit` for the current day’s challenge.');
-        }
         const config = await getConfig();
-        const current = assertAccepting(config, { channelId: message.channelId, now: now() });
-        const image = message.attachments.find(item => item.contentType?.startsWith('image/')
-          || (!item.contentType && /\.(png|jpe?g|gif|webp)$/i.test(item.name || '')));
-        if (!image) throw new Error('Attach a screenshot image (PNG, JPG, GIF or WebP). Links alone are not picture submissions.');
-        const key = { runId: config.runId, day: current.day, userId: message.author.id };
+        const current = assertAccepting(config, { channelId: interaction.channelId, now: now() });
+        const image = interaction.options.getAttachment('screenshot');
+        if (!image || !(image.contentType?.startsWith('image/')
+          || (!image.contentType && /\.(png|jpe?g|gif|webp)$/i.test(image.name || '')))) {
+          throw new Error('Attach a screenshot image (PNG, JPG, GIF or WebP).');
+        }
+        const key = { runId: config.runId, day: current.day, userId: interaction.user.id };
+        const existing = await AdventSubmission.find(key).sort({ createdAt: -1 }).lean();
+        if (existing.some(item => ['pending', 'approved'].includes(item.status))) {
+          throw new Error('You already have a pending or approved picture for today. Rejected pictures can be resubmitted.');
+        }
+        // Copy slash-command attachments onto the bot's channel reply. Their
+        // original interaction URL expires and cannot be refreshed as a normal
+        // channel message. This retained copy works with freshProof after expiry.
+        const source = await interaction.editReply({
+          content: 'Saving your advent screenshot…',
+          files: [new AttachmentBuilder(image.url, { name: String(image.name || 'advent-proof.png').replace(/[^\w.-]/g, '_') })],
+          allowedMentions: { parse: [] },
+        });
+        const proof = source.attachments.first();
+        if (!proof) throw new Error('Could not retain the screenshot. Please try /adventsubmit again.');
         const values = {
           challenge: config.challenges[current.day - 1],
-          username: message.author.username,
-          proofUrl: image.url, messageId: message.id, attachmentId: image.id,
-          note: message.content.replace(/^!advent\s+submit\s*/i, '').slice(0, 1000),
+          username: interaction.user.username,
+          proofUrl: proof.url, messageId: source.id, attachmentId: proof.id,
+          note: String(interaction.options.getString('note') || '').trim().slice(0, 1000),
           status: 'pending', reviewNote: '', reviewedBy: '',
         };
         try {
@@ -194,15 +212,14 @@ function createAdventService({
           if (error.code === 11000) throw new Error('You already have a pending or approved picture for today. Rejected pictures can be resubmitted.');
           throw error;
         }
-        await message.reply({
+        await interaction.editReply({
           content: `TEST: your December ${current.day} picture was submitted for staff review.`,
-          allowedMentions: { repliedUser: false },
+          allowedMentions: { parse: [] },
         });
       } catch (error) {
-        await message.reply({ content: error.message, allowedMentions: { parse: [], repliedUser: false } });
+        await interaction.editReply({ content: error.message, attachments: [], files: [], allowedMentions: { parse: [] } });
       }
     });
-    return true;
   }
 
   async function handleApi(req, res, pathname, _params, authUser) {
@@ -316,7 +333,7 @@ function createAdventService({
     await run();
   }
 
-  return { init, run, handleApi, handleMessage, snapshot };
+  return { init, run, handleApi, handleCommand, snapshot };
 }
 
 module.exports = { createAdventService };

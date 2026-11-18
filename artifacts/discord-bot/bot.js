@@ -361,6 +361,12 @@ const SLASH_COMMANDS = [
     .setDMPermission(false)
     .addAttachmentOption(o => o.setName('screenshot').setDescription('Picture proving today’s challenge').setRequired(true))
     .addStringOption(o => o.setName('note').setDescription('Optional note for the reviewers').setMaxLength(1000)),
+  new SlashCommandBuilder().setName('adventsubmitadmin').setDescription('Submit advent proof for a member and an opened day (admins)')
+    .setDMPermission(false)
+    .addUserOption(o => o.setName('member').setDescription('Member who completed the challenge').setRequired(true))
+    .addIntegerOption(o => o.setName('day').setDescription('Calendar day the picture belongs to (1–25)').setRequired(true).setMinValue(1).setMaxValue(25))
+    .addAttachmentOption(o => o.setName('screenshot').setDescription('Picture proving this day’s challenge').setRequired(true))
+    .addStringOption(o => o.setName('note').setDescription('Optional explanation for the late submission').setMaxLength(1000)),
   new SlashCommandBuilder().setName('approve').setDescription('Preview and approve a pending picture from any event (mods)')
     .setDMPermission(false)
     .addStringOption(o => o.setName('picture').setDescription('Search by event, member, challenge or date (YYYY-MM-DD)').setRequired(true).setAutocomplete(true))
@@ -865,7 +871,8 @@ const eventService = createEventService({
   sendJson,
   dashboardEditBlocked,
 });
-const adventService = createAdventService({ client, readBody, sendJson, dashboardEditBlocked });
+const adventService = createAdventService({ client, readBody, sendJson, dashboardEditBlocked,
+  canAdminSubmit: interaction => isAdmin(interaction.member) });
 
 function formatGp(n) {
   if (!n && n !== 0) return '?';
@@ -2334,7 +2341,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName === 'adventsubmit') {
+  if (['adventsubmit', 'adventsubmitadmin'].includes(interaction.commandName)) {
     await adventService.handleCommand(interaction);
     return;
   }
@@ -3412,7 +3419,7 @@ const server = http.createServer(async (req, res) => {
       // Categories are optional labels only; membership, names, descriptions,
       // subcommands and usage always come from the registration definitions.
       sendJson(res, 200, buildCommandCatalog(SLASH_COMMANDS, {
-        ...categories, event:'Events', adventsubmit:'Events', approve:'Events', pricealert:'Price alerts',
+        ...categories, event:'Events', adventsubmit:'Events', adventsubmitadmin:'Events', approve:'Events', pricealert:'Price alerts',
       }));
       return;
     }

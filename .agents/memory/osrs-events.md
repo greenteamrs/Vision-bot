@@ -27,6 +27,12 @@ The advent event runs December 1–25 with the daily boundary at 00:00 UTC. The 
 
 **How to apply:** keep simulated day advancement and test submissions separate from the real December schedule. Never activate the live event or reuse test progress as live progress without approval.
 
+Admins may submit advent proof on behalf of a Discord member for a chosen already-opened day, including late proof. This exception must not consume that member's submission for the current day.
+
+**Why:** the user requested an admin route for late pictures because member submissions always attach to the current day and allow only one pending or approved picture per day.
+
+**How to apply:** keep normal member deadlines unchanged. Attribute admin uploads to the selected member and day, record the submitting admin, and retain staff approval and per-day duplicate protection.
+
 Use one `/approve` command for picture submissions across all event formats, rather than requiring staff to learn a separate approval command for every format.
 
 **Why:** the user requested one command where they can select a picture from any event and approve it.

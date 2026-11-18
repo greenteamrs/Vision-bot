@@ -8,7 +8,7 @@ const { imageDay, normalizeCalendarImage, readImageBody, createAdventImageStore 
 const { deliverAnnouncement } = require('./advent-delivery');
 
 function createAdventService({
-  client, readBody, sendJson, dashboardEditBlocked,
+  client, readBody, sendJson, dashboardEditBlocked, canAdminSubmit = () => false,
   AdventTest = models.AdventTest,
   AdventSubmission = models.AdventSubmission,
   AdventAnnouncement = models.AdventAnnouncement,
@@ -161,6 +161,11 @@ function createAdventService({
   }
 
   async function handleCommand(interaction) {
+    const adminSubmission = interaction.commandName === 'adventsubmitadmin';
+    if (adminSubmission && (!interaction.guildId || !await canAdminSubmit(interaction))) {
+      await interaction.reply({ content: 'Admins only.', ephemeral: true, allowedMentions: { parse: [] } });
+      return;
+    }
     if (!interaction.guildId || interaction.channelId !== TEST_CHANNEL_ID) {
       await interaction.reply({
         content: `Advent is test-only. Use /adventsubmit in <#${TEST_CHANNEL_ID}>.`,
@@ -172,16 +177,35 @@ function createAdventService({
     await serial(async () => {
       try {
         const config = await getConfig();
-        const current = assertAccepting(config, { channelId: interaction.channelId, now: now() });
+        let user = interaction.user;
+        let day;
+        if (adminSubmission) {
+          const run = clock(config, now());
+          day = interaction.options.getInteger('day');
+          if (run.state === 'idle' || !Number.isInteger(day) || day < 1 || day > 25 || day > run.opened) {
+            throw new Error('Choose an already opened day (1–25) in the current test run.');
+          }
+          user = interaction.options.getUser('member');
+          if (!user || user.bot) throw new Error('Choose a member of this server, not a bot.');
+          const target = await client.channels.fetch(TEST_CHANNEL_ID);
+          if (target.guildId !== interaction.guildId) throw new Error('Use this command in the advent test server.');
+          const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+          if (!member) throw new Error('That member is not in this server.');
+        } else {
+          day = assertAccepting(config, { channelId: interaction.channelId, now: now() }).day;
+        }
         const image = interaction.options.getAttachment('screenshot');
         if (!image || !(image.contentType?.startsWith('image/')
           || (!image.contentType && /\.(png|jpe?g|gif|webp)$/i.test(image.name || '')))) {
           throw new Error('Attach a screenshot image (PNG, JPG, GIF or WebP).');
         }
-        const key = { runId: config.runId, day: current.day, userId: interaction.user.id };
+        const key = { runId: config.runId, day, userId: user.id };
+        const duplicateMessage = adminSubmission
+          ? `This member already has a pending or approved picture for day ${day}. No picture was replaced.`
+          : 'You already have a pending or approved picture for today. Rejected pictures can be resubmitted.';
         const existing = await AdventSubmission.find(key).sort({ createdAt: -1 }).lean();
         if (existing.some(item => ['pending', 'approved'].includes(item.status))) {
-          throw new Error('You already have a pending or approved picture for today. Rejected pictures can be resubmitted.');
+          throw new Error(duplicateMessage);
         }
         // Copy slash-command attachments onto the bot's channel reply. Their
         // original interaction URL expires and cannot be refreshed as a normal
@@ -194,8 +218,9 @@ function createAdventService({
         const proof = source.attachments.first();
         if (!proof) throw new Error('Could not retain the screenshot. Please try /adventsubmit again.');
         const values = {
-          challenge: config.challenges[current.day - 1],
-          username: interaction.user.username,
+          challenge: config.challenges[day - 1],
+          username: user.username,
+          submittedByAdmin: adminSubmission ? interaction.user.id : '',
           proofUrl: proof.url, messageId: source.id, attachmentId: proof.id,
           note: String(interaction.options.getString('note') || '').trim().slice(0, 1000),
           status: 'pending', reviewNote: '', reviewedBy: '',
@@ -204,11 +229,13 @@ function createAdventService({
           await AdventSubmission.findOneAndUpdate({ ...key, status: 'rejected' },
             { $set: values }, { upsert: true, new: true, runValidators: true });
         } catch (error) {
-          if (error.code === 11000) throw new Error('You already have a pending or approved picture for today. Rejected pictures can be resubmitted.');
+          if (error.code === 11000) throw new Error(duplicateMessage);
           throw error;
         }
         await interaction.editReply({
-          content: `TEST: your December ${current.day} picture was submitted for staff review.`,
+          content: adminSubmission
+            ? `TEST: December ${day} picture for ${user.username} was submitted by an admin for staff review. Other days are unaffected.`
+            : `TEST: your December ${day} picture was submitted for staff review.`,
           allowedMentions: { parse: [] },
         });
       } catch (error) {

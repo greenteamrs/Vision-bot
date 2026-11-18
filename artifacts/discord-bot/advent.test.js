@@ -95,6 +95,7 @@ function fixture() {
   };
   const service = createAdventService({
     client, AdventTest, AdventSubmission, AdventAnnouncement, imageStore, now: () => time,
+    canAdminSubmit: interaction => interaction.member?.admin === true,
     readBody: async req => req.body,
     sendJson: (res, code, data) => Object.assign(res, { code, data }),
     dashboardEditBlocked: async (_auth, res) => {
@@ -116,13 +117,17 @@ function fixture() {
     await service.handleApi(req, response, url.pathname, url.searchParams, { role, sub: 'staff' });
     return response;
   }
-  async function message({ channelId = TEST_CHANNEL_ID, image = true, userId = 'member1', note = '', contentType = 'image/png' } = {}) {
+  async function message({ channelId = TEST_CHANNEL_ID, image = true, userId = 'member1', note = '', contentType = 'image/png',
+    admin = false, commandName = 'adventsubmit', day = 1, targetId = 'late-member', targetBot = false, missingMember = false } = {}) {
     await service.handleCommand({
-      channelId, guildId: 'guild',
+      channelId, guildId: 'guild', commandName, member: { admin },
+      guild: { members: { fetch: async () => missingMember ? null : { id: targetId } } },
       user: { id: userId, username: userId },
       options: {
         getAttachment: name => name === 'screenshot' && image ? { id: 'pic1', name: 'proof.png', contentType, url: 'https://cdn.discordapp.com/attachments/pic.png' } : null,
         getString: name => name === 'note' ? note : null,
+        getInteger: () => day,
+        getUser: () => ({ id: targetId, username: targetId, bot: targetBot }),
       },
       deferReply: async () => {},
       editReply: async payload => {
@@ -138,6 +143,72 @@ function fixture() {
   });
   return f;
 }
+
+test('admin late proof belongs to the chosen member and day without consuming today', async () => {
+  const f = fixture();
+  await f.api('POST', '/actions', { action: 'start' });
+  await f.api('POST', '/actions', { action: 'advance' });
+  await f.message({ commandName: 'adventsubmitadmin', admin: true, userId: 'admin1', day: 1, note: 'Late exception' });
+  const late = f.AdventSubmission.rows[0];
+  assert.equal(late.userId, 'late-member');
+  assert.equal(late.day, 1);
+  assert.equal(late.challenge, DEFAULT_CHALLENGES[0]);
+  assert.equal(late.status, 'pending');
+  assert.equal(late.submittedByAdmin, 'admin1');
+  assert.equal(late.note, 'Late exception');
+  await f.message({ userId: 'late-member' });
+  assert.equal(f.AdventSubmission.rows.length, 2);
+  assert.equal(f.AdventSubmission.rows[1].day, 2);
+  assert.equal(f.AdventSubmission.rows[1].submittedByAdmin, '');
+  await f.message({ commandName: 'adventsubmitadmin', admin: true, day: 1 });
+  assert.match(f.replies.at(-1), /already has a pending/);
+  assert.equal(f.AdventSubmission.rows.length, 2);
+});
+
+test('admin proof validates permissions, channel, opened day, membership and screenshot', async () => {
+  const f = fixture();
+  const options = { commandName: 'adventsubmitadmin', admin: true };
+  await f.message({ ...options, admin: false });
+  assert.match(f.replies.at(-1), /Admins only/);
+  await f.message(options);
+  assert.match(f.replies.at(-1), /already opened/);
+  await f.api('POST', '/actions', { action: 'start' });
+  for (const day of [0, 2, 26, 1.5]) {
+    await f.message({ ...options, day });
+    assert.match(f.replies.at(-1), /already opened/);
+  }
+  await f.message({ ...options, channelId: 'wrong' });
+  assert.match(f.replies.at(-1), /test-only/);
+  await f.message({ ...options, missingMember: true });
+  assert.match(f.replies.at(-1), /not in this server/);
+  await f.message({ ...options, targetBot: true });
+  assert.match(f.replies.at(-1), /not a bot/);
+  await f.message({ ...options, image: false });
+  assert.match(f.replies.at(-1), /Attach a screenshot/);
+  assert.equal(f.AdventSubmission.rows.length, 0);
+});
+
+test('admins may add late proof during pauses and after closing, without replacing approved proof', async () => {
+  const f = fixture();
+  await f.api('POST', '/actions', { action: 'start' });
+  await f.api('POST', '/actions', { action: 'pause' });
+  await f.message({ commandName: 'adventsubmitadmin', admin: true });
+  assert.equal(f.AdventSubmission.rows.length, 1);
+  f.AdventSubmission.rows[0].status = 'rejected';
+  await f.message({ commandName: 'adventsubmitadmin', admin: true, note: 'Replacement after rejection' });
+  assert.equal(f.AdventSubmission.rows.length, 1);
+  assert.equal(f.AdventSubmission.rows[0].status, 'pending');
+  f.AdventSubmission.rows[0].status = 'approved';
+  await f.message({ commandName: 'adventsubmitadmin', admin: true });
+  assert.match(f.replies.at(-1), /No picture was replaced/);
+  assert.equal(f.AdventSubmission.rows[0].status, 'approved');
+  await f.api('POST', '/actions', { action: 'resume' });
+  f.advance(26 * 86400000);
+  await f.message({ commandName: 'adventsubmitadmin', admin: true, day: 25 });
+  assert.equal(f.AdventSubmission.rows.at(-1).day, 25);
+  await f.message({ userId: 'late-member' });
+  assert.match(f.replies.at(-1), /not accepting/);
+});
 
 test('all 25 supplied challenges are seeded in their exact order', () => {
   assert.equal(DEFAULT_CHALLENGES.length, 25);

@@ -37,6 +37,7 @@ const submissionSchema = new mongoose.Schema({
   status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   reviewNote: { type: String, default: '' },
   reviewedBy: { type: String, default: '' },
+  submittedByAdmin: { type: String, default: '' },
 }, { timestamps: true });
 submissionSchema.index({ runId: 1, day: 1, userId: 1 }, { unique: true });
 

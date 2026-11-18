@@ -24,7 +24,7 @@ async function main() {
       announcementMessages: Array.from({length:26}, (_,i) => defaultAnnouncement(i + 1)) },
     run: { id: 'browser-fixture', state: 'idle', day: 0, opened: 0, dayEndsAt: null },
     submissions: [{
-      _id: '000000000000000000000001', day: 1, username: 'Test member', challenge: DEFAULT_CHALLENGES[0],
+      _id: '000000000000000000000001', day: 1, userId: 'member-1', username: 'Test member', challenge: DEFAULT_CHALLENGES[0],
       status: 'pending', note: 'Test screenshot', proofUrl: '', createdAt: '2026-12-01T12:00:00Z',
     }],
     announcements: [],
@@ -72,7 +72,10 @@ async function main() {
     } else if (req.url.endsWith('/actions')) {
       if (body.action === 'start') fixture.run = { ...fixture.run, state: 'running', day: 1, opened: 1 };
       if (body.action === 'advance') fixture.run = { ...fixture.run, state: 'running', day: 2, opened: 2 };
-      if (body.action === 'reset') fixture.run = { ...fixture.run, state: 'idle', day: 0, opened: 0 };
+      if (body.action === 'reset') {
+        fixture.run = { ...fixture.run, state: 'idle', day: 0, opened: 0 };
+        fixture.submissions = [];
+      }
     } else if (req.url.endsWith('/review')) {
       fixture.submissions[0].status = body.status;
       fixture.submissions[0].reviewNote = body.note;
@@ -256,14 +259,21 @@ async function main() {
     await evaluate(`document.getElementById('advent-challenge-text').dataset.dirty='false'; adventAction('start');`);
     assert.equal(await evaluate(`document.getElementById('advent-year').disabled`), true);
     assert.equal(await evaluate(`document.querySelectorAll('.advent-door.today').length`), 1);
+    assert.match(await evaluate(`document.getElementById('advent-scoreboard').textContent`), /0 \/ 25/);
     await evaluate(`document.getElementById('advent-review-000000000000000000000001').value='Approved in browser test';
       reviewAdventSubmission('000000000000000000000001','approved');`);
     assert.equal(fixture.submissions[0].status, 'approved');
     assert.equal(fixture.submissions[0].reviewNote, 'Approved in browser test');
+    assert.match(await evaluate(`document.getElementById('advent-scoreboard').textContent`), /1 \/ 25/);
+    await evaluate(`loadAdvent(true)`);
+    assert.match(await evaluate(`document.getElementById('advent-scoreboard').textContent`), /Day 1: Completed/);
     await evaluate(`adventAction('advance')`);
     assert.equal(await evaluate(`document.querySelectorAll('.advent-door.opened,.advent-door.today').length`), 2);
     const outputDir = path.resolve('generated-artifacts/advent');
     fs.mkdirSync(outputDir, { recursive: true });
+    await evaluate(`document.querySelector('#advent-scoreboard details').open=true; document.getElementById('advent-scoreboard').scrollIntoView({block:'center'})`);
+    const scoreboard = await cmd('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(outputDir, 'scoreboard-desktop.png'), Buffer.from(scoreboard.data, 'base64'));
     const desktop = await cmd('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(outputDir, 'dashboard-desktop.png'), Buffer.from(desktop.data, 'base64'));
     await evaluate(`stageAdventImages(Array.from({length:3},(_,i)=>new File(
@@ -278,9 +288,14 @@ async function main() {
     const mobile = await cmd('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(outputDir, 'dashboard-mobile.png'), Buffer.from(mobile.data, 'base64'));
     assert.equal(await evaluate(`document.documentElement.scrollWidth > window.innerWidth + 1`), false);
+    await evaluate(`document.querySelector('#advent-scoreboard details').open=true; document.getElementById('advent-scoreboard').scrollIntoView({block:'center'})`);
+    const mobileScoreboard = await cmd('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(path.join(outputDir, 'scoreboard-mobile.png'), Buffer.from(mobileScoreboard.data, 'base64'));
+    assert.equal(await evaluate(`document.documentElement.scrollWidth > window.innerWidth + 1`), false);
     await evaluate(`window.prompt=()=> 'RESET TEST'; adventAction('reset')`);
     assert.equal(await evaluate(`document.getElementById('advent-year').disabled`), false);
     assert.equal(fixture.run.state, 'idle');
+    assert.match(await evaluate(`document.getElementById('advent-scoreboard').textContent`), /No participants yet/);
     assert.ok(requests.some(req => req.url.endsWith('/challenges/3') && req.body.text === 'Browser edited challenge'));
     await evaluate(`showSection('commands',document.querySelector('button[onclick*="showSection(\\'commands\\'"]')); loadCommands();`);
     assert.equal(await evaluate(`document.querySelectorAll('#commands-sections tbody tr').length`),

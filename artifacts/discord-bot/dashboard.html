@@ -461,6 +461,8 @@
   .advent-detail-grid { display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,.85fr);gap:16px;align-items:start; }
   .advent-day-editor textarea { width:100%;min-height:105px;resize:vertical; }
   .advent-save-row { display:flex;align-items:center;gap:10px;margin-top:10px; }
+  #advent-scoreboard table { table-layout:fixed; }
+  #advent-scoreboard th, #advent-scoreboard td { padding:10px 4px;white-space:normal;overflow-wrap:anywhere; }
   .advent-submissions { display:flex;flex-direction:column;gap:10px; }
   .advent-submission { display:grid;grid-template-columns:94px minmax(0,1fr);gap:13px;padding:11px;background:#131d1a;border:1px solid #2a3a34;border-radius:8px; }
   .advent-thumb { width:94px;height:80px;object-fit:cover;border-radius:6px;background:#0c1411;border:1px solid #2a3a34; }
@@ -691,6 +693,11 @@
           </div>
           <p id="advent-image-status" class="advent-muted" role="status" style="margin-top:10px;"></p>
           <p class="advent-muted">PNG, JPG or WebP; up to 10 MB per file, maximum 4096 × 4096 pixels. JPG files stay JPG at their original quality and dimensions. WebP is converted to PNG, which must also fit the 10 MB limit. Upload the complete calendar picture for each stage. Replacing a picture affects previews and future announcements, not messages already sent.</p>
+        </div>
+        <div class="card">
+          <h3>Advent scoreboard</h3>
+          <p class="advent-muted">1 point per approved day, out of 25. Equal scores share a place. Members appear after their first submission in this test run. Missed days are past days without approval; pending proof can still be reviewed. Today and future days are not counted as missed.</p>
+          <div id="advent-scoreboard"><div class="advent-empty">Loading scoreboard…</div></div>
         </div>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
@@ -3734,6 +3741,7 @@
     renderAdventAnnouncements(announcements);
     renderAdventImages();
     renderAdventMessageEditor();
+    renderAdventScoreboard();
     renderAdventSubmissions();
     const dayFilter = document.getElementById('advent-filter-day');
     const previous = dayFilter.value;
@@ -3851,6 +3859,44 @@
       adventBusy = false;
       renderAdvent();
     }
+  }
+  function buildAdventScoreboard(submissions, run) {
+    const members = new Map();
+    const elapsed = run.state === 'completed' ? 25 : Math.max(0, Math.min(25, (Number(run.day) || 0) - 1));
+    const priority = { rejected: 1, pending: 2, approved: 3 };
+    for (const item of submissions) {
+      const day = Number(item.day);
+      if (!item.userId || !Number.isInteger(day) || day < 1 || day > 25 || !priority[item.status]) continue;
+      const key = String(item.userId);
+      if (!members.has(key)) members.set(key, { userId: key, username: item.username || key, days: {} });
+      const member = members.get(key);
+      if ((priority[member.days[day]] || 0) < priority[item.status]) member.days[day] = item.status;
+    }
+    const rows = [...members.values()].map(member => ({
+      ...member,
+      points: Object.values(member.days).filter(status => status === 'approved').length,
+      missed: Array.from({ length: elapsed }, (_, i) => i + 1).filter(day => member.days[day] !== 'approved').length,
+    })).sort((a, b) => b.points - a.points || a.username.localeCompare(b.username) || a.userId.localeCompare(b.userId));
+    rows.forEach((row, index) => { row.place = index && rows[index - 1].points === row.points ? rows[index - 1].place : index + 1; });
+    return { rows, elapsed };
+  }
+  function renderAdventScoreboard() {
+    const host = document.getElementById('advent-scoreboard');
+    if (!Array.isArray(adventState?.submissions)) {
+      host.innerHTML = '<div class="advent-empty">Scoreboard is not available.</div>'; return;
+    }
+    const { rows, elapsed } = buildAdventScoreboard(adventState.submissions, adventState.run);
+    if (!rows.length) {
+      host.innerHTML = '<div class="advent-empty">No participants yet. Members will appear after submitting their first picture.</div>'; return;
+    }
+    host.innerHTML = `<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th scope="col">Place</th><th scope="col">Member</th><th scope="col">Completed / 25</th><th scope="col">Missed</th></tr></thead><tbody>${rows.map(row =>
+      `<tr><td>${row.place}</td><td style="overflow-wrap:anywhere">${esc(row.username)}</td><td>${row.points} / 25</td><td>${row.missed}</td></tr><tr><td colspan="4"><details><summary>View all 25 days for ${esc(row.username)}</summary><div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 0;max-width:480px">${Array.from({length:25}, (_,i) => {
+        const day = i + 1;
+        const status = row.days[day] === 'approved' ? 'Completed' : row.days[day] === 'pending' ? 'Pending review'
+          : day <= elapsed ? 'Missed' : row.days[day] === 'rejected' ? 'Rejected' : day === Number(adventState.run.day) ? 'Not submitted' : 'Upcoming';
+        return `<span class="advent-pill ${row.days[day] === 'approved' ? 'approved' : ''}" style="white-space:normal">Day ${day}: ${status}</span>`;
+      }).join('')}</div></details></td></tr>`
+    ).join('')}</tbody></table></div>`;
   }
   function renderAdventSubmissions() {
     const host = document.getElementById('advent-submissions');

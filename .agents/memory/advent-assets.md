@@ -9,6 +9,12 @@ Support 25 daily complete calendar pictures uploaded together and assigned indiv
 
 **How to apply:** select the exact day's picture, never the closest earlier uploaded stage. Preserve custom pictures when resetting test progress.
 
+Advent scoring is one point per approved daily challenge, out of 25. Pending and rejected pictures earn no points. Show completed and missed days on the dashboard scoreboard.
+
+**Why:** the user approved this scoring proposal when requesting an advent scoreboard.
+
+**How to apply:** count unique approved days per member within the current run, not raw submissions. Do not count the current or future days as missed.
+
 Post the calendar picture first as a normal image attachment, then the advent challenge text separately. Do not put the picture inside a Discord embed.
 
 **Why:** the user requested a larger picture outside an embed, then changed the posting order to picture first and challenge text second.

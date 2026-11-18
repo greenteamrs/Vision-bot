@@ -25,13 +25,22 @@ async function deliverAnnouncement({ target, recent, marker, delivery, text, byt
   const image = recent.find(message => message.author.id === delivery.botId
     && (String(message.nonce || '') === nonce('image')
       || message.attachments?.some(attachment => [`${basename}.png`, `${basename}.jpg`].includes(attachment.name))));
-  if (delivery.imageMessageId || image || legacy) return delivery.imageMessageId || image?.id || legacy.id;
+  if (legacy) return legacy.id;
 
   const chunks = delivery.textChunks?.length ? delivery.textChunks : splitAnnouncement(text);
   const startedAt = delivery.postingStartedAt || new Date(now());
   // Persist the exact text before posting. A retry after an edit must resume
   // the original announcement rather than mix two versions of its wording.
   await save({ textChunks: chunks, postingStartedAt: startedAt });
+  let imageId = delivery.imageMessageId || image?.id;
+  if (!imageId) {
+    const sent = await target.send({
+      files: [new AttachmentBuilder(bytes, { name: filename })],
+      allowedMentions: { parse: [] }, nonce: nonce('image'), enforceNonce: true,
+    });
+    imageId = sent.id;
+    await save({ imageMessageId: imageId });
+  }
   const ids = [...(delivery.textMessageIds || [])];
   for (let i = 0; i < chunks.length; i++) {
     if (ids[i]) continue;
@@ -46,12 +55,7 @@ async function deliverAnnouncement({ target, recent, marker, delivery, text, byt
     ids[i] = sent.id;
     await save({ textMessageIds: [...ids] });
   }
-  const sent = await target.send({
-    files: [new AttachmentBuilder(bytes, { name: filename })],
-    allowedMentions: { parse: [] }, nonce: nonce('image'), enforceNonce: true,
-  });
-  await save({ imageMessageId: sent.id });
-  return sent.id;
+  return imageId;
 }
 
 module.exports = { splitAnnouncement, deliverAnnouncement };

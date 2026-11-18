@@ -9,9 +9,9 @@ Support 25 daily complete calendar pictures uploaded together and assigned indiv
 
 **How to apply:** select the exact day's picture, never the closest earlier uploaded stage. Preserve custom pictures when resetting test progress.
 
-Post the advent announcement text first, then the calendar picture as a separate normal image attachment, not an image inside a Discord embed.
+Post the calendar picture first as a normal image attachment, then the advent challenge text separately. Do not put the picture inside a Discord embed.
 
-**Why:** the user requested the message followed by the picture outside an embed so the picture is displayed larger.
+**Why:** the user requested a larger picture outside an embed, then changed the posting order to picture first and challenge text second.
 
 **How to apply:** preserve that ordering for daily and closing announcements. Discord controls preview scaling; keep the original picture available to open.
 

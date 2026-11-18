@@ -665,7 +665,7 @@
             <label for="advent-message-day">Message</label>
             <select id="advent-message-day" onchange="renderAdventMessageEditor()" aria-label="Choose announcement day"></select>
           </div>
-          <p class="advent-muted">Optional placeholders: {day}, {challenge}, {closes} (Discord closing time), {duration} (test-day seconds). You can remove any of them. The bot posts this text first, then the calendar picture separately as a normal image, not inside an embed. Long text is split automatically.</p>
+          <p class="advent-muted">Optional placeholders: {day}, {challenge}, {closes} (Discord closing time), {duration} (test-day seconds). You can remove any of them. The bot posts the calendar picture first as a normal image, not inside an embed, then this challenge text. Long text is split automatically.</p>
           <textarea id="advent-message-text" maxlength="4000" rows="9" aria-label="Full announcement text" style="width:100%;box-sizing:border-box;margin:10px 0;" oninput="draftAdventMessage()"></textarea>
           <button id="advent-message-save" type="button" class="btn-save" onclick="saveAdventMessage()">Save full message</button>
           <p id="advent-message-status" class="advent-muted" role="status"></p>

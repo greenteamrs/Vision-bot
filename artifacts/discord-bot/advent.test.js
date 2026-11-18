@@ -84,7 +84,7 @@ function fixture() {
         guildId: 'guild', isTextBased: () => true,
         messages: { fetch: async () => ({ find: predicate => sent.find(predicate) }) },
         send: async payload => {
-          if (f.sendError || (f.imageSendError && payload.files)) throw new Error('Missing channel permissions');
+          if (f.sendError || (f.imageSendError && payload.files) || (f.textSendError && payload.content)) throw new Error('Missing channel permissions');
           const message = { ...payload, id: `sent-${sent.length + 1}`, author: { id: 'bot' }, createdTimestamp: time,
             attachments: { some: predicate => (payload.files || []).some(file => predicate({name:file.name})) } };
           sent.push(message);
@@ -230,10 +230,10 @@ test('full announcement edits persist, replace all wording and survive reset', a
   assert.equal(saved.code, 200);
   assert.equal((await f.api('GET')).data.config.announcementMessages[0], text);
   await f.api('POST', '/actions', { action: 'start' });
-  assert.match(f.sent[0].content, /My own heading 1/);
-  assert.match(f.sent[0].content, /tempoross/);
-  assert.match(f.sent[0].content, /<t:\d+:F>/);
-  assert.doesNotMatch(f.sent[0].content, /Staff will review|Use.*adventsubmit/);
+  assert.match(f.sent[1].content, /My own heading 1/);
+  assert.match(f.sent[1].content, /tempoross/);
+  assert.match(f.sent[1].content, /<t:\d+:F>/);
+  assert.doesNotMatch(f.sent[1].content, /Staff will review|Use.*adventsubmit/);
   assert.equal(f.sent[0].embeds, undefined);
   assert.equal(f.sent[1].embeds, undefined);
   assert.deepEqual(f.sent[0].allowedMentions, { parse: [] });
@@ -261,20 +261,20 @@ test('announcement edits validate dates, permissions, placeholder expansion and 
   await f.api('POST', '/actions', { action:'start' });
   f.advance(25 * 86400000);
   await f.service.run();
-  assert.equal(f.sent.at(-2).content, '**Our closing celebration!**');
+  assert.equal(f.sent.at(-1).content, '**Our closing celebration!**');
 });
 
-test('start posts text first then a standalone calendar picture without embeds or mentions', async () => {
+test('start posts a standalone calendar picture first, then challenge text without embeds or mentions', async () => {
   const f = fixture();
   await f.api('POST', '/actions', { action: 'start' });
   assert.equal(f.sent.length, 2);
-  assert.equal(f.sent[0].files, undefined);
-  assert.equal(f.sent[1].content, undefined);
-  assert.equal(f.sent[1].files.length, 1);
+  assert.equal(f.sent[1].files, undefined);
+  assert.equal(f.sent[0].content, undefined);
+  assert.equal(f.sent[0].files.length, 1);
   assert.ok(f.sent.every(message => !message.embeds));
-  assert.match(f.sent[0].content, /tempoross/);
-  assert.match(f.sent[0].content, /\/adventsubmit/);
-  assert.doesNotMatch(f.sent[0].content, /tormented|vale offerings/);
+  assert.match(f.sent[1].content, /tempoross/);
+  assert.match(f.sent[1].content, /\/adventsubmit/);
+  assert.doesNotMatch(f.sent[1].content, /tormented|vale offerings/);
   assert.deepEqual(f.sent[0].allowedMentions, { parse: [] });
   await f.service.run();
   await f.api('POST', '/actions', { action: 'announce' });
@@ -287,10 +287,10 @@ test('rollover sends the next challenge and completion closes day 25 submissions
   await f.api('POST', '/actions', { action: 'start' });
   f.advance(86400000);
   await f.service.run();
-  assert.match(f.sent[2].content, /tormented/);
+  assert.match(f.sent[3].content, /tormented/);
   f.advance(24 * 86400000);
   await f.service.run();
-  assert.match(f.sent[4].content, /complete/);
+  assert.match(f.sent[5].content, /complete/);
   assert.equal((await f.api('GET')).data.run.opened, 25);
   await f.message();
   assert.match(f.replies.at(-1), /not accepting/);
@@ -368,10 +368,10 @@ test('restart recovery deduplicates a delivered announcement with an expired cla
   await f.service.run();
   assert.equal(f.sent.length, 2);
   assert.equal(f.AdventAnnouncement.rows[0].status, 'sent');
-  assert.equal(f.AdventAnnouncement.rows[0].messageId, 'sent-2');
+  assert.equal(f.AdventAnnouncement.rows[0].messageId, 'sent-1');
 });
 
-test('long announcement text is split safely before the standalone image', async () => {
+test('long announcement text is split safely after the standalone image', async () => {
   const f = fixture();
   const text = 'a'.repeat(1999) + '😀' + 'b'.repeat(1999);
   const chunks = splitAnnouncement(text);
@@ -382,25 +382,25 @@ test('long announcement text is split safely before the standalone image', async
   await f.api('PATCH', '/messages/1', { text });
   await f.api('POST', '/actions', { action:'start' });
   assert.equal(f.sent.length, chunks.length + 1);
-  assert.equal(f.sent.slice(0, -1).map(message => message.content).join(''), text);
-  assert.equal(f.sent.at(-1).files.length, 1);
+  assert.equal(f.sent.slice(1).map(message => message.content).join(''), text);
+  assert.equal(f.sent[0].files.length, 1);
   assert.ok(f.sent.every(message => !message.embeds));
 });
 
-test('failed image upload resumes after the text, even if announcement wording changes', async t => {
+test('failed image upload prevents text posting and retries keep the original wording', async t => {
   t.mock.method(console, 'error', () => {});
   const f = fixture();
   await f.api('PATCH', '/messages/1', { text:'The original message' });
   f.imageSendError = true;
   await f.api('POST', '/actions', { action:'start' });
-  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent.length, 0);
   assert.equal(f.AdventAnnouncement.rows[0].status, 'failed');
   await f.api('PATCH', '/messages/1', { text:'Edited after partial delivery' });
   f.imageSendError = false;
   await f.service.run();
   assert.equal(f.sent.length, 2);
-  assert.equal(f.sent[0].content, 'The original message');
-  assert.equal(f.sent[1].files.length, 1);
+  assert.equal(f.sent[1].content, 'The original message');
+  assert.equal(f.sent[0].files.length, 1);
   assert.equal(f.AdventAnnouncement.rows[0].status, 'sent');
 });
 
@@ -416,13 +416,30 @@ test('restart after text delivery but before its ID is saved recovers without re
     return original(query, update);
   };
   await f.api('POST', '/actions', { action:'start' });
-  assert.equal(f.sent.length, 1);
-  f.sent[0].nonce = undefined; // REST history need not include Discord nonces.
+  assert.equal(f.sent.length, 2);
+  f.sent[1].nonce = undefined; // REST history need not include Discord nonces.
   f.advance(180000);
   await f.service.run();
   assert.equal(f.sent.length, 2);
-  assert.equal(f.sent[1].files.length, 1);
+  assert.equal(f.sent[0].files.length, 1);
   assert.equal(f.AdventAnnouncement.rows[0].status, 'sent');
+});
+
+test('failed challenge text retries after the saved picture without posting the picture again', async t => {
+  t.mock.method(console, 'error', () => {});
+  const f = fixture();
+  f.textSendError = true;
+  await f.api('POST', '/actions', {action:'start'});
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].files.length, 1);
+  assert.equal(f.AdventAnnouncement.rows[0].status, 'failed');
+  f.textSendError = false;
+  await f.service.run();
+  assert.equal(f.sent.length, 2);
+  assert.match(f.sent[1].content, /tempoross/);
+  assert.equal(f.AdventAnnouncement.rows[0].status, 'sent');
+  await f.service.run();
+  assert.equal(f.sent.length, 2);
 });
 
 test('legacy embedded announcements are recovered without sending replacement messages', async () => {
@@ -486,7 +503,7 @@ test('custom images cover closed stage and every day, persist across resets and 
   assert.deepEqual((await f.api('GET', '/calendar.png?day=0')).bytes, normalized);
   assert.deepEqual((await f.api('GET', '/calendar.png?day=25')).bytes, normalized);
   await f.api('POST', '/actions', { action: 'start' });
-  assert.deepEqual(f.sent[1].files[0].attachment, normalized);
+  assert.deepEqual(f.sent[0].files[0].attachment, normalized);
   await f.api('POST', '/actions', { action: 'reset', confirmation: 'RESET TEST' });
   assert.equal((await f.api('GET')).data.config.calendarImages.length, 26);
 });
@@ -525,8 +542,8 @@ test('JPG stays byte-identical through validation, replacement, preview and Disc
   assert.equal(preview.headers['Content-Type'], 'image/jpeg');
   assert.deepEqual(preview.bytes, jpg);
   await f.api('POST', '/actions', {action:'start'});
-  assert.ok(f.sent[1].files[0].name.endsWith('.jpg'));
-  assert.deepEqual(f.sent[1].files[0].attachment, jpg);
+  assert.ok(f.sent[0].files[0].name.endsWith('.jpg'));
+  assert.deepEqual(f.sent[0].files[0].attachment, jpg);
   assert.equal((await f.api('POST', '/images/1', png)).code, 200);
   assert.equal((await f.api('GET', '/calendar.png?day=1')).headers['Content-Type'], 'image/png');
   assert.equal(f.imageFiles.size, 1);

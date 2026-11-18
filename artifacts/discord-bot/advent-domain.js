@@ -66,7 +66,7 @@ function renderAnnouncement(text, config, day, closes = '<t:1796169600:F>') {
     closes, duration: String(config.dayDurationSeconds),
   };
   const result = text.replace(/\{(day|challenge|closes|duration)\}/g, (_, key) => values[key]);
-  if (result.length > 4096) throw new Error('The full message exceeds Discord’s 4096-character limit after filling in its placeholders.');
+  if (result.length > 4096) throw new Error('The full announcement exceeds the supported 4096-character limit after filling in its placeholders.');
   return result;
 }
 

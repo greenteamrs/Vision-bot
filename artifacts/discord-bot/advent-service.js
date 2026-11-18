@@ -5,6 +5,7 @@ const { TEST_CHANNEL_ID, clock, challengeText, settingsInput, actionUpdate, asse
   defaultAnnouncement, renderAnnouncement, announcementText } = require('./advent-domain');
 const { renderCalendar } = require('./advent-calendar');
 const { imageDay, normalizePng, readImageBody, createAdventImageStore } = require('./advent-images');
+const { deliverAnnouncement } = require('./advent-delivery');
 
 function createAdventService({
   client, readBody, sendJson, dashboardEditBlocked,
@@ -127,27 +128,16 @@ function createAdventService({
       // Recovery after a restart between Discord delivery and saving messageId.
       // Snowflake nonce also guards Discord's recent-message retry window.
       const recent = await target.messages.fetch({ limit: 100 });
-      let sent = recent.find(message => message.author.id === client.user.id
-        && message.embeds?.some(embed => embed.footer?.text === marker));
-      if (!sent) {
-        const template = config.announcementMessages?.[run.day - 1] || defaultAnnouncement(run.day);
-        const description = renderAnnouncement(template, config, run.day,
-          run.dayEndsAt ? `<t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>` : '');
-        const nonce = crypto.createHash('sha256').update(marker).digest('hex').slice(0, 24);
-        sent = await target.send({
-          embeds: [{
-            description,
-            color: 0xdabe81,
-            image: { url: 'attachment://advent-calendar.png' },
-            footer: { text: marker },
-          }],
-          files: [new AttachmentBuilder(await calendarImage(config, run), { name: 'advent-calendar.png' })],
-          allowedMentions: { parse: [] },
-          nonce, enforceNonce: true,
-        });
-      }
+      const template = config.announcementMessages?.[run.day - 1] || defaultAnnouncement(run.day);
+      const text = renderAnnouncement(template, config, run.day,
+        run.dayEndsAt ? `<t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>` : '');
+      const messageId = await deliverAnnouncement({
+        target, recent, marker, delivery: { ...delivery, botId: client.user.id }, text,
+        bytes: await calendarImage(config, run), now,
+        save: values => AdventAnnouncement.updateOne({ _id: delivery._id }, { $set: values }),
+      });
       await AdventAnnouncement.updateOne({ _id: delivery._id }, {
-        $set: { status: 'sent', messageId: sent.id, leaseUntil: null, error: '' },
+        $set: { status: 'sent', messageId, leaseUntil: null, error: '' },
       });
     } catch (error) {
       await AdventAnnouncement.updateOne({ _id: delivery._id }, {

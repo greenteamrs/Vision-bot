@@ -3,7 +3,7 @@ const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { PNG } = require('pngjs');
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 function imageDay(value) {
@@ -15,7 +15,7 @@ function imageDay(value) {
 async function normalizePng(bytes) {
   if (!Buffer.isBuffer(bytes) || bytes.length < 33 || bytes.length > MAX_IMAGE_BYTES
     || !bytes.subarray(0, 8).equals(PNG_SIGNATURE) || bytes.toString('ascii', 12, 16) !== 'IHDR') {
-    throw new Error('Upload a valid PNG image no larger than 5 MB.');
+    throw new Error('Upload a valid PNG image no larger than 10 MB.');
   }
   const width = bytes.readUInt32BE(16);
   const height = bytes.readUInt32BE(20);
@@ -29,7 +29,7 @@ async function normalizePng(bytes) {
     const image = PNG.sync.read(bytes, { checkCRC: true });
     png = PNG.sync.write(image);
   } catch (_) { throw new Error('This image could not be decoded. Choose another image.'); }
-  if (png.length > MAX_IMAGE_BYTES) throw new Error('The converted image exceeds 5 MB. Use a smaller image.');
+  if (png.length > MAX_IMAGE_BYTES) throw new Error('The converted image exceeds 10 MB. Use a smaller image.');
   return png;
 }
 
@@ -40,7 +40,7 @@ function readImageBody(req) {
   }
   if (Number(req.headers?.['content-length'] || 0) > MAX_IMAGE_BYTES) {
     req.resume?.();
-    throw new Error('Calendar images must be 5 MB or smaller.');
+    throw new Error('Calendar images must be 10 MB or smaller.');
   }
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -57,7 +57,7 @@ function readImageBody(req) {
     const data = chunk => {
       length += chunk.length;
       if (length > MAX_IMAGE_BYTES) {
-        error(new Error('Calendar images must be 5 MB or smaller.'));
+        error(new Error('Calendar images must be 10 MB or smaller.'));
         req.resume();
       } else chunks.push(chunk);
     };

@@ -20,6 +20,7 @@ async function main() {
     announcements: [],
   };
   const requests = [];
+  let failImageDay = null;
   const server = http.createServer(async (req, res) => {
     if (req.url === '/dashboard') {
       res.setHeader('Content-Type', 'text/html');
@@ -34,6 +35,11 @@ async function main() {
     requests.push({ method: req.method, url: req.url, body });
     if (imageRequest) {
       const day = Number(req.url.split('/').at(-1));
+      if (req.method === 'POST' && day === failImageDay) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Temporary image storage failure' }));
+        return;
+      }
       fixture.config.calendarImages = fixture.config.calendarImages.filter(image => image.day !== day);
       if (req.method === 'POST') {
         assert.equal(req.headers['content-type'], 'image/png');
@@ -133,6 +139,50 @@ async function main() {
     assert.equal(await evaluate(`document.getElementById('advent-image-status').textContent.includes('1 / 26')`), true);
     await evaluate(`window.confirm=()=>true; removeAdventImage();`);
     assert.equal(fixture.config.calendarImages.length, 0);
+    // Reproduce browsers with no createImageBitmap and blank MIME metadata.
+    // Select 25 files together, verify natural ordering and explicit remapping.
+    await evaluate(`{
+      window.createImageBitmap = undefined;
+      const files = Array.from({length:25},(_,i) => new File(
+        [Uint8Array.from(atob('${imageBase64}'), c=>c.charCodeAt(0))],
+        'calendar-' + (25-i) + '.png', {type:''}));
+      stageAdventImages(files);
+    }`);
+    assert.equal(await evaluate(`adventImageQueue.length`), 25);
+    assert.equal(await evaluate(`adventImageQueue[0].file.name`), 'calendar-1.png');
+    assert.equal(await evaluate(`adventImageQueue[0].day`), 1);
+    assert.equal(await evaluate(`adventImageQueue[24].day`), 25);
+    assert.equal(fixture.config.calendarImages.length, 0, 'Selecting files must not save them');
+    await evaluate(`assignAdventImage(0,'2')`);
+    assert.equal(await evaluate(`document.getElementById('advent-images-save').disabled`), true);
+    await evaluate(`assignAdventImage(1,'1'); loadAdvent()`);
+    assert.equal(await evaluate(`adventImageQueue[0].day`), 2, 'Polling preserves assignments');
+    assert.equal(await evaluate(`document.getElementById('advent-images-save').disabled`), false);
+    failImageDay = 3;
+    await evaluate(`saveAdventImages()`);
+    assert.equal(fixture.config.calendarImages.length, 2);
+    assert.equal(await evaluate(`adventImageQueue.length`), 23);
+    assert.match(await evaluate(`adventImageQueue[0].status`), /Temporary image storage failure/);
+    failImageDay = null;
+    await evaluate(`saveAdventImages()`);
+    assert.equal(fixture.config.calendarImages.length, 25);
+    assert.deepEqual(fixture.config.calendarImages.map(image => image.day).sort((a,b)=>a-b),
+      Array.from({length:25},(_,i)=>i+1));
+    assert.equal(await evaluate(`adventImageQueue.length`), 0);
+    assert.equal(await evaluate(`document.getElementById('advent-images-save').disabled`), true);
+    await evaluate(`stageAdventImages([new File([new Uint8Array(10*1024*1024+1)], 'oversize.png', {type:'image/png'})])`);
+    assert.equal(await evaluate(`document.getElementById('advent-images-save').disabled`), true);
+    assert.match(await evaluate(`document.getElementById('advent-images-queue').textContent`), /exceeds 10 MB/);
+    await evaluate(`clearAdventImages()`);
+    // Existing server-side permissions remain authoritative, with matching
+    // client-side prevention when staff assign a locked day.
+    await evaluate(`currentDashboardUser={role:'mod'}; window.originalLockIsActive=lockIsActive;
+      lockIsActive=key=>key==='advent.test.image.1';
+      stageAdventImages([new File([Uint8Array.from(atob('${imageBase64}'), c=>c.charCodeAt(0))], 'day1.png', {type:'image/png'})])`);
+    assert.equal(await evaluate(`document.getElementById('advent-images-save').disabled`), true);
+    await evaluate(`assignAdventImage(0,'2')`);
+    assert.equal(await evaluate(`document.getElementById('advent-images-save').disabled`), false);
+    await evaluate(`clearAdventImages(); lockIsActive=window.originalLockIsActive; currentDashboardUser={role:'admin'}`);
     await evaluate(`selectAdventDay(3); document.getElementById('advent-challenge-text').value='Browser edited challenge';
       document.getElementById('advent-challenge-text').dataset.dirty='true'; saveAdventChallenge();`);
     assert.equal(fixture.config.challenges[2], 'Browser edited challenge');
@@ -152,6 +202,8 @@ async function main() {
     fs.mkdirSync(outputDir, { recursive: true });
     const desktop = await cmd('Page.captureScreenshot', { format: 'png' });
     fs.writeFileSync(path.join(outputDir, 'dashboard-desktop.png'), Buffer.from(desktop.data, 'base64'));
+    await evaluate(`stageAdventImages(Array.from({length:3},(_,i)=>new File(
+      [Uint8Array.from(atob('${imageBase64}'), c=>c.charCodeAt(0))], 'preview-day-'+(i+1)+'.png', {type:'image/png'})))`);
     const imagePanel = await evaluate(`(() => {
       const box=document.getElementById('advent-image-day').closest('.card').getBoundingClientRect();
       return {x:box.left+scrollX,y:box.top+scrollY,width:box.width,height:box.height,scale:1};
@@ -167,7 +219,7 @@ async function main() {
     assert.equal(fixture.run.state, 'idle');
     assert.ok(requests.some(req => req.url.endsWith('/challenges/3') && req.body.text === 'Browser edited challenge'));
     assert.deepEqual(errors, []);
-    console.log('PASS: Advent desktop/mobile browser flows, 26 image slots, image upload/removal, editable challenge, polling draft, start, day advance, review and reset.');
+    console.log('PASS: Advent desktop/mobile flows, single and 25-picture bulk upload, day assignments, duplicate and lock validation, partial-failure retry, 10 MB rejection, browser compatibility, editable challenge, polling drafts, start, advance, review and reset.');
   } finally {
     socket?.close();
     browser.kill('SIGTERM');

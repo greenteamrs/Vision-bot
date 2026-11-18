@@ -391,7 +391,8 @@ test('image endpoints reject invalid slots, malformed data and locked or non-sta
 test('upload limits check both declared and actual bytes, dimensions and decoded PNG validity', async () => {
   const png = createCanvas(32, 24).toBuffer('image/png');
   assert.equal((await normalizePng(png)).readUInt32BE(16), 32);
-  await assert.rejects(normalizePng(Buffer.alloc(MAX_IMAGE_BYTES + 1)), /5 MB/);
+  assert.equal(MAX_IMAGE_BYTES, 10 * 1024 * 1024);
+  await assert.rejects(normalizePng(Buffer.alloc(MAX_IMAGE_BYTES + 1)), /10 MB/);
   const huge = Buffer.from(png);
   huge.writeUInt32BE(100000, 16);
   await assert.rejects(normalizePng(huge), /4096/);
@@ -399,7 +400,21 @@ test('upload limits check both declared and actual bytes, dimensions and decoded
   corrupt.fill(0, 33);
   await assert.rejects(normalizePng(corrupt), /decoded/);
   assert.throws(() => readImageBody({ headers: { 'content-type': 'image/svg+xml' } }), /image\/png/);
-  assert.throws(() => readImageBody({ headers: { 'content-type': 'image/png', 'content-length': MAX_IMAGE_BYTES + 1 } }), /5 MB/);
+  assert.throws(() => readImageBody({ headers: { 'content-type': 'image/png', 'content-length': MAX_IMAGE_BYTES + 1 } }), /10 MB/);
   const stream = Object.assign(Readable.from([Buffer.alloc(MAX_IMAGE_BYTES), Buffer.alloc(1)]), { headers: { 'content-type': 'image/png' } });
-  await assert.rejects(readImageBody(stream), /5 MB/);
+  await assert.rejects(readImageBody(stream), /10 MB/);
+});
+
+test('image uploads accept PNGs between the former 5 MB and new 10 MB limits', async () => {
+  const { PNG } = require('pngjs');
+  const { randomFillSync } = require('node:crypto');
+  const image = new PNG({ width: 1300, height: 1300 });
+  randomFillSync(image.data);
+  const bytes = PNG.sync.write(image);
+  assert.ok(bytes.length > 5 * 1024 * 1024);
+  assert.ok(bytes.length < MAX_IMAGE_BYTES);
+  const f = fixture();
+  const result = await f.api('POST', '/images/1', bytes);
+  assert.equal(result.code, 200);
+  assert.equal(f.imageFiles.size, 1);
 });

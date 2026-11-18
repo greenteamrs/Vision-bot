@@ -690,7 +690,7 @@
             <button id="advent-image-remove" type="button" class="btn-danger" onclick="removeAdventImage()">Use generated picture</button>
           </div>
           <p id="advent-image-status" class="advent-muted" role="status" style="margin-top:10px;"></p>
-          <p class="advent-muted">PNG, JPG or WebP; up to 10 MB per file and after PNG conversion, maximum 4096 × 4096 pixels. Upload the complete calendar picture for each stage. Replacing a picture affects previews and future announcements, not messages already sent.</p>
+          <p class="advent-muted">PNG, JPG or WebP; up to 10 MB per file, maximum 4096 × 4096 pixels. JPG files stay JPG at their original quality and dimensions. WebP is converted to PNG, which must also fit the 10 MB limit. Upload the complete calendar picture for each stage. Replacing a picture affects previews and future announcements, not messages already sent.</p>
         </div>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
@@ -3909,7 +3909,7 @@
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = `vision-advent-test-${adventState?.config?.year || 'calendar'}.png`;
+      link.download = `vision-advent-test-${adventState?.config?.year || 'calendar'}.${blob.type === 'image/jpeg' ? 'jpg' : 'png'}`;
       document.body.appendChild(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     } catch (error) { showToast(error.message || 'Could not download calendar image.', true); }
@@ -3994,6 +3994,10 @@
       if (image.naturalWidth > 4096 || image.naturalHeight > 4096 || image.naturalWidth * image.naturalHeight > 16000000) {
         throw new Error('Choose a picture no larger than 4096 × 4096 pixels and 16 megapixels.');
       }
+      const header = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+      if (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+        return file.slice(0, file.size, 'image/jpeg');
+      }
       const canvas = document.createElement('canvas');
       canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
       const context = canvas.getContext('2d');
@@ -4005,9 +4009,9 @@
     } finally { URL.revokeObjectURL(url); }
   }
   async function postAdventImage(file, day) {
-    const png = await prepareAdventImage(file);
+    const image = await prepareAdventImage(file);
     return fetch(`/api/advent/test/images/${day}`, {
-      method:'POST', headers:{'Content-Type':'image/png', Authorization:`Bearer ${AUTH_TOKEN}`}, body:png,
+      method:'POST', headers:{'Content-Type':image.type, Authorization:`Bearer ${AUTH_TOKEN}`}, body:image,
     });
   }
   async function saveAdventImages() {

@@ -15,6 +15,12 @@ Post the advent announcement text first, then the calendar picture as a separate
 
 **How to apply:** preserve that ordering for daily and closing announcements. Discord controls preview scaling; keep the original picture available to open.
 
+Keep uploaded JPGs as JPGs without converting them to PNG or unnecessarily resizing/re-encoding them.
+
+**Why:** the user approved preserving JPG files after a 2.1 MB JPG failed because forced PNG conversion expanded it past the 10 MB limit.
+
+**How to apply:** retain the original JPEG bytes and format through storage, previews, downloads and Discord delivery; validate the image and keep upload limits in place.
+
 Keep durable image storage compatible with the bot's Render hosting and existing MongoDB authentication/storage. The chosen file-storage approach is GridFS rather than ephemeral service disk or a Replit-only storage sidecar.
 
 **Why:** the bot does not run inside Replit in production; new upload functionality must not require replacing the existing database or login system.
@@ -25,4 +31,4 @@ Do not decode untrusted uploads through the native image renderer.
 
 **Why:** a malformed PNG caused a native segmentation fault, not a catchable JavaScript exception, during validation tests.
 
-**How to apply:** bound file size and header dimensions before using a JavaScript PNG parser with checksum checks. Reserve the native renderer for trusted programmatically generated calendars.
+**How to apply:** bound file size and header dimensions before using a JavaScript image decoder. Use PNG checksum checks and explicit JPEG resolution/memory limits. Reserve the native renderer for trusted programmatically generated calendars.

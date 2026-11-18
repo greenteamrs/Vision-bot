@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { PNG } = require('pngjs');
+const jpeg = require('jpeg-js');
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -33,10 +34,51 @@ async function normalizePng(bytes) {
   return png;
 }
 
+function jpegDimensions(bytes) {
+  let offset = 2;
+  while (offset < bytes.length) {
+    if (bytes[offset++] !== 0xff) break;
+    while (bytes[offset] === 0xff) offset++;
+    const marker = bytes[offset++];
+    if (marker === 0xda || marker === 0xd9) break;
+    if (marker >= 0xd0 && marker <= 0xd7) continue;
+    if (offset + 2 > bytes.length) break;
+    const length = bytes.readUInt16BE(offset);
+    if (length < 2 || offset + length > bytes.length) break;
+    if ([0xc0, 0xc1, 0xc2].includes(marker) && length >= 8) {
+      return { width:bytes.readUInt16BE(offset + 5), height:bytes.readUInt16BE(offset + 3) };
+    }
+    offset += length;
+  }
+  throw new Error('This JPG could not be decoded. Choose another image.');
+}
+
+async function normalizeCalendarImage(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length > MAX_IMAGE_BYTES) throw new Error('Choose a valid PNG or JPG image no larger than 10 MB.');
+  if (bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    return { bytes:await normalizePng(bytes), contentType:'image/png', extension:'png' };
+  }
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+    throw new Error('Choose a valid PNG or JPG image.');
+  }
+  const { width, height } = jpegDimensions(bytes);
+  if (!width || !height || width > 4096 || height > 4096 || width * height > 16000000) {
+    throw new Error('Calendar images must be at most 4096 × 4096 pixels and 16 megapixels.');
+  }
+  // Validate using a bounded JavaScript decoder, never the native renderer.
+  // Keep the original JPEG bytes: no PNG expansion, resizing or lossy re-encode.
+  try {
+    const image = jpeg.decode(bytes, { useTArray:true, formatAsRGBA:false, tolerantDecoding:false,
+      maxResolutionInMP:16, maxMemoryUsageInMB:192 });
+    if (image.width !== width || image.height !== height) throw new Error('Inconsistent JPG dimensions.');
+  } catch (_) { throw new Error('This JPG could not be decoded. Choose another image.'); }
+  return { bytes, contentType:'image/jpeg', extension:'jpg' };
+}
+
 function readImageBody(req) {
-  if (String(req.headers?.['content-type'] || '').split(';')[0] !== 'image/png') {
+  if (!['image/png', 'image/jpeg'].includes(String(req.headers?.['content-type'] || '').split(';')[0])) {
     req.resume?.();
-    throw new Error('Calendar uploads must use image/png.');
+    throw new Error('Calendar uploads must use image/png or image/jpeg.');
   }
   if (Number(req.headers?.['content-length'] || 0) > MAX_IMAGE_BYTES) {
     req.resume?.();
@@ -74,8 +116,9 @@ function createAdventImageStore(connection = mongoose.connection) {
     return new mongoose.mongo.GridFSBucket(connection.db, { bucketName: 'adventCalendarImages' });
   }
   return {
-    async put(bytes, day) {
-      const upload = bucket().openUploadStream(`calendar-${day}.png`, { metadata: { day, contentType: 'image/png' } });
+    async put(bytes, day, contentType = 'image/png') {
+      const extension = contentType === 'image/jpeg' ? 'jpg' : 'png';
+      const upload = bucket().openUploadStream(`calendar-${day}.${extension}`, { metadata: { day, contentType } });
       await pipeline(Readable.from([bytes]), upload);
       return String(upload.id);
     },
@@ -94,4 +137,4 @@ function createAdventImageStore(connection = mongoose.connection) {
   };
 }
 
-module.exports = { MAX_IMAGE_BYTES, imageDay, normalizePng, readImageBody, createAdventImageStore };
+module.exports = { MAX_IMAGE_BYTES, imageDay, normalizePng, normalizeCalendarImage, readImageBody, createAdventImageStore };

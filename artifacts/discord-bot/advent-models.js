@@ -12,6 +12,7 @@ const configSchema = new mongoose.Schema({
     _id: false,
     day: { type: Number, min: 0, max: 25, required: true },
     fileId: { type: String, required: true },
+    contentType: { type: String, enum:['image/png', 'image/jpeg'], default:'image/png' },
     size: { type: Number, required: true },
     updatedAt: { type: Date, required: true },
   }], default: [] },

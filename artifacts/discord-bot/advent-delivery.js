@@ -15,15 +15,16 @@ function splitAnnouncement(text) {
   return chunks.filter(chunk => chunk.trim());
 }
 
-async function deliverAnnouncement({ target, recent, marker, delivery, text, bytes, save, now }) {
-  const filename = `${marker.replace(/:/g, '-')}-calendar.png`;
+async function deliverAnnouncement({ target, recent, marker, delivery, text, bytes, extension = 'png', save, now }) {
+  const basename = `${marker.replace(/:/g, '-')}-calendar`;
+  const filename = `${basename}.${extension}`;
   const nonce = part => crypto.createHash('sha256').update(`${marker}:${part}`).digest('hex').slice(0, 24);
   // Keep recovery for announcements sent before the move away from embeds.
   const legacy = recent.find(message => message.author.id === delivery.botId
     && message.embeds?.some(embed => embed.footer?.text === marker));
   const image = recent.find(message => message.author.id === delivery.botId
     && (String(message.nonce || '') === nonce('image')
-      || message.attachments?.some(attachment => attachment.name === filename)));
+      || message.attachments?.some(attachment => [`${basename}.png`, `${basename}.jpg`].includes(attachment.name))));
   if (delivery.imageMessageId || image || legacy) return delivery.imageMessageId || image?.id || legacy.id;
 
   const chunks = delivery.textChunks?.length ? delivery.textChunks : splitAnnouncement(text);

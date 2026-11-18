@@ -11,6 +11,8 @@ const { SlashCommandBuilder } = require('../artifacts/discord-bot/node_modules/d
 const { buildCommandCatalog } = require('../artifacts/discord-bot/command-catalog');
 const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID, defaultAnnouncement } = require('../artifacts/discord-bot/advent-domain');
 const { createCanvas } = require('../artifacts/discord-bot/node_modules/@napi-rs/canvas');
+const { normalizeCalendarImage } = require('../artifacts/discord-bot/advent-images');
+const { randomFillSync } = require('node:crypto');
 
 async function main() {
   const botSource = fs.readFileSync(path.resolve('artifacts/discord-bot/bot.js'), 'utf8');
@@ -29,6 +31,7 @@ async function main() {
   };
   const requests = [];
   let failImageDay = null;
+  const uploadedImages = new Map();
   const server = http.createServer(async (req, res) => {
     if (req.url === '/dashboard') {
       res.setHeader('Content-Type', 'text/html');
@@ -55,9 +58,10 @@ async function main() {
       }
       fixture.config.calendarImages = fixture.config.calendarImages.filter(image => image.day !== day);
       if (req.method === 'POST') {
-        assert.equal(req.headers['content-type'], 'image/png');
-        assert.equal(raw.subarray(1, 4).toString(), 'PNG');
-        fixture.config.calendarImages.push({ day, size: raw.length, updatedAt: new Date().toISOString() });
+        const asset = await normalizeCalendarImage(raw);
+        assert.equal(req.headers['content-type'], asset.contentType);
+        uploadedImages.set(day, raw);
+        fixture.config.calendarImages.push({ day, size: raw.length, contentType:asset.contentType, updatedAt: new Date().toISOString() });
       }
     } else if (req.method === 'PATCH' && req.url.includes('/messages/')) {
       fixture.config.announcementMessages[Number(req.url.split('/').at(-1)) - 1] = body.text;
@@ -203,6 +207,37 @@ async function main() {
     assert.equal(await evaluate(`document.getElementById('advent-images-save').disabled`), true);
     assert.match(await evaluate(`document.getElementById('advent-images-queue').textContent`), /exceeds 10 MB/);
     await evaluate(`clearAdventImages()`);
+    // Regression for small JPEGs whose lossless PNG representation exceeds
+    // 10 MB. Generate fixture pixels only, never load user data in a native decoder.
+    const photo = createCanvas(2500, 1800);
+    const photoContext = photo.getContext('2d');
+    const pixels = photoContext.createImageData(2500, 1800);
+    randomFillSync(pixels.data);
+    for (let offset=3;offset<pixels.data.length;offset+=4) pixels.data[offset]=255;
+    photoContext.putImageData(pixels,0,0);
+    const photoJpg = photo.toBuffer('image/jpeg',45);
+    assert.ok(photoJpg.length < 10 * 1024 * 1024);
+    const photoBase64 = photoJpg.toString('base64');
+    const originalExpansion = await evaluate(`(async()=>{
+      window.testJpg=new File([Uint8Array.from(atob('${photoBase64}'),c=>c.charCodeAt(0))],'21.jpg',{type:'image/jpeg'});
+      const image=new Image(); const url=URL.createObjectURL(testJpg);
+      await new Promise(resolve=>{image.onload=resolve;image.src=url});
+      const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+      canvas.getContext('2d').drawImage(image,0,0);
+      const png=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+      URL.revokeObjectURL(url);return png.size;
+    })()`);
+    assert.ok(originalExpansion > 10 * 1024 * 1024, `Fixture PNG must reproduce the former error: ${originalExpansion}`);
+    await evaluate(`stageAdventImages([testJpg]); assignAdventImage(0,'21'); saveAdventImages()`);
+    assert.deepEqual(uploadedImages.get(21), photoJpg, 'Bulk replacement must upload the original JPG without conversion');
+    assert.equal(fixture.config.calendarImages.find(image=>image.day===21).contentType,'image/jpeg');
+    await evaluate(`{
+      const data=new DataTransfer();
+      data.items.add(new File([testJpg],'renamed.jpeg',{type:''}));
+      document.getElementById('advent-image-file').files=data.files;
+      document.getElementById('advent-image-day').value='21';
+    } uploadAdventImage()`);
+    assert.deepEqual(uploadedImages.get(21), photoJpg, 'Single upload preserves JPG with blank browser MIME metadata');
     // Existing server-side permissions remain authoritative, with matching
     // client-side prevention when staff assign a locked day.
     await evaluate(`currentDashboardUser={role:'mod'}; window.originalLockIsActive=lockIsActive;
@@ -276,7 +311,7 @@ async function main() {
     const commandsMobile = await cmd('Page.captureScreenshot', {format:'png'});
     fs.writeFileSync(path.join(outputDir,'commands-mobile.png'), Buffer.from(commandsMobile.data,'base64'));
     assert.deepEqual(errors, []);
-    console.log('PASS: Advent desktop/mobile flows and slash command reference, including automatic command additions/removals, subcommands, fields, errors and recovery.');
+    console.log('PASS: Advent desktop/mobile flows, byte-identical JPG bulk/single replacement despite PNG expansion above 10 MB, and automatic slash command reference.');
   } finally {
     socket?.close();
     browser.kill('SIGTERM');

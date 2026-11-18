@@ -4,7 +4,7 @@ const models = require('./advent-models');
 const { TEST_CHANNEL_ID, clock, challengeText, settingsInput, actionUpdate, assertAccepting,
   defaultAnnouncement, renderAnnouncement, announcementText } = require('./advent-domain');
 const { renderCalendar } = require('./advent-calendar');
-const { imageDay, normalizePng, readImageBody, createAdventImageStore } = require('./advent-images');
+const { imageDay, normalizeCalendarImage, readImageBody, createAdventImageStore } = require('./advent-images');
 const { deliverAnnouncement } = require('./advent-delivery');
 
 function createAdventService({
@@ -52,10 +52,14 @@ function createAdventService({
     return target;
   }
 
-  async function calendarImage(config, run) {
+  async function calendarAsset(config, run) {
     const day = Math.min(25, run.opened);
     const custom = (config.calendarImages || []).find(image => image.day === day);
-    return custom ? imageStore.get(custom.fileId) : renderCalendar(config, run);
+    return {
+      bytes:custom ? await imageStore.get(custom.fileId) : renderCalendar(config, run),
+      contentType:custom?.contentType || 'image/png',
+      extension:custom?.contentType === 'image/jpeg' ? 'jpg' : 'png',
+    };
   }
 
   async function removeUnusedImage(fileId) {
@@ -100,7 +104,8 @@ function createAdventService({
         announcementMessages: Array.from({ length: 26 }, (_, i) =>
           config.announcementMessages?.[i] || defaultAnnouncement(i + 1)),
         dayDurationSeconds: config.dayDurationSeconds, channelId: TEST_CHANNEL_ID,
-        calendarImages: (config.calendarImages || []).map(({ day, size, updatedAt }) => ({ day, size, updatedAt })),
+        calendarImages: (config.calendarImages || []).map(({ day, size, updatedAt, contentType }) =>
+          ({ day, size, updatedAt, contentType:contentType || 'image/png' })),
       },
       run: clock(config, now()), submissions, announcements,
     };
@@ -133,7 +138,7 @@ function createAdventService({
         run.dayEndsAt ? `<t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>` : '');
       const messageId = await deliverAnnouncement({
         target, recent, marker, delivery: { ...delivery, botId: client.user.id }, text,
-        bytes: await calendarImage(config, run), now,
+        ...await calendarAsset(config, run), now,
         save: values => AdventAnnouncement.updateOne({ _id: delivery._id }, { $set: values }),
       });
       await AdventAnnouncement.updateOne({ _id: delivery._id }, {
@@ -225,9 +230,9 @@ function createAdventService({
         const run = _params?.has('day')
           ? { day: imageDay(_params.get('day')), opened: imageDay(_params.get('day')) }
           : clock(config, now());
-        const bytes = await calendarImage(config, run);
-        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
-        res.end(bytes);
+        const asset = await calendarAsset(config, run);
+        res.writeHead(200, { 'Content-Type': asset.contentType, 'Cache-Control': 'no-store', 'X-Content-Type-Options':'nosniff' });
+        res.end(asset.bytes);
         return true;
       }
       if (!['admin', 'mod'].includes(authUser?.role)) {
@@ -241,16 +246,16 @@ function createAdventService({
           req.resume?.();
           return true;
         }
-        const bytes = req.method === 'POST' ? await normalizePng(await readImageBody(req)) : null;
+        const asset = req.method === 'POST' ? await normalizeCalendarImage(await readImageBody(req)) : null;
         await serial(async () => {
           const config = await getConfig();
           const previous = (config.calendarImages || []).find(image => image.day === day);
           const calendarImages = (config.calendarImages || []).filter(image => image.day !== day);
           let newId;
           try {
-            if (bytes) {
-              newId = await imageStore.put(bytes, day);
-              calendarImages.push({ day, fileId: newId, size: bytes.length, updatedAt: new Date(now()) });
+            if (asset) {
+              newId = await imageStore.put(asset.bytes, day, asset.contentType);
+              calendarImages.push({ day, fileId: newId, size: asset.bytes.length, contentType:asset.contentType, updatedAt: new Date(now()) });
             }
             await update(config, { calendarImages });
           } catch (error) {

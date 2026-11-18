@@ -6,7 +6,7 @@ const { createAdventService } = require('./advent-service');
 const { renderCalendar } = require('./advent-calendar');
 const { Readable } = require('node:stream');
 const { createCanvas } = require('@napi-rs/canvas');
-const { normalizePng, MAX_IMAGE_BYTES, readImageBody } = require('./advent-images');
+const { normalizePng, normalizeCalendarImage, MAX_IMAGE_BYTES, readImageBody } = require('./advent-images');
 const { splitAnnouncement } = require('./advent-delivery');
 
 const START = Date.parse('2026-12-01T00:00:00Z');
@@ -108,7 +108,9 @@ function fixture() {
       end(bytes) { this.bytes = bytes; },
     };
     const req = Buffer.isBuffer(body)
-      ? Object.assign(Readable.from([body]), { method, headers: { 'content-type': 'image/png' } })
+      ? Object.assign(Readable.from([body]), { method, headers: {
+        'content-type':body[0] === 0xff && body[1] === 0xd8 ? 'image/jpeg' : 'image/png',
+      } })
       : { method, body };
     const url = new URL(`/api/advent/test${suffix}`, 'http://test');
     await service.handleApi(req, response, url.pathname, url.searchParams, { role, sub: 'staff' });
@@ -502,6 +504,53 @@ test('replacing or removing custom pictures cleans up storage and restores gener
   const result = await f.api('GET', '/calendar.png?day=1');
   assert.equal(result.bytes.readUInt32BE(16), 1200);
   assert.equal((await f.api('GET')).data.config.calendarImages.length, 0);
+});
+
+test('JPG stays byte-identical through validation, replacement, preview and Discord delivery', async () => {
+  const f = fixture();
+  const png = createCanvas(32, 24).toBuffer('image/png');
+  const jpg = createCanvas(32, 24).toBuffer('image/jpeg', 85);
+  const normalized = await normalizeCalendarImage(jpg);
+  assert.equal(normalized.contentType, 'image/jpeg');
+  assert.equal(normalized.extension, 'jpg');
+  assert.deepEqual(normalized.bytes, jpg);
+  await f.api('POST', '/images/1', png);
+  const previous = [...f.imageFiles.keys()][0];
+  const saved = await f.api('POST', '/images/1', jpg);
+  assert.equal(saved.code, 200);
+  assert.equal(saved.data.config.calendarImages[0].contentType, 'image/jpeg');
+  assert.equal(f.imageFiles.has(previous), false);
+  assert.equal(f.imageFiles.size, 1);
+  const preview = await f.api('GET', '/calendar.png?day=1');
+  assert.equal(preview.headers['Content-Type'], 'image/jpeg');
+  assert.deepEqual(preview.bytes, jpg);
+  await f.api('POST', '/actions', {action:'start'});
+  assert.ok(f.sent[1].files[0].name.endsWith('.jpg'));
+  assert.deepEqual(f.sent[1].files[0].attachment, jpg);
+  assert.equal((await f.api('POST', '/images/1', png)).code, 200);
+  assert.equal((await f.api('GET', '/calendar.png?day=1')).headers['Content-Type'], 'image/png');
+  assert.equal(f.imageFiles.size, 1);
+});
+
+test('bad JPG uploads fail validation without changing the saved picture', async () => {
+  const f = fixture();
+  const jpg = createCanvas(32, 24).toBuffer('image/jpeg', 85);
+  await f.api('POST', '/images/1', jpg);
+  const previous = [...f.imageFiles.keys()][0];
+  const truncated = jpg.subarray(0, 50);
+  assert.equal((await f.api('POST', '/images/1', truncated)).code, 400);
+  const badScan = Buffer.from(jpg);
+  const scan = badScan.indexOf(Buffer.from([0xff, 0xda]));
+  assert.ok(scan > 0);
+  assert.equal((await f.api('POST', '/images/1', badScan.subarray(0, scan))).code, 400);
+  const large = Buffer.from(jpg);
+  const frame = [0xc0,0xc1,0xc2].map(marker=>large.indexOf(Buffer.from([0xff,marker]))).find(offset=>offset >= 0);
+  large.writeUInt16BE(5000, frame + 7);
+  await assert.rejects(normalizeCalendarImage(large), /4096/);
+  assert.equal((await f.api('POST', '/images/1', large)).code, 400);
+  assert.equal(f.imageFiles.has(previous), true);
+  assert.equal(f.imageFiles.size, 1);
+  assert.deepEqual((await f.api('GET', '/calendar.png?day=1')).bytes, jpg);
 });
 
 test('image endpoints reject invalid slots, malformed data and locked or non-staff uploads', async () => {

@@ -21,7 +21,7 @@ async function main() {
   let failCommands = false;
   const fixture = {
     config: { year: 2026, challenges: [...DEFAULT_CHALLENGES], dayDurationSeconds: 60, channelId: TEST_CHANNEL_ID, calendarImages: [],
-      announcementMessages: Array.from({length:26}, (_,i) => defaultAnnouncement(i + 1)) },
+      announcementTemplate: defaultAnnouncement(1), announcementClosingMessage: defaultAnnouncement(26) },
     run: { id: 'browser-fixture', state: 'idle', day: 0, opened: 0, dayEndsAt: null },
     submissions: [{
       _id: '000000000000000000000001', day: 1, userId: 'member-1', username: 'Test member', challenge: DEFAULT_CHALLENGES[0],
@@ -63,8 +63,10 @@ async function main() {
         uploadedImages.set(day, raw);
         fixture.config.calendarImages.push({ day, size: raw.length, contentType:asset.contentType, updatedAt: new Date().toISOString() });
       }
-    } else if (req.method === 'PATCH' && req.url.includes('/messages/')) {
-      fixture.config.announcementMessages[Number(req.url.split('/').at(-1)) - 1] = body.text;
+    } else if (req.method === 'PATCH' && req.url === '/api/advent/test/messages/daily') {
+      fixture.config.announcementTemplate = body.text;
+    } else if (req.method === 'PATCH' && req.url === '/api/advent/test/messages/closing') {
+      fixture.config.announcementClosingMessage = body.text;
     } else if (req.method === 'PATCH' && req.url.includes('/challenges/')) {
       fixture.config.challenges[Number(req.url.split('/').at(-1)) - 1] = body.text;
     } else if (req.method === 'PATCH') {
@@ -151,20 +153,15 @@ async function main() {
       loadAdvent();`);
     assert.equal(await evaluate(`document.querySelectorAll('.advent-door').length`), 25);
     assert.equal(await evaluate(`document.getElementById('advent-image-day').options.length`), 26);
-    assert.equal(await evaluate(`document.getElementById('advent-message-day').options.length`), 26);
     await evaluate(`document.getElementById('advent-message-text').value='My full announcement\\nMy custom rules {challenge}';
       draftAdventMessage(); loadAdvent();`);
     assert.equal(await evaluate(`document.getElementById('advent-message-text').value`),
       'My full announcement\nMy custom rules {challenge}');
-    await evaluate(`document.getElementById('advent-message-day').value='2'; renderAdventMessageEditor();
-      document.getElementById('advent-message-text').value='Day two draft'; draftAdventMessage();
-      document.getElementById('advent-message-day').value='1'; renderAdventMessageEditor(); saveAdventMessage();`);
-    assert.equal(fixture.config.announcementMessages[0], 'My full announcement\nMy custom rules {challenge}');
-    await evaluate(`document.getElementById('advent-message-day').value='2'; renderAdventMessageEditor()`);
-    assert.equal(await evaluate(`document.getElementById('advent-message-text').value`), 'Day two draft');
-    await evaluate(`document.getElementById('advent-message-day').value='26'; renderAdventMessageEditor();
-      document.getElementById('advent-message-text').value='Closing announcement edited'; draftAdventMessage(); saveAdventMessage();`);
-    assert.equal(fixture.config.announcementMessages[25], 'Closing announcement edited');
+    await evaluate(`saveAdventMessage('daily')`);
+    assert.equal(fixture.config.announcementTemplate, 'My full announcement\nMy custom rules {challenge}');
+    await evaluate(`document.getElementById('advent-closing-message-text').value='Closing announcement edited';
+      draftAdventMessage('closing'); saveAdventMessage('closing');`);
+    assert.equal(fixture.config.announcementClosingMessage, 'Closing announcement edited');
     const imageBase64 = createCanvas(32, 24).toBuffer('image/png').toString('base64');
     await evaluate(`{
       const data = new DataTransfer();

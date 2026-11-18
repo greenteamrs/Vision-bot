@@ -15,6 +15,12 @@ Advent scoring is one point per approved daily challenge, out of 25. Pending and
 
 **How to apply:** count unique approved days per member within the current run, not raw submissions. Do not count the current or future days as missed.
 
+Use one shared editable announcement template across all 25 daily challenges, with `{day}`, `{challenge}`, `{closes}`, and `{duration}` placeholders. Keep the one-time closing announcement separate.
+
+**Why:** the user asked to stop editing the announcement separately for each day and use one message with variables.
+
+**How to apply:** validate the rendered template against every daily challenge before saving; edits affect future posts only.
+
 Post the calendar picture first as a normal image attachment, then the advent challenge text separately. Do not put the picture inside a Discord embed.
 
 **Why:** the user requested a larger picture outside an embed, then changed the posting order to picture first and challenge text second.

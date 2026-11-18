@@ -15,6 +15,16 @@ function createAdventService({
   now = Date.now,
   imageStore = createAdventImageStore(),
 }) {
+  function dailyTemplate(config) {
+    return config.announcementTemplate
+      || config.announcementMessages?.slice(0, 25).find(message => typeof message === 'string' && message.trim())
+      || defaultAnnouncement(1);
+  }
+  function closingMessage(config) {
+    return config.announcementClosingMessage
+      || config.announcementMessages?.[25]
+      || defaultAnnouncement(26);
+  }
   // One queue covers actions, submissions and announcements: an advance cannot
   // switch days halfway through accepting proof or building the daily image.
   let queue = Promise.resolve();
@@ -101,8 +111,8 @@ function createAdventService({
     return {
       config: {
         year: config.year, challenges: config.challenges,
-        announcementMessages: Array.from({ length: 26 }, (_, i) =>
-          config.announcementMessages?.[i] || defaultAnnouncement(i + 1)),
+        announcementTemplate: dailyTemplate(config),
+        announcementClosingMessage: closingMessage(config),
         dayDurationSeconds: config.dayDurationSeconds, channelId: TEST_CHANNEL_ID,
         calendarImages: (config.calendarImages || []).map(({ day, size, updatedAt, contentType }) =>
           ({ day, size, updatedAt, contentType:contentType || 'image/png' })),
@@ -133,7 +143,7 @@ function createAdventService({
       // Recovery after a restart between Discord delivery and saving messageId.
       // Snowflake nonce also guards Discord's recent-message retry window.
       const recent = await target.messages.fetch({ limit: 100 });
-      const template = config.announcementMessages?.[run.day - 1] || defaultAnnouncement(run.day);
+      const template = run.day === 26 ? closingMessage(config) : dailyTemplate(config);
       const text = renderAnnouncement(template, config, run.day,
         run.dayEndsAt ? `<t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>` : '');
       const messageId = await deliverAnnouncement({
@@ -294,7 +304,7 @@ function createAdventService({
         });
         return true;
       }
-      const announcement = pathname.match(/^\/api\/advent\/test\/messages\/(\d+)$/);
+      const announcement = pathname.match(/^\/api\/advent\/test\/messages\/(daily|closing)$/);
       const challenge = pathname.match(/^\/api\/advent\/test\/challenges\/(\d+)$/);
       const review = pathname.match(/^\/api\/advent\/test\/submissions\/([a-f\d]{24})\/review$/i);
       if ((req.method === 'PATCH' && (pathname === base || challenge || announcement))
@@ -303,12 +313,16 @@ function createAdventService({
         await serial(async () => {
           let config = await getConfig();
           if (announcement) {
-            const day = Number(announcement[1]);
-            if (day < 1 || day > 26) throw new Error('Choose a message from day 1 to 25 or the closing message (26).');
-            if (await dashboardEditBlocked(authUser, res, [`advent.test.message.${day}`])) return;
-            const messages = Array.from({ length:26 }, (_, i) => config.announcementMessages?.[i] || '');
-            messages[day - 1] = announcementText(body.text, config, day);
-            await update(config, { announcementMessages: messages });
+            const isDaily = announcement[1] === 'daily';
+            const lockKey = isDaily ? 'advent.test.message.template' : 'advent.test.message.closing';
+            if (await dashboardEditBlocked(authUser, res, [lockKey])) return;
+            if (isDaily) {
+              for (let day = 1; day <= 25; day++) announcementText(body.text, config, day);
+              await update(config, { announcementTemplate: body.text });
+            } else {
+              announcementText(body.text, config, 26);
+              await update(config, { announcementClosingMessage: body.text });
+            }
           } else if (challenge) {
             const day = Number(challenge[1]);
             if (day < 1 || day > 25) throw new Error('Choose a day between 1 and 25.');
@@ -316,7 +330,7 @@ function createAdventService({
             if (await dashboardEditBlocked(authUser, res, [`advent.test.challenge.${day}`])) return;
             const challenges = [...config.challenges];
             challenges[day - 1] = text;
-            renderAnnouncement(config.announcementMessages?.[day - 1] || defaultAnnouncement(day),
+            renderAnnouncement(dailyTemplate(config),
               { ...config, challenges }, day);
             await update(config, { challenges });
           } else if (review) {

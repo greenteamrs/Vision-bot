@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID, clock, actionUpdate, settingsInput, challengeText, assertAccepting } = require('./advent-domain');
+const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID, clock, actionUpdate, settingsInput, challengeText, assertAccepting, defaultAnnouncement } = require('./advent-domain');
 const { createAdventService } = require('./advent-service');
 const { renderCalendar } = require('./advent-calendar');
 const { Readable } = require('node:stream');
@@ -297,9 +297,9 @@ test('Discord approval uses the same advent records and rejects duplicate or arc
 test('full announcement edits persist, replace all wording and survive reset', async () => {
   const f = fixture();
   const text = '**My own heading {day}**\nRules I wrote: {challenge}\nDeadline {closes}, duration {duration}.';
-  const saved = await f.api('PATCH', '/messages/1', { text });
+  const saved = await f.api('PATCH', '/messages/daily', { text });
   assert.equal(saved.code, 200);
-  assert.equal((await f.api('GET')).data.config.announcementMessages[0], text);
+  assert.equal((await f.api('GET')).data.config.announcementTemplate, text);
   await f.api('POST', '/actions', { action: 'start' });
   assert.match(f.sent[1].content, /My own heading 1/);
   assert.match(f.sent[1].content, /tempoross/);
@@ -309,30 +309,40 @@ test('full announcement edits persist, replace all wording and survive reset', a
   assert.equal(f.sent[1].embeds, undefined);
   assert.deepEqual(f.sent[0].allowedMentions, { parse: [] });
   const sentCount = f.sent.length;
-  await f.api('PATCH', '/messages/1', { text: 'New text for future posts' });
+  await f.api('PATCH', '/messages/daily', { text: 'New text for future posts' });
   await f.service.run();
   assert.equal(f.sent.length, sentCount, 'Edits must not repost already sent messages');
   await f.api('POST', '/actions', { action: 'reset', confirmation: 'RESET TEST' });
-  assert.equal((await f.api('GET')).data.config.announcementMessages[0], 'New text for future posts');
+  assert.equal((await f.api('GET')).data.config.announcementTemplate, 'New text for future posts');
 });
 
-test('announcement edits validate dates, permissions, placeholder expansion and closing text', async () => {
+test('one shared daily template fills in each day and challenge', async () => {
   const f = fixture();
-  assert.equal((await f.api('GET')).data.config.announcementMessages.length, 26);
-  assert.equal((await f.api('PATCH', '/messages/0', { text:'bad' })).code, 400);
-  assert.equal((await f.api('PATCH', '/messages/27', { text:'bad' })).code, 400);
-  assert.equal((await f.api('PATCH', '/messages/1', { text:' ' })).code, 400);
-  assert.equal((await f.api('PATCH', '/messages/1', { text:'a'.repeat(4001) })).code, 400);
-  assert.equal((await f.api('PATCH', '/messages/1', { text:'{challenge}'.repeat(200) })).code, 400);
-  assert.equal((await f.api('PATCH', '/messages/1', { text:'bad' }, 'member')).code, 403);
+  await f.api('PATCH', '/messages/daily', { text:'Day {day}: {challenge}; ends {closes}; {duration}s.' });
+  await f.api('POST', '/actions', { action:'start' });
+  assert.match(f.sent[1].content, /Day 1: tempoross unique \(4 rarest\); ends <t:\d+:F>; 86400s\./);
+  await f.api('POST', '/actions', { action:'advance' });
+  assert.match(f.sent[3].content, /Day 2: tormented demons claws\/synapse; ends <t:\d+:F>; 86400s\./);
+  assert.equal((await f.api('GET')).data.config.announcementTemplate,
+    'Day {day}: {challenge}; ends {closes}; {duration}s.');
+});
+
+test('shared announcement template validates permissions, expansion and separate closing message', async () => {
+  const f = fixture();
+  assert.equal((await f.api('GET')).data.config.announcementTemplate, defaultAnnouncement(1));
+  assert.equal((await f.api('PATCH', '/messages/daily', { text:' ' })).code, 400);
+  assert.equal((await f.api('PATCH', '/messages/daily', { text:'a'.repeat(4001) })).code, 400);
+  assert.equal((await f.api('PATCH', '/messages/daily', { text:'{challenge}'.repeat(200) })).code, 400);
+  assert.equal((await f.api('PATCH', '/messages/daily', { text:'bad' }, 'member')).code, 403);
   f.blocked = true;
-  assert.equal((await f.api('PATCH', '/messages/1', { text:'locked' }, 'mod')).code, 403);
+  assert.equal((await f.api('PATCH', '/messages/daily', { text:'locked' }, 'mod')).code, 403);
   f.blocked = false;
-  assert.equal((await f.api('PATCH', '/messages/26', { text:'**Our closing celebration!**' })).code, 200);
+  assert.equal((await f.api('PATCH', '/messages/closing', { text:'**Our closing celebration!**' })).code, 200);
   await f.api('POST', '/actions', { action:'start' });
   f.advance(25 * 86400000);
   await f.service.run();
   assert.equal(f.sent.at(-1).content, '**Our closing celebration!**');
+  assert.equal((await f.api('GET')).data.config.announcementClosingMessage, '**Our closing celebration!**');
 });
 
 test('start posts a standalone calendar picture first, then challenge text without embeds or mentions', async () => {
@@ -450,7 +460,7 @@ test('long announcement text is split safely after the standalone image', async 
   assert.ok(chunks.every(chunk => chunk.length <= 2000));
   assert.ok(chunks.every(chunk => !/[\uD800-\uDBFF]$/.test(chunk)));
   assert.equal(splitAnnouncement('Message' + ' '.repeat(4000)).map(chunk => chunk.trim()).join(''), 'Message');
-  await f.api('PATCH', '/messages/1', { text });
+  await f.api('PATCH', '/messages/daily', { text });
   await f.api('POST', '/actions', { action:'start' });
   assert.equal(f.sent.length, chunks.length + 1);
   assert.equal(f.sent.slice(1).map(message => message.content).join(''), text);
@@ -461,12 +471,12 @@ test('long announcement text is split safely after the standalone image', async 
 test('failed image upload prevents text posting and retries keep the original wording', async t => {
   t.mock.method(console, 'error', () => {});
   const f = fixture();
-  await f.api('PATCH', '/messages/1', { text:'The original message' });
+  await f.api('PATCH', '/messages/daily', { text:'The original message' });
   f.imageSendError = true;
   await f.api('POST', '/actions', { action:'start' });
   assert.equal(f.sent.length, 0);
   assert.equal(f.AdventAnnouncement.rows[0].status, 'failed');
-  await f.api('PATCH', '/messages/1', { text:'Edited after partial delivery' });
+  await f.api('PATCH', '/messages/daily', { text:'Edited after partial delivery' });
   f.imageSendError = false;
   await f.service.run();
   assert.equal(f.sent.length, 2);

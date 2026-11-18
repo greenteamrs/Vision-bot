@@ -661,16 +661,19 @@
           </div>
         </div>
         <div class="card">
-          <h3>Full announcement message</h3>
-          <p class="advent-muted">Edit all the wording sent with each calendar picture, including the heading, instructions and rules. Discord formatting is supported. Saves affect future announcements, not messages already posted.</p>
-          <div class="advent-toolbar">
-            <label for="advent-message-day">Message</label>
-            <select id="advent-message-day" onchange="renderAdventMessageEditor()" aria-label="Choose announcement day"></select>
-          </div>
-          <p class="advent-muted">Optional placeholders: {day}, {challenge}, {closes} (Discord closing time), {duration} (test-day seconds). You can remove any of them. The bot posts the calendar picture first as a normal image, not inside an embed, then this challenge text. Long text is split automatically.</p>
+          <h3>Daily announcement template</h3>
+          <p class="advent-muted">Write this message once for all 25 challenge days. The bot fills in each day’s values automatically. Discord formatting is supported. Saves affect future announcements, not messages already posted.</p>
+          <p class="advent-muted">Variables: {day}, {challenge}, {closes} (Discord closing time), {duration} (test-day seconds). The calendar picture posts first, followed by this message. Long messages are split automatically.</p>
           <textarea id="advent-message-text" maxlength="4000" rows="9" aria-label="Full announcement text" style="width:100%;box-sizing:border-box;margin:10px 0;" oninput="draftAdventMessage()"></textarea>
-          <button id="advent-message-save" type="button" class="btn-save" onclick="saveAdventMessage()">Save full message</button>
+          <button id="advent-message-save" type="button" class="btn-save" onclick="saveAdventMessage('daily')">Save daily template</button>
           <p id="advent-message-status" class="advent-muted" role="status"></p>
+          <details style="margin-top:16px;">
+            <summary>Closing message (after day 25)</summary>
+            <p class="advent-muted">This one-time message is separate from the daily challenge template. Variables can also be used if needed.</p>
+            <textarea id="advent-closing-message-text" maxlength="4000" rows="4" aria-label="Closing message" style="width:100%;box-sizing:border-box;margin:10px 0;" oninput="draftAdventMessage('closing')"></textarea>
+            <button id="advent-closing-message-save" type="button" class="btn-save" onclick="saveAdventMessage('closing')">Save closing message</button>
+            <p id="advent-closing-message-status" class="advent-muted" role="status"></p>
+          </details>
         </div>
         <div class="card">
           <h3>Your calendar pictures</h3>
@@ -3649,36 +3652,38 @@
   let adventPollTimer = null;
   let adventRequestGeneration = 0;
   const adventMessageDrafts = new Map();
-  function draftAdventMessage() {
-    const day = Number(document.getElementById('advent-message-day').value);
-    const text = document.getElementById('advent-message-text').value;
-    adventMessageDrafts.set(day, text);
-    document.getElementById('advent-message-status').textContent = `${text.length} / 4000 characters · Unsaved changes`;
+  function draftAdventMessage(kind = 'daily') {
+    const closing = kind === 'closing';
+    const input = document.getElementById(closing ? 'advent-closing-message-text' : 'advent-message-text');
+    adventMessageDrafts.set(kind, input.value);
+    document.getElementById(closing ? 'advent-closing-message-status' : 'advent-message-status').textContent =
+      `${input.value.length} / 4000 characters · Unsaved changes`;
   }
   function renderAdventMessageEditor() {
-    const select = document.getElementById('advent-message-day');
-    if (!select.options.length) select.innerHTML = Array.from({length:26}, (_,i) =>
-      `<option value="${i + 1}">${i === 25 ? 'Closing message — all doors opened' : `Day ${i + 1}`}</option>`).join('');
-    const day = Number(select.value);
-    const input = document.getElementById('advent-message-text');
-    input.value = adventMessageDrafts.has(day) ? adventMessageDrafts.get(day) :
-      adventState?.config?.announcementMessages?.[day - 1] || '';
-    input.dataset.lockKey = `advent.test.message.${day}`;
-    input.dataset.lockBaseDisabled = String(adventBusy);
-    select.disabled = adventBusy;
-    const button = document.getElementById('advent-message-save');
-    button.dataset.lockActionKey = `advent.test.message.${day}`;
-    button.dataset.actionDisabled = String(adventBusy || !adventState);
-    document.getElementById('advent-message-status').textContent =
-      `${input.value.length} / 4000 characters${adventMessageDrafts.has(day) ? ' · Unsaved changes' : ''}`;
-    hydrateDashboardLockControls(input.parentElement);
+    const values = [
+      { kind:'daily', inputId:'advent-message-text', statusId:'advent-message-status', lockKey:'advent.test.message.template', value:adventState?.config?.announcementTemplate },
+      { kind:'closing', inputId:'advent-closing-message-text', statusId:'advent-closing-message-status', lockKey:'advent.test.message.closing', value:adventState?.config?.announcementClosingMessage },
+    ];
+    for (const item of values) {
+      const input = document.getElementById(item.inputId);
+      input.value = adventMessageDrafts.has(item.kind) ? adventMessageDrafts.get(item.kind) : item.value || '';
+      input.dataset.lockKey = item.lockKey;
+      input.dataset.lockBaseDisabled = String(adventBusy);
+      document.getElementById(item.statusId).textContent =
+        `${input.value.length} / 4000 characters${adventMessageDrafts.has(item.kind) ? ' · Unsaved changes' : ''}`;
+      const button = document.getElementById(item.kind === 'daily' ? 'advent-message-save' : 'advent-closing-message-save');
+      button.dataset.lockActionKey = item.lockKey;
+      button.dataset.actionDisabled = String(adventBusy || !adventState);
+      hydrateDashboardLockControls(input.parentElement);
+    }
   }
-  async function saveAdventMessage() {
-    const day = Number(document.getElementById('advent-message-day').value);
-    const text = document.getElementById('advent-message-text').value;
+  async function saveAdventMessage(kind = 'daily') {
+    const closing = kind === 'closing';
+    const text = document.getElementById(closing ? 'advent-closing-message-text' : 'advent-message-text').value;
     if (!text.trim()) return showToast('Enter the full announcement message.', true);
-    await adventMutation(() => api('PATCH', `/api/advent/test/messages/${day}`, { text }),
-      'Full announcement message saved for future posts.', () => adventMessageDrafts.delete(day));
+    await adventMutation(() => api('PATCH', `/api/advent/test/messages/${kind}`, { text }),
+      closing ? 'Closing message saved for future posts.' : 'Daily announcement template saved for future posts.',
+      () => adventMessageDrafts.delete(kind));
   }
 
   function startAdventPolling() {

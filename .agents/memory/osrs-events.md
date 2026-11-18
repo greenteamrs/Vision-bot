@@ -26,3 +26,9 @@ The advent event runs December 1–25 with the daily boundary at 00:00 UTC. The 
 **Why:** the user chose 25 days and UTC game time, supplied 25 challenges, and explicitly required testing before going live.
 
 **How to apply:** keep simulated day advancement and test submissions separate from the real December schedule. Never activate the live event or reuse test progress as live progress without approval.
+
+Use one `/approve` command for picture submissions across all event formats, rather than requiring staff to learn a separate approval command for every format.
+
+**Why:** the user requested one command where they can select a picture from any event and approve it.
+
+**How to apply:** include new picture-based event formats in shared moderation while preserving each format's own scoring, team/tile/step choices and submission eligibility.

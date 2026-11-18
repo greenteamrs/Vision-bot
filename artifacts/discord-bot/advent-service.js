@@ -343,7 +343,18 @@ function createAdventService({
     await run();
   }
 
-  return { init, run, handleApi, handleCommand, snapshot };
+  async function approveSubmission(id, reviewer) {
+    return serial(async () => {
+      const config = await getConfig();
+      const submission = await AdventSubmission.findOneAndUpdate({
+        _id: id, runId: config.runId, status: 'pending',
+      }, { $set: { status: 'approved', reviewedBy: reviewer, reviewNote: '' } }, { new: true }).lean();
+      if (!submission) throw new Error('Picture not found, already reviewed, or belongs to an old advent test.');
+      return submission;
+    });
+  }
+
+  return { init, run, handleApi, handleCommand, snapshot, approveSubmission, freshProof };
 }
 
 module.exports = { createAdventService };

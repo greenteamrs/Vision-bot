@@ -204,6 +204,21 @@ test('challenge edits persist, settings validate and locked moderator edits do n
   assert.equal((await f.api('GET')).data.config.challenges[2], 'Edited boss challenge');
 });
 
+test('Discord approval uses the same advent records and rejects duplicate or archived submissions', async () => {
+  const f = fixture();
+  await f.api('POST', '/actions', { action:'start' });
+  await f.message();
+  let state = (await f.api('GET')).data;
+  const id = state.submissions[0]._id;
+  await f.service.approveSubmission(id,'Discord staff');
+  state = (await f.api('GET')).data;
+  assert.equal(state.submissions[0].status,'approved');
+  assert.equal(state.submissions[0].reviewedBy,'Discord staff');
+  await assert.rejects(f.service.approveSubmission(id,'Other staff'),/already reviewed/);
+  await f.api('POST', '/actions', { action:'reset', confirmation:'RESET TEST' });
+  await assert.rejects(f.service.approveSubmission(id,'Discord staff'),/old advent test/);
+});
+
 test('full announcement edits persist, replace all wording and survive reset', async () => {
   const f = fixture();
   const text = '**My own heading {day}**\nRules I wrote: {challenge}\nDeadline {closes}, duration {duration}.';

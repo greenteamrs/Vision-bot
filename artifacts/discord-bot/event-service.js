@@ -1,8 +1,8 @@
 const crypto = require('crypto');
 const { valuesDiffer } = require('./dashboard-locks');
 const {
-  OsrsEvent,
-  EventSubmission,
+  OsrsEvent: DefaultOsrsEvent,
+  EventSubmission: DefaultEventSubmission,
   normalizeEventInput,
   normalizeGoal,
   goalById,
@@ -50,7 +50,8 @@ function serializeEvent(event) {
   return value;
 }
 
-function createEventService({ client, User, getDroptrackerDrops, readBody, sendJson, dashboardEditBlocked }) {
+function createEventService({ client, User, getDroptrackerDrops, readBody, sendJson, dashboardEditBlocked,
+  OsrsEvent = DefaultOsrsEvent, EventSubmission = DefaultEventSubmission }) {
   async function editIsBlocked(res, authUser, keys) {
     return dashboardEditBlocked(authUser, res, keys);
   }
@@ -59,6 +60,31 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     return Object.keys(values || {})
       .filter(key => values[key] !== undefined)
       .map(key => `${prefix}.${key}`);
+  }
+
+  async function approveSubmission(id, reviewer, note = '') {
+    const submission = await EventSubmission.findOne({ _id: id, status: 'pending' });
+    if (!submission) throw new Error('Pending result not found or already reviewed.');
+    const event = await OsrsEvent.findById(submission.eventId);
+    if (!event) throw new Error('The event for this result no longer exists.');
+    const goal = goalById(event, submission.goalId);
+    if (!goal) throw new Error('The goal for this result no longer exists.');
+    if (event.scoringMode === 'task-points') {
+      const previous = await EventSubmission.find({
+        eventId: event._id, goalId: submission.goalId, targetId: submission.targetId,
+        status: { $in: ['approved', 'verified'] }, _id: { $ne: submission._id },
+      }).select('value').lean();
+      if (previous.reduce((sum, result) => sum + Math.max(0, Number(result.value || 0)), 0) >= Number(goal.targetValue || 1)) {
+        throw new Error('This goal has already reached its target for that participant or team.');
+      }
+    }
+    const saved = await EventSubmission.findOneAndUpdate({ _id: id, status: 'pending' }, { $set: {
+      status: 'approved', reviewedBy: reviewer, reviewNote: String(note).trim().slice(0, 1000),
+    } }, { new: true });
+    if (!saved) throw new Error('This picture has already been reviewed.');
+    await refreshAwards(event);
+    notifySubmitter(saved, `Your result for **${saved.goalName || 'the event'}** was approved. It is now included in the standings.`);
+    return EventSubmission.findById(id).lean();
   }
 
   function eventUpdateLockKeys(eventId, event, update) {
@@ -420,28 +446,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
           return true;
         }
 
-        const goal = goalById(event, submission.goalId);
-        if (!goal) throw new Error('The goal for this result no longer exists.');
-        if (event.scoringMode === 'task-points') {
-          const previous = await EventSubmission.find({
-            eventId: event._id,
-            goalId: submission.goalId,
-            targetId: submission.targetId,
-            status: { $in: ['approved', 'verified'] },
-            _id: { $ne: submission._id },
-          }).select('value').lean();
-          const previousProgress = previous.reduce((sum, result) => sum + Math.max(0, Number(result.value || 0)), 0);
-          if (previousProgress >= Number(goal.targetValue || 1)) {
-            throw new Error('This goal has already reached its target for that participant or team.');
-          }
-        }
-        submission.status = 'approved';
-        submission.reviewedBy = 'Dashboard moderator';
-        submission.reviewNote = String(body.note || '').trim().slice(0, 1000);
-        await submission.save();
-        await refreshAwards(event);
-        const refreshed = await EventSubmission.findById(submission._id).lean();
-        notifySubmitter(submission, `Your result for **${submission.goalName || 'the event'}** was approved. It is now included in the standings.`);
+        const refreshed = await approveSubmission(submission._id, 'Dashboard moderator', body.note || '');
         sendJson(res, 200, { submission: refreshed });
       } catch (error) {
         const conflict = /already has an approved result/.test(error.message);
@@ -822,7 +827,7 @@ function createEventService({ client, User, getDroptrackerDrops, readBody, sendJ
     return { synced };
   }
 
-  return { handleApi, handleCommand, handleAutocomplete, syncDroptrackerEvent };
+  return { handleApi, handleCommand, handleAutocomplete, syncDroptrackerEvent, approveSubmission };
 }
 
 module.exports = { createEventService };

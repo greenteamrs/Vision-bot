@@ -23,6 +23,8 @@ const {
 } = require('./events-domain');
 const { createEventService } = require('./event-service');
 const { createAdventService } = require('./advent-service');
+const { createApprovalCommand } = require('./approval-command');
+const { AdventTest, AdventSubmission } = require('./advent-models');
 const { normalizeEventLink, createEventReminderService } = require('./event-reminders');
 const { BotDirectMessage, createDmInbox } = require('./dm-inbox');
 const { createPriceAlertService, fmt: formatPrice } = require('./price-alerts');
@@ -358,6 +360,11 @@ const SLASH_COMMANDS = [
     .setDMPermission(false)
     .addAttachmentOption(o => o.setName('screenshot').setDescription('Picture proving today’s challenge').setRequired(true))
     .addStringOption(o => o.setName('note').setDescription('Optional note for the reviewers').setMaxLength(1000)),
+  new SlashCommandBuilder().setName('approve').setDescription('Preview and approve a pending picture from any event (mods)')
+    .setDMPermission(false)
+    .addStringOption(o => o.setName('picture').setDescription('Search by event, member, challenge or date (YYYY-MM-DD)').setRequired(true).setAutocomplete(true))
+    .addStringOption(o => o.setName('team').setDescription('Bingo only: assign the picture to this team').setAutocomplete(true))
+    .addStringOption(o => o.setName('tile').setDescription('Bingo only: assign the picture to this tile').setAutocomplete(true)),
   new SlashCommandBuilder().setName('event').setDescription('Join and track OSRS clan events')
     .addSubcommand(sub => sub.setName('list').setDescription('List upcoming and active events'))
     .addSubcommand(sub => sub.setName('join').setDescription('Join an event or choose a team')
@@ -1026,6 +1033,12 @@ const BINGO_TILES = [
   { id: 'r6c5', name: 'Avernic Hilt',      row: 6, col: 5, rowSpan: 1, value: 1 },
   { id: 'r6c6', name: 'Slayer Starter Kit',row: 6, col: 6, rowSpan: 1, value: 1 },
 ];
+const approvalCommand = createApprovalCommand({
+  client, BingoSubmission, BingoTeam, BingoTileConfig, BingoProgress, BingoCompletion,
+  BINGO_TILES, OsrsEvent, EventSubmission, AdventTest, AdventSubmission, eventService, adventService,
+  isAllowed: interaction => Boolean(interaction.guildId && interaction.guildId === client.guilds.cache.first()?.id
+    && (isAdmin(interaction.member) || isMod(interaction.member))),
+});
 const BINGO_TOTAL_POINTS = BINGO_TILES.reduce((s, t) => s + t.value, 0);
 
 // Lines that award a bonus point when fully completed
@@ -2199,6 +2212,11 @@ async function handlePriceAlertCommand(interaction) {
 
 // --- Slash Commands ---
 client.on(Events.InteractionCreate, async interaction => {
+  if (interaction.isAutocomplete() && interaction.commandName === 'approve') return approvalCommand.autocomplete(interaction);
+  if (interaction.isChatInputCommand() && interaction.commandName === 'approve') return approvalCommand.command(interaction);
+  if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('approve:')) {
+    return approvalCommand.component(interaction);
+  }
   // Autocomplete
   if (interaction.isAutocomplete()) {
     const { commandName, options } = interaction;

@@ -7,6 +7,7 @@ const configSchema = new mongoose.Schema({
   runId: { type: String, default: () => crypto.randomUUID() },
   year: { type: Number, default: () => Math.max(2026, new Date().getUTCFullYear()) },
   challenges: { type: [String], default: () => [...DEFAULT_CHALLENGES] },
+  announcementMessages: { type: [String], default: [] },
   calendarImages: { type: [{
     _id: false,
     day: { type: Number, min: 0, max: 25, required: true },

@@ -204,6 +204,47 @@ test('challenge edits persist, settings validate and locked moderator edits do n
   assert.equal((await f.api('GET')).data.config.challenges[2], 'Edited boss challenge');
 });
 
+test('full announcement edits persist, replace all wording and survive reset', async () => {
+  const f = fixture();
+  const text = '**My own heading {day}**\nRules I wrote: {challenge}\nDeadline {closes}, duration {duration}.';
+  const saved = await f.api('PATCH', '/messages/1', { text });
+  assert.equal(saved.code, 200);
+  assert.equal((await f.api('GET')).data.config.announcementMessages[0], text);
+  await f.api('POST', '/actions', { action: 'start' });
+  assert.match(f.sent[0].embeds[0].description, /My own heading 1/);
+  assert.match(f.sent[0].embeds[0].description, /tempoross/);
+  assert.match(f.sent[0].embeds[0].description, /<t:\d+:F>/);
+  assert.doesNotMatch(f.sent[0].embeds[0].description, /Staff will review|Use.*adventsubmit/);
+  assert.equal(f.sent[0].content, undefined);
+  assert.equal(f.sent[0].embeds[0].title, undefined);
+  assert.deepEqual(f.sent[0].allowedMentions, { parse: [] });
+  const sentCount = f.sent.length;
+  await f.api('PATCH', '/messages/1', { text: 'New text for future posts' });
+  await f.service.run();
+  assert.equal(f.sent.length, sentCount, 'Edits must not repost already sent messages');
+  await f.api('POST', '/actions', { action: 'reset', confirmation: 'RESET TEST' });
+  assert.equal((await f.api('GET')).data.config.announcementMessages[0], 'New text for future posts');
+});
+
+test('announcement edits validate dates, permissions, placeholder expansion and closing text', async () => {
+  const f = fixture();
+  assert.equal((await f.api('GET')).data.config.announcementMessages.length, 26);
+  assert.equal((await f.api('PATCH', '/messages/0', { text:'bad' })).code, 400);
+  assert.equal((await f.api('PATCH', '/messages/27', { text:'bad' })).code, 400);
+  assert.equal((await f.api('PATCH', '/messages/1', { text:' ' })).code, 400);
+  assert.equal((await f.api('PATCH', '/messages/1', { text:'a'.repeat(4001) })).code, 400);
+  assert.equal((await f.api('PATCH', '/messages/1', { text:'{challenge}'.repeat(200) })).code, 400);
+  assert.equal((await f.api('PATCH', '/messages/1', { text:'bad' }, 'member')).code, 403);
+  f.blocked = true;
+  assert.equal((await f.api('PATCH', '/messages/1', { text:'locked' }, 'mod')).code, 403);
+  f.blocked = false;
+  assert.equal((await f.api('PATCH', '/messages/26', { text:'**Our closing celebration!**' })).code, 200);
+  await f.api('POST', '/actions', { action:'start' });
+  f.advance(25 * 86400000);
+  await f.service.run();
+  assert.equal(f.sent.at(-1).embeds[0].description, '**Our closing celebration!**');
+});
+
 test('start sends one image announcement without mentioning anyone, retries do not duplicate', async () => {
   const f = fixture();
   await f.api('POST', '/actions', { action: 'start' });
@@ -227,7 +268,7 @@ test('rollover sends the next challenge and completion closes day 25 submissions
   assert.match(f.sent[1].embeds[0].description, /tormented/);
   f.advance(24 * 86400000);
   await f.service.run();
-  assert.match(f.sent[2].content, /complete/);
+  assert.match(f.sent[2].embeds[0].description, /complete/);
   assert.equal((await f.api('GET')).data.run.opened, 25);
   await f.message();
   assert.match(f.replies.at(-1), /not accepting/);

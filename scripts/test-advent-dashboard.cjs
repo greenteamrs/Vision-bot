@@ -6,12 +6,13 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
-const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID } = require('../artifacts/discord-bot/advent-domain');
+const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID, defaultAnnouncement } = require('../artifacts/discord-bot/advent-domain');
 const { createCanvas } = require('../artifacts/discord-bot/node_modules/@napi-rs/canvas');
 
 async function main() {
   const fixture = {
-    config: { year: 2026, challenges: [...DEFAULT_CHALLENGES], dayDurationSeconds: 60, channelId: TEST_CHANNEL_ID, calendarImages: [] },
+    config: { year: 2026, challenges: [...DEFAULT_CHALLENGES], dayDurationSeconds: 60, channelId: TEST_CHANNEL_ID, calendarImages: [],
+      announcementMessages: Array.from({length:26}, (_,i) => defaultAnnouncement(i + 1)) },
     run: { id: 'browser-fixture', state: 'idle', day: 0, opened: 0, dayEndsAt: null },
     submissions: [{
       _id: '000000000000000000000001', day: 1, username: 'Test member', challenge: DEFAULT_CHALLENGES[0],
@@ -46,6 +47,8 @@ async function main() {
         assert.equal(raw.subarray(1, 4).toString(), 'PNG');
         fixture.config.calendarImages.push({ day, size: raw.length, updatedAt: new Date().toISOString() });
       }
+    } else if (req.method === 'PATCH' && req.url.includes('/messages/')) {
+      fixture.config.announcementMessages[Number(req.url.split('/').at(-1)) - 1] = body.text;
     } else if (req.method === 'PATCH' && req.url.includes('/challenges/')) {
       fixture.config.challenges[Number(req.url.split('/').at(-1)) - 1] = body.text;
     } else if (req.method === 'PATCH') {
@@ -129,6 +132,20 @@ async function main() {
       loadAdvent();`);
     assert.equal(await evaluate(`document.querySelectorAll('.advent-door').length`), 25);
     assert.equal(await evaluate(`document.getElementById('advent-image-day').options.length`), 26);
+    assert.equal(await evaluate(`document.getElementById('advent-message-day').options.length`), 26);
+    await evaluate(`document.getElementById('advent-message-text').value='My full announcement\\nMy custom rules {challenge}';
+      draftAdventMessage(); loadAdvent();`);
+    assert.equal(await evaluate(`document.getElementById('advent-message-text').value`),
+      'My full announcement\nMy custom rules {challenge}');
+    await evaluate(`document.getElementById('advent-message-day').value='2'; renderAdventMessageEditor();
+      document.getElementById('advent-message-text').value='Day two draft'; draftAdventMessage();
+      document.getElementById('advent-message-day').value='1'; renderAdventMessageEditor(); saveAdventMessage();`);
+    assert.equal(fixture.config.announcementMessages[0], 'My full announcement\nMy custom rules {challenge}');
+    await evaluate(`document.getElementById('advent-message-day').value='2'; renderAdventMessageEditor()`);
+    assert.equal(await evaluate(`document.getElementById('advent-message-text').value`), 'Day two draft');
+    await evaluate(`document.getElementById('advent-message-day').value='26'; renderAdventMessageEditor();
+      document.getElementById('advent-message-text').value='Closing announcement edited'; draftAdventMessage(); saveAdventMessage();`);
+    assert.equal(fixture.config.announcementMessages[25], 'Closing announcement edited');
     const imageBase64 = createCanvas(32, 24).toBuffer('image/png').toString('base64');
     await evaluate(`{
       const data = new DataTransfer();

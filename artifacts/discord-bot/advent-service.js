@@ -1,7 +1,8 @@
 const crypto = require('crypto');
 const { AttachmentBuilder } = require('discord.js');
 const models = require('./advent-models');
-const { TEST_CHANNEL_ID, clock, challengeText, settingsInput, actionUpdate, assertAccepting } = require('./advent-domain');
+const { TEST_CHANNEL_ID, clock, challengeText, settingsInput, actionUpdate, assertAccepting,
+  defaultAnnouncement, renderAnnouncement, announcementText } = require('./advent-domain');
 const { renderCalendar } = require('./advent-calendar');
 const { imageDay, normalizePng, readImageBody, createAdventImageStore } = require('./advent-images');
 
@@ -95,6 +96,8 @@ function createAdventService({
     return {
       config: {
         year: config.year, challenges: config.challenges,
+        announcementMessages: Array.from({ length: 26 }, (_, i) =>
+          config.announcementMessages?.[i] || defaultAnnouncement(i + 1)),
         dayDurationSeconds: config.dayDurationSeconds, channelId: TEST_CHANNEL_ID,
         calendarImages: (config.calendarImages || []).map(({ day, size, updatedAt }) => ({ day, size, updatedAt })),
       },
@@ -127,15 +130,12 @@ function createAdventService({
       let sent = recent.find(message => message.author.id === client.user.id
         && message.embeds?.some(embed => embed.footer?.text === marker));
       if (!sent) {
-        const completed = run.day > 25;
-        const description = completed
-          ? 'The test calendar is complete. Picture submissions are closed. Staff can still review submissions in the dashboard.'
-          : `**${config.challenges[run.day - 1]}**\n\nComplete this challenge during the current test day. Use \`/adventsubmit\` with your screenshot in this channel. Staff will review it.\nCloses <t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>.\n${config.dayDurationSeconds !== 86400 ? `Accelerated test: one day lasts ${config.dayDurationSeconds} seconds.` : 'The test clock simulates a December day; advance it from the dashboard.'}`;
+        const template = config.announcementMessages?.[run.day - 1] || defaultAnnouncement(run.day);
+        const description = renderAnnouncement(template, config, run.day,
+          run.dayEndsAt ? `<t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>` : '');
         const nonce = crypto.createHash('sha256').update(marker).digest('hex').slice(0, 24);
         sent = await target.send({
-          content: `**TEST ONLY — ${completed ? 'Advent calendar complete' : `December ${run.day} advent challenge`}**`,
           embeds: [{
-            title: completed ? 'All 25 doors are open' : `Vision Advent • December ${run.day}`,
             description,
             color: 0xdabe81,
             image: { url: 'attachment://advent-calendar.png' },
@@ -272,20 +272,30 @@ function createAdventService({
         });
         return true;
       }
+      const announcement = pathname.match(/^\/api\/advent\/test\/messages\/(\d+)$/);
       const challenge = pathname.match(/^\/api\/advent\/test\/challenges\/(\d+)$/);
       const review = pathname.match(/^\/api\/advent\/test\/submissions\/([a-f\d]{24})\/review$/i);
-      if ((req.method === 'PATCH' && (pathname === base || challenge))
+      if ((req.method === 'PATCH' && (pathname === base || challenge || announcement))
         || (req.method === 'POST' && (pathname === `${base}/actions` || review))) {
         const body = await readBody(req);
         await serial(async () => {
           let config = await getConfig();
-          if (challenge) {
+          if (announcement) {
+            const day = Number(announcement[1]);
+            if (day < 1 || day > 26) throw new Error('Choose a message from day 1 to 25 or the closing message (26).');
+            if (await dashboardEditBlocked(authUser, res, [`advent.test.message.${day}`])) return;
+            const messages = Array.from({ length:26 }, (_, i) => config.announcementMessages?.[i] || '');
+            messages[day - 1] = announcementText(body.text, config, day);
+            await update(config, { announcementMessages: messages });
+          } else if (challenge) {
             const day = Number(challenge[1]);
             if (day < 1 || day > 25) throw new Error('Choose a day between 1 and 25.');
             const text = challengeText(body.text);
             if (await dashboardEditBlocked(authUser, res, [`advent.test.challenge.${day}`])) return;
             const challenges = [...config.challenges];
             challenges[day - 1] = text;
+            renderAnnouncement(config.announcementMessages?.[day - 1] || defaultAnnouncement(day),
+              { ...config, challenges }, day);
             await update(config, { challenges });
           } else if (review) {
             if (!['approved', 'rejected'].includes(body.status)) throw new Error('Choose approve or reject.');

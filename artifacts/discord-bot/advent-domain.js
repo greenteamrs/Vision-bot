@@ -54,6 +54,30 @@ function challengeText(value) {
   return text;
 }
 
+function defaultAnnouncement(day) {
+  return day === 26
+    ? '**Advent calendar complete**\n\nAll 25 doors are open! Picture submissions are closed. Staff can still review submissions in the dashboard.'
+    : '**December {day} advent challenge**\n\n**{challenge}**\n\nComplete this challenge during the current test day. Use `/adventsubmit` with your screenshot in this channel. Staff will review it.\nCloses {closes}.\nOne test day lasts {duration} seconds.';
+}
+
+function renderAnnouncement(text, config, day, closes = '<t:1796169600:F>') {
+  const values = {
+    day: String(day), challenge: config.challenges[day - 1] || '',
+    closes, duration: String(config.dayDurationSeconds),
+  };
+  const result = text.replace(/\{(day|challenge|closes|duration)\}/g, (_, key) => values[key]);
+  if (result.length > 4096) throw new Error('The full message exceeds Discord’s 4096-character limit after filling in its placeholders.');
+  return result;
+}
+
+function announcementText(value, config, day) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 4000) {
+    throw new Error('Announcement must contain 1–4000 characters.');
+  }
+  renderAnnouncement(value, config, day);
+  return value;
+}
+
 function settingsInput(input, config) {
   if (config.state !== 'idle') throw new Error('Reset the test before changing its clock or year.');
   const result = {};
@@ -110,4 +134,5 @@ function assertAccepting(config, { channelId, now = Date.now() }) {
 
 module.exports = {
   TEST_CHANNEL_ID, DEFAULT_CHALLENGES, clock, challengeText, settingsInput, actionUpdate, assertAccepting,
+  defaultAnnouncement, renderAnnouncement, announcementText,
 };

@@ -659,6 +659,18 @@
           </div>
         </div>
         <div class="card">
+          <h3>Full announcement message</h3>
+          <p class="advent-muted">Edit all the wording sent with each calendar picture, including the heading, instructions and rules. Discord formatting is supported. Saves affect future announcements, not messages already posted.</p>
+          <div class="advent-toolbar">
+            <label for="advent-message-day">Message</label>
+            <select id="advent-message-day" onchange="renderAdventMessageEditor()" aria-label="Choose announcement day"></select>
+          </div>
+          <p class="advent-muted">Optional placeholders: {day}, {challenge}, {closes} (Discord closing time), {duration} (test-day seconds). You can remove any of them. The test tracking footer and calendar picture stay attached.</p>
+          <textarea id="advent-message-text" maxlength="4000" rows="9" aria-label="Full announcement text" style="width:100%;box-sizing:border-box;margin:10px 0;" oninput="draftAdventMessage()"></textarea>
+          <button id="advent-message-save" type="button" class="btn-save" onclick="saveAdventMessage()">Save full message</button>
+          <p id="advent-message-status" class="advent-muted" role="status"></p>
+        </div>
+        <div class="card">
           <h3>Your calendar pictures</h3>
           <p class="advent-muted">Choose your 25 pictures together, then assign each picture to a day before saving. A fully closed picture is optional. Missing stages use the generated calendar. Pictures are kept when resetting a test.</p>
           <div class="advent-toolbar" style="margin-top:12px;">
@@ -3635,6 +3647,38 @@
   let adventBusy = false;
   let adventPollTimer = null;
   let adventRequestGeneration = 0;
+  const adventMessageDrafts = new Map();
+  function draftAdventMessage() {
+    const day = Number(document.getElementById('advent-message-day').value);
+    const text = document.getElementById('advent-message-text').value;
+    adventMessageDrafts.set(day, text);
+    document.getElementById('advent-message-status').textContent = `${text.length} / 4000 characters · Unsaved changes`;
+  }
+  function renderAdventMessageEditor() {
+    const select = document.getElementById('advent-message-day');
+    if (!select.options.length) select.innerHTML = Array.from({length:26}, (_,i) =>
+      `<option value="${i + 1}">${i === 25 ? 'Closing message — all doors opened' : `Day ${i + 1}`}</option>`).join('');
+    const day = Number(select.value);
+    const input = document.getElementById('advent-message-text');
+    input.value = adventMessageDrafts.has(day) ? adventMessageDrafts.get(day) :
+      adventState?.config?.announcementMessages?.[day - 1] || '';
+    input.dataset.lockKey = `advent.test.message.${day}`;
+    input.dataset.lockBaseDisabled = String(adventBusy);
+    select.disabled = adventBusy;
+    const button = document.getElementById('advent-message-save');
+    button.dataset.lockActionKey = `advent.test.message.${day}`;
+    button.dataset.actionDisabled = String(adventBusy || !adventState);
+    document.getElementById('advent-message-status').textContent =
+      `${input.value.length} / 4000 characters${adventMessageDrafts.has(day) ? ' · Unsaved changes' : ''}`;
+    hydrateDashboardLockControls(input.parentElement);
+  }
+  async function saveAdventMessage() {
+    const day = Number(document.getElementById('advent-message-day').value);
+    const text = document.getElementById('advent-message-text').value;
+    if (!text.trim()) return showToast('Enter the full announcement message.', true);
+    await adventMutation(() => api('PATCH', `/api/advent/test/messages/${day}`, { text }),
+      'Full announcement message saved for future posts.', () => adventMessageDrafts.delete(day));
+  }
 
   function startAdventPolling() {
     stopAdventPolling();
@@ -3695,6 +3739,7 @@
     renderAdventDoors(config.challenges, run);
     renderAdventAnnouncements(announcements);
     renderAdventImages();
+    renderAdventMessageEditor();
     renderAdventSubmissions();
     const dayFilter = document.getElementById('advent-filter-day');
     const previous = dayFilter.value;

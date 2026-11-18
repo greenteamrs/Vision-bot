@@ -4,5 +4,6 @@
 - [OSRS event system](osrs-events.md) — dashboard manages events; Discord is for member participation, across multiple active formats.
 - [Advent calendar assets](advent-assets.md) — 26 complete image stages; Render-compatible persistence and safe handling of untrusted image uploads.
 - [Discord bot hosting](discord-bot-hosting.md) — The bot runs on Render; Replit secrets and workflow restarts do not update production.
+- [Command reference](command-reference.md) — the dashboard must automatically reflect the slash-command registration definitions.
 - [OSRS user stats](osrs-user-stats.md) — Automatic sync plus manual corrections; preserve manual/locked values and distinguish unknown data from zero.
 - [DM inbox](dm-inbox.md) — badge counts unread messages; visible messages are read in a shared staff inbox.- [Price alerts](price-alerts.md) — OSRS Wiki price API; personal DM per crossing via /pricealert, re-arms after recovery.

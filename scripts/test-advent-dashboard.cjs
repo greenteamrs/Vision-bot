@@ -6,10 +6,17 @@ const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const { SlashCommandBuilder } = require('../artifacts/discord-bot/node_modules/discord.js');
+const { buildCommandCatalog } = require('../artifacts/discord-bot/command-catalog');
 const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID, defaultAnnouncement } = require('../artifacts/discord-bot/advent-domain');
 const { createCanvas } = require('../artifacts/discord-bot/node_modules/@napi-rs/canvas');
 
 async function main() {
+  const botSource = fs.readFileSync(path.resolve('artifacts/discord-bot/bot.js'), 'utf8');
+  const commandDefinitions = vm.runInNewContext(botSource.slice(botSource.indexOf('function addRecipientOptions('),
+    botSource.indexOf('async function registerSlashCommands(')) + '\nSLASH_COMMANDS;', { SlashCommandBuilder });
+  let failCommands = false;
   const fixture = {
     config: { year: 2026, challenges: [...DEFAULT_CHALLENGES], dayDurationSeconds: 60, channelId: TEST_CHANNEL_ID, calendarImages: [],
       announcementMessages: Array.from({length:26}, (_,i) => defaultAnnouncement(i + 1)) },
@@ -26,6 +33,11 @@ async function main() {
     if (req.url === '/dashboard') {
       res.setHeader('Content-Type', 'text/html');
       res.end(fs.readFileSync(path.resolve('artifacts/discord-bot/dashboard.html')));
+      return;
+    }
+    if (req.url === '/api/commands') {
+      res.writeHead(failCommands ? 503 : 200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(failCommands ? { error:'Command list temporarily unavailable' } : buildCommandCatalog(commandDefinitions)));
       return;
     }
     const parts = [];
@@ -235,8 +247,36 @@ async function main() {
     assert.equal(await evaluate(`document.getElementById('advent-year').disabled`), false);
     assert.equal(fixture.run.state, 'idle');
     assert.ok(requests.some(req => req.url.endsWith('/challenges/3') && req.body.text === 'Browser edited challenge'));
+    await evaluate(`showSection('commands',document.querySelector('button[onclick*="showSection(\\'commands\\'"]')); loadCommands();`);
+    assert.equal(await evaluate(`document.querySelectorAll('#commands-sections tbody tr').length`),
+      buildCommandCatalog(commandDefinitions).length);
+    assert.equal(await evaluate(`document.getElementById('cmdrow-approve').textContent.includes('/approve')`), true);
+    assert.equal(await evaluate(`document.getElementById('cmdrow-pricealert.add').textContent.includes('/pricealert add')`), true);
+    assert.equal(await evaluate(`document.querySelectorAll('#commands-sections input, #commands-sections button').length`), 0);
+    await evaluate(`document.querySelector('#cmdrow-approve details').open=true`);
+    assert.equal(await evaluate(`document.getElementById('cmdrow-approve').textContent.includes('picture (required)')`), true);
+    commandDefinitions.push(new SlashCommandBuilder().setName('new-command').setDescription('Automatically added command').toJSON());
+    await evaluate(`loadCommands()`);
+    assert.equal(await evaluate(`Boolean(document.getElementById('cmdrow-new-command'))`), true);
+    commandDefinitions.pop();
+    await evaluate(`loadCommands()`);
+    assert.equal(await evaluate(`Boolean(document.getElementById('cmdrow-new-command'))`), false);
+    failCommands = true;
+    await evaluate(`loadCommands()`);
+    assert.match(await evaluate(`document.getElementById('commands-status').textContent`), /temporarily unavailable/);
+    assert.equal(await evaluate(`Boolean(document.getElementById('cmdrow-approve'))`), true);
+    failCommands = false;
+    await evaluate(`loadCommands()`);
+    await cmd('Emulation.setDeviceMetricsOverride', { width:1440, height:1000, deviceScaleFactor:1, mobile:false });
+    await evaluate(`document.getElementById('section-commands').scrollIntoView({block:'start'})`);
+    const commandsDesktop = await cmd('Page.captureScreenshot', {format:'png'});
+    fs.writeFileSync(path.join(outputDir,'commands-desktop.png'), Buffer.from(commandsDesktop.data,'base64'));
+    await cmd('Emulation.setDeviceMetricsOverride', { width:420, height:1000, deviceScaleFactor:1, mobile:true });
+    assert.equal(await evaluate(`document.documentElement.scrollWidth > window.innerWidth + 1`), false);
+    const commandsMobile = await cmd('Page.captureScreenshot', {format:'png'});
+    fs.writeFileSync(path.join(outputDir,'commands-mobile.png'), Buffer.from(commandsMobile.data,'base64'));
     assert.deepEqual(errors, []);
-    console.log('PASS: Advent desktop/mobile flows, single and 25-picture bulk upload, day assignments, duplicate and lock validation, partial-failure retry, 10 MB rejection, browser compatibility, editable challenge, polling drafts, start, advance, review and reset.');
+    console.log('PASS: Advent desktop/mobile flows and slash command reference, including automatic command additions/removals, subcommands, fields, errors and recovery.');
   } finally {
     socket?.close();
     browser.kill('SIGTERM');

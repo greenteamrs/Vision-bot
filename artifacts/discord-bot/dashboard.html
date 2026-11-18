@@ -859,9 +859,12 @@
         <div class="section-title">Commands</div>
         <div class="card" style="margin-bottom:16px;">
           <p style="color:#888; font-size:0.88rem; margin:0;">
-            Rename any command below — the bot picks up the new name instantly with no reboot required.
-            Only use letters, numbers, hyphens, and underscores. The <code style="background:#0f0f1a;padding:2px 6px;border-radius:4px;color:#a78bfa">!</code> prefix is always added automatically.
+            This read-only list is generated automatically from the bot’s slash-command definitions, including subcommands.
+            New commands appear here when the updated bot is deployed. Required fields are shown without brackets; optional fields appear in [brackets].
+            Names cannot be renamed here because they must match Discord’s registered commands.
           </p>
+          <button class="btn-edit" type="button" style="margin-top:12px;" onclick="loadCommands()">Refresh command list</button>
+          <p id="commands-status" role="status" style="color:#888;margin:8px 0 0;"></p>
         </div>
         <div id="commands-sections"></div>
       </div>
@@ -1538,11 +1541,17 @@
 
   // ---- COMMANDS ----
   async function loadCommands() {
+    const container = document.getElementById('commands-sections');
+    const status = document.getElementById('commands-status');
+    status.textContent = 'Loading slash commands…';
+    try {
     const res = await api('GET', '/api/commands');
     const cmds = await res.json();
-    const container = document.getElementById('commands-sections');
-    if (!cmds || cmds.length === 0) {
+    if (!res.ok) throw new Error(cmds.error || `Command list failed (HTTP ${res.status}).`);
+    if (!Array.isArray(cmds)) throw new Error('The server returned an invalid command list.');
+    if (cmds.length === 0) {
       container.innerHTML = '<p style="color:#888;padding:16px;">No commands found.</p>';
+      status.textContent = 'No slash commands are defined.';
       return;
     }
     const groups = {};
@@ -1550,49 +1559,34 @@
       if (!groups[c.category]) groups[c.category] = [];
       groups[c.category].push(c);
     }
-    const catEmoji = { 'XP & Levels': '⭐', 'Loot Points': '💰', 'RS Names': '⚔️', 'Admin': '🔧', 'General': '📖' };
     let html = '';
     for (const [cat, list] of Object.entries(groups)) {
       html += `<div class="card" style="margin-bottom:16px;">
-        <h3>${catEmoji[cat] || '•'} ${cat}</h3>
-        <table style="margin-top:8px;">
+        <h3>${esc(cat)}</h3>
+        <div style="overflow-x:auto;"><table style="margin-top:8px;">
           <thead><tr>
-            <th style="width:160px">Current Name</th>
+            <th style="width:160px">Slash command</th>
             <th>Description</th>
             <th>Usage</th>
-            <th style="width:160px">Rename</th>
           </tr></thead>
           <tbody>`;
       for (const c of list) {
-        html += `<tr id="cmdrow-${c.key}">
-          <td><code style="background:#0f0f1a;padding:3px 8px;border-radius:4px;color:#a78bfa;font-size:0.9rem">!${esc(c.name)}</code>${c.isMod ? ' <span style="color:#f59e0b;font-size:0.7rem;background:#2a1f00;padding:1px 5px;border-radius:3px;border:1px solid #78350f">mod</span>' : ''}</td>
+        html += `<tr id="cmdrow-${escAttr(c.key)}">
+          <td><code style="background:#0f0f1a;padding:3px 8px;border-radius:4px;color:#a78bfa;font-size:0.9rem">/${esc(c.name)}</code>${c.access ? ` <span style="color:#f59e0b;font-size:0.7rem;background:#2a1f00;padding:1px 5px;border-radius:3px;border:1px solid #78350f">${esc(c.access)}</span>` : ''}</td>
           <td style="color:#aaa;font-size:0.88rem">${esc(c.description)}</td>
-          <td style="color:#666;font-size:0.82rem;font-family:monospace">${esc(c.usage)}</td>
-          <td>
-            <div style="display:flex;gap:6px;align-items:center;">
-               <input type="text" id="cmdinput-${c.key}" data-lock-key="command.${escAttr(c.key)}.name" value="${esc(c.name)}" style="width:90px;padding:4px 8px;font-size:0.85rem;" maxlength="32" />
-              <button class="btn-edit" style="padding:4px 10px;" onclick="saveCommandName('${c.key}')">Save</button>
-            </div>
+          <td style="color:#aaa;font-size:0.82rem;overflow-wrap:anywhere;"><code>${esc(c.usage)}</code>
+            ${(c.options || []).length ? `<details style="margin-top:8px;"><summary>Fields</summary>${c.options.map(option =>
+              `<p><strong>${esc(option.name)}</strong> (${option.required ? 'required' : 'optional'}): ${esc(option.description)}${option.autocomplete ? ' — select from Discord suggestions' : ''}${option.choices?.length ? `<br>Choices: ${option.choices.map(esc).join(', ')}` : ''}</p>`).join('')}</details>` : ''}
           </td>
         </tr>`;
       }
-      html += `</tbody></table></div>`;
+      html += `</tbody></table></div></div>`;
     }
     container.innerHTML = html;
-  }
-
-  async function saveCommandName(key) {
-    const input = document.getElementById(`cmdinput-${key}`);
-    const name = input?.value?.trim().toLowerCase();
-    if (!name) return showToast('Command name cannot be empty.', true);
-    if (!/^[a-z0-9_-]+$/.test(name)) return showToast('Only letters, numbers, hyphens, underscores allowed.', true);
-    const res = await api('PATCH', `/api/commands/${key}`, { name });
-    if (res.ok) {
-      showToast(`✅ !${name} is live — no reboot needed!`);
-      await loadCommands();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      showToast(err.error || 'Failed to save.', true);
+    status.textContent = `${cmds.length} slash commands and subcommands. Refreshed ${new Date().toLocaleTimeString()}.`;
+    } catch (error) {
+      status.textContent = error.message || 'Could not load the command list. Click Refresh to retry.';
+      showToast(status.textContent, true);
     }
   }
 

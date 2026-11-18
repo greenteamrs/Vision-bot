@@ -24,6 +24,7 @@ const {
 const { createEventService } = require('./event-service');
 const { createAdventService } = require('./advent-service');
 const { createApprovalCommand } = require('./approval-command');
+const { buildCommandCatalog } = require('./command-catalog');
 const { AdventTest, AdventSubmission } = require('./advent-models');
 const { normalizeEventLink, createEventReminderService } = require('./event-reminders');
 const { BotDirectMessage, createDmInbox } = require('./dm-inbox');
@@ -408,7 +409,7 @@ async function registerSlashCommands(clientId, guildId) {
   }
 }
 
-// Command name cache — key → current name. Updated on startup and via PATCH /api/commands/:key
+// Legacy prefix names are retained for redirect detection, not slash renaming.
 let commandNames = {};
 
 function cmd(key) {
@@ -3407,36 +3408,20 @@ const server = http.createServer(async (req, res) => {
 
     // GET /api/commands
     if (pathname === '/api/commands' && req.method === 'GET') {
-      const cmds = await CommandConfig.find({}).sort({ category: 1, key: 1 });
-      sendJson(res, 200, cmds);
+      const categories = Object.fromEntries(ALL_COMMANDS.map(command => [command.name, command.category]));
+      // Categories are optional labels only; membership, names, descriptions,
+      // subcommands and usage always come from the registration definitions.
+      sendJson(res, 200, buildCommandCatalog(SLASH_COMMANDS, {
+        ...categories, event:'Events', adventsubmit:'Events', approve:'Events', pricealert:'Price alerts',
+      }));
       return;
     }
 
     // PATCH /api/commands/:key
     const cmdMatch = pathname.match(/^\/api\/commands\/(.+)$/);
     if (cmdMatch && req.method === 'PATCH') {
-      try {
-        const data = await readBody(req);
-        const { name } = data;
-        if (!name || !/^[a-z0-9_-]+$/i.test(name.trim())) {
-          sendJson(res, 400, { error: 'Invalid command name. Use only letters, numbers, hyphens, underscores.' });
-          return;
-        }
-        const current = await CommandConfig.findOne({ key: cmdMatch[1] });
-        if (!current) { sendJson(res, 404, { error: 'Command not found' }); return; }
-        if (valuesDiffer(current.name, name.trim().toLowerCase()) &&
-            await dashboardEditBlocked(authUser, res, [`command.${cmdMatch[1]}.name`])) return;
-        const updated = await CommandConfig.findOneAndUpdate(
-          { key: cmdMatch[1] },
-          { name: name.trim().toLowerCase() },
-          { new: true }
-        );
-        if (!updated) { sendJson(res, 404, { error: 'Command not found' }); return; }
-        commandNames[cmdMatch[1]] = updated.name; // hot-reload immediately
-        sendJson(res, 200, updated);
-      } catch (e) {
-        sendJson(res, 400, { error: e.message });
-      }
+      req.resume();
+      sendJson(res, 409, { error: 'Slash command names are defined by the bot, not dashboard overrides. This command list updates automatically when the updated bot is deployed.' });
       return;
     }
 

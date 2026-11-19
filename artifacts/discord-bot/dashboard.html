@@ -428,6 +428,11 @@
   .advent-kicker { color:#d8bd7c;font:700 .68rem ui-monospace,SFMono-Regular,monospace;letter-spacing:.16em;text-transform:uppercase; }
   .advent-head p,.advent-muted { color:#9aada4;font-size:.86rem;line-height:1.5; }
   .advent-warning { padding:12px 15px;border:1px solid #765d2a;background:#2b2518;color:#f0d58d;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+  .advent-warning.live { border-color:#36785e;background:#17352b;color:#9fe1bd; }
+  .advent-live-grid { display:flex;align-items:end;gap:10px;flex-wrap:wrap; }
+  .advent-live-grid label { display:block;color:#95a89e;font-size:.78rem;margin-bottom:5px; }
+  .advent-live-grid input { min-width:min(100%,280px); }
+  .advent-live-danger { border:1px solid #71413b;background:#301f1d;color:#efb5aa;border-radius:7px;padding:10px 12px;line-height:1.5; }
   .advent-warning strong { letter-spacing:.08em; }
   .advent-shell .card { background:#18221f;border-color:#2b3a35;border-radius:10px; }
   .advent-shell .card h3 { color:#c9ded4; }
@@ -528,7 +533,7 @@
       <button onclick="showSection('droptracker', this)">💰 Droptracker</button>
       <button onclick="showSection('bingo', this)">🎯 Bingo</button>
       <button onclick="showSection('events', this)">Events</button>
-      <button onclick="showSection('advent', this)">Advent test</button>
+      <button onclick="showSection('advent', this)">Advent calendar</button>
       <button id="nav-bot-dms" onclick="showSection('bot-dms', this)">Bot DMs<span id="dm-count-badge" class="dm-count-badge" hidden aria-live="polite" aria-atomic="true"></span></button>
     </nav>
 
@@ -609,15 +614,27 @@
         </div>
       </div>
 
-      <!-- ADVENT TEST EVENT -->
+      <!-- ADVENT CALENDAR -->
       <section class="section advent-shell" id="section-advent">
         <div class="advent-head">
-          <div><div class="advent-kicker">Vision · seasonal operations</div><div class="section-title">Advent test event</div>
-            <p>Build the December challenge calendar and review member proof before any live launch.</p></div>
+          <div><div class="advent-kicker">Vision · seasonal operations</div><div class="section-title">Advent calendar</div>
+            <p>Configure and test the December calendar, then schedule its live launch.</p></div>
           <button type="button" class="btn-edit" onclick="loadAdvent(true)">Refresh state</button>
         </div>
-        <div class="advent-warning"><strong>TEST ONLY</strong><span>Test channel <code>1572351838823653397</code> · all run times are UTC · no live activation is available here.</span></div>
+        <div class="advent-warning" id="advent-warning"><strong id="advent-warning-title">TEST ENVIRONMENT</strong><span id="advent-warning-copy">Configure and preview the calendar here. No live posts are scheduled.</span></div>
         <p id="advent-load-status" class="advent-statusline" role="status" aria-live="polite"></p>
+        <div class="card" id="advent-live-card">
+          <h3>Live event schedule</h3>
+          <p class="advent-muted">Choose the UTC date and time for the first picture. Each following day posts at 00:00 UTC; the final full-calendar picture and closing message post after day 25.</p>
+          <p id="advent-live-status" class="advent-statusline" role="status" aria-live="polite">Loading live schedule…</p>
+          <div class="advent-live-grid" id="advent-live-form">
+            <div><label for="advent-live-first-post">First picture date and time (UTC)</label><input id="advent-live-first-post" type="datetime-local" step="60"></div>
+            <button type="button" class="btn-save" id="advent-live-schedule" onclick="scheduleAdventLive()">Schedule live conversion</button>
+            <button type="button" class="btn-danger" id="advent-live-cancel" onclick="cancelAdventLive()" style="display:none;">Cancel schedule</button>
+          </div>
+          <p class="advent-live-danger" id="advent-live-warning">At the scheduled start, every Advent test submission (pending, approved, and rejected) will be permanently deleted. Calendar settings and uploaded pictures carry into the live event; sent Discord messages are not deleted. This cannot be undone.</p>
+          <p class="advent-muted" id="advent-live-permissions">Only an admin can schedule or cancel a live conversion. The live event uses the selected broadcast channel.</p>
+        </div>
         <div class="card">
           <div class="advent-runbar">
             <div class="advent-run-state"><span id="advent-run-pill" class="advent-pill">Loading</span><strong id="advent-run-copy">Awaiting test state</strong><span id="advent-run-timer" class="advent-muted"></span></div>
@@ -625,7 +642,7 @@
           </div>
         </div>
         <div class="card">
-          <h3>Test configuration</h3>
+          <h3>Shared calendar settings</h3>
           <div class="advent-settings">
             <div><label for="advent-year">Calendar year</label><input id="advent-year" type="number" min="2020" max="2200" data-lock-key="advent.test.year"></div>
             <div><label for="advent-duration">Day duration · seconds (60–86,400)</label><input id="advent-duration" type="number" min="60" max="86400" step="1" data-lock-key="advent.test.dayDurationSeconds"></div>
@@ -635,7 +652,7 @@
             <div style="flex:1;min-width:220px;"><label for="advent-broadcast-channel">Calendar broadcast channel</label><select id="advent-broadcast-channel" data-lock-key="advent.test.channelId"></select></div>
             <button class="btn-save" id="advent-save-channel" type="button" onclick="saveAdventChannel()">Save channel</button>
           </div>
-          <p class="advent-muted" id="advent-channel-status" style="margin-top:8px;">Choose a text channel in the Advent test server where the bot can view and send messages. The same channel will accept `/adventsubmit`. Channel changes are available while the test is idle.</p>
+          <p class="advent-muted" id="advent-channel-status" style="margin-top:8px;">Choose a text channel in the Advent server where the bot can view and send messages. The same channel will accept `/adventsubmit`.</p>
           <p class="advent-muted" style="margin-top:10px;">Settings can only be changed while the test run is idle. Future challenge text is staff-only.</p>
         </div>
         <div class="card">
@@ -668,7 +685,7 @@
         <div class="card">
           <h3>Daily announcement template</h3>
           <p class="advent-muted">Write this message once for all 25 challenge days. The bot fills in each day’s values automatically. Discord formatting is supported. Saves affect future announcements, not messages already posted.</p>
-          <p class="advent-muted">Variables: {day}, {challenge}, {closes} (Discord closing time), {duration} (test-day seconds). The calendar picture posts first, followed by this message. Long messages are split automatically.</p>
+          <p class="advent-muted">Variables: {day}, {challenge}, {closes} (Discord closing time), {duration} (test-day seconds in tests; live day length in seconds). The calendar picture posts first, followed by this message. Long messages are split automatically.</p>
           <textarea id="advent-message-text" maxlength="4000" rows="9" aria-label="Full announcement text" style="width:100%;box-sizing:border-box;margin:10px 0;" oninput="draftAdventMessage()"></textarea>
           <button id="advent-message-save" type="button" class="btn-save" onclick="saveAdventMessage('daily')">Save daily template</button>
           <p id="advent-message-status" class="advent-muted" role="status"></p>
@@ -704,7 +721,7 @@
         </div>
         <div class="card">
           <h3>Advent scoreboard</h3>
-          <p class="advent-muted">1 point per approved day, out of 25. Equal scores share a place. Members appear after their first submission in this test run. Missed days are past days without approval; pending proof can still be reviewed. Today and future days are not counted as missed.</p>
+          <p class="advent-muted" id="advent-scoreboard-copy">1 point per approved day, out of 25. Equal scores share a place. Members appear after their first submission. Missed days are past days without approval; pending proof can still be reviewed. Today and future days are not counted as missed.</p>
           <div id="advent-scoreboard"><div class="advent-empty">Loading scoreboard…</div></div>
         </div>
         <div class="card">
@@ -3665,6 +3682,8 @@
       `${input.value.length} / 4000 characters · Unsaved changes`;
   }
   function renderAdventMessageEditor() {
+    const liveStatus = adventState?.live?.status || 'off';
+    const liveLocked = ['converting', 'running', 'completed'].includes(liveStatus);
     const values = [
       { kind:'daily', inputId:'advent-message-text', statusId:'advent-message-status', lockKey:'advent.test.message.template', value:adventState?.config?.announcementTemplate },
       { kind:'closing', inputId:'advent-closing-message-text', statusId:'advent-closing-message-status', lockKey:'advent.test.message.closing', value:adventState?.config?.announcementClosingMessage },
@@ -3673,12 +3692,12 @@
       const input = document.getElementById(item.inputId);
       input.value = adventMessageDrafts.has(item.kind) ? adventMessageDrafts.get(item.kind) : item.value || '';
       input.dataset.lockKey = item.lockKey;
-      input.dataset.lockBaseDisabled = String(adventBusy);
+      input.dataset.lockBaseDisabled = String(adventBusy || liveLocked);
       document.getElementById(item.statusId).textContent =
         `${input.value.length} / 4000 characters${adventMessageDrafts.has(item.kind) ? ' · Unsaved changes' : ''}`;
       const button = document.getElementById(item.kind === 'daily' ? 'advent-message-save' : 'advent-closing-message-save');
       button.dataset.lockActionKey = item.lockKey;
-      button.dataset.actionDisabled = String(adventBusy || !adventState);
+      button.dataset.actionDisabled = String(adventBusy || !adventState || liveLocked);
       hydrateDashboardLockControls(input.parentElement);
     }
   }
@@ -3731,21 +3750,24 @@
   function renderAdvent() {
     if (!adventState) return;
     const { config, run, submissions = [], announcements = [] } = adventState;
+    const liveStatus = adventState.live?.status || config.liveStatus || 'off';
+    const liveLocked = ['converting', 'running', 'completed'].includes(liveStatus);
     if (!adventDirty(document.getElementById('advent-year'))) document.getElementById('advent-year').value = config.year ?? '';
     if (!adventDirty(document.getElementById('advent-duration'))) document.getElementById('advent-duration').value = config.dayDurationSeconds ?? 86400;
-    const idle = run.state === 'idle';
+    const idle = run.state === 'idle' && !liveLocked;
     ['advent-year','advent-duration'].forEach(id => {
       const control = document.getElementById(id);
       control.dataset.lockBaseDisabled = String(!idle || adventBusy);
       control.disabled = !idle || adventBusy;
     });
     document.getElementById('advent-save-config').disabled = !idle || adventBusy;
+    renderAdventLiveSchedule();
     const channelSelect = document.getElementById('advent-broadcast-channel');
     const selectedChannel = String(config.channelId || '');
     const channels = Array.isArray(adventState.channels)
       ? adventState.channels.filter(channel => channel && typeof channel.id === 'string' && typeof channel.name === 'string') : [];
     document.getElementById('advent-channel-status').textContent = adventState.channelListError
-      || 'Choose a text channel in the Advent test server where the bot can view and send messages. The same channel will accept /adventsubmit. Channel changes are available while the test is idle.';
+      || `Choose a text channel in the Advent server where the bot can view and send messages. This channel is used for the test and live calendar, and accepts /adventsubmit.`;
     const channelOptions = channels.map(channel =>
       `<option value="${escAttr(channel.id)}">${esc(channel.name.startsWith('#') ? channel.name : `#${channel.name}`)}</option>`);
     if (selectedChannel && !channels.some(channel => String(channel.id) === selectedChannel)) {
@@ -3760,11 +3782,34 @@
     document.getElementById('advent-save-channel').dataset.actionDisabled = String(!idle || adventBusy || !channels.length);
     const pill = document.getElementById('advent-run-pill');
     pill.textContent = run.state || 'unknown'; pill.className = `advent-pill ${escAttr(run.state || '')}`;
-    document.getElementById('advent-run-copy').textContent = run.state === 'idle' ? 'Test run is idle'
-      : run.state === 'completed' ? 'Test run completed' : `Day ${Math.min(25, Math.max(1, Number(run.day) || 1))} of 25`;
+    document.getElementById('advent-run-copy').textContent = liveStatus === 'scheduled'
+      ? 'Live launch scheduled · test submissions paused'
+      : liveStatus === 'converting' ? 'Preparing live event · clearing test submissions'
+      : liveLocked ? run.state === 'completed' ? 'Live calendar completed' : `LIVE · Day ${Math.min(25, Math.max(1, Number(run.day) || 1))} of 25`
+      : run.state === 'idle' ? 'Test run is idle' : run.state === 'completed' ? 'Test run completed'
+      : `Test · Day ${Math.min(25, Math.max(1, Number(run.day) || 1))} of 25`;
     document.getElementById('advent-run-timer').textContent = run.dayEndsAt ? `Day ends ${formatAdventUtc(run.dayEndsAt)}` : '';
     document.getElementById('advent-opened-count').textContent = Number(run.opened) || 0;
-    renderAdventControls(run);
+    const warning = document.getElementById('advent-warning');
+    const warningTitle = document.getElementById('advent-warning-title');
+    const warningCopy = document.getElementById('advent-warning-copy');
+    warning.classList.toggle('live', liveLocked);
+    if (liveStatus === 'scheduled') {
+      warningTitle.textContent = 'LIVE EVENT SCHEDULED';
+      warningCopy.textContent = 'Test submissions are paused. You can still edit the calendar until launch; the live event will use these settings.';
+    } else if (liveStatus === 'converting') {
+      warningTitle.textContent = 'LIVE CONVERSION IN PROGRESS';
+      warningCopy.textContent = 'Test submissions are being permanently cleared. Do not stop the bot while conversion finishes.';
+    } else if (liveLocked) {
+      warningTitle.textContent = liveStatus === 'completed' ? 'LIVE EVENT COMPLETE' : 'LIVE EVENT';
+      warningCopy.textContent = `Live calendar · ${selectedChannel ? `channel <#${selectedChannel}>` : 'channel unavailable'} · submissions use live dates.`;
+    } else {
+      warningTitle.textContent = 'TEST ENVIRONMENT';
+      warningCopy.textContent = 'Only test messages and submissions are active until the scheduled live start.';
+    }
+    document.getElementById('advent-scoreboard-copy').textContent =
+      `${liveStatus === 'running' || liveStatus === 'completed' ? 'Live' : 'Test'} scoreboard · 1 point per approved day, out of 25. Equal scores share a place. Members appear after their first submission. Missed days are past days without approval; pending proof can still be reviewed.`;
+    renderAdventControls(run, liveStatus);
     renderAdventDoors(config.challenges, run);
     renderAdventAnnouncements(announcements);
     renderAdventImages();
@@ -3785,14 +3830,57 @@
     if (Number.isNaN(date.getTime())) return 'UTC time unavailable';
     return `${date.toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'UTC' })} UTC`;
   }
-  function renderAdventControls(run) {
+  function renderAdventLiveSchedule() {
+    const live = adventState?.live || {};
+    const status = live.status || 'off';
+    const input = document.getElementById('advent-live-first-post');
+    if (!adventDirty(input)) input.value = status === 'scheduled' && live.firstPostAt
+      ? new Date(live.firstPostAt).toISOString().slice(0,16) : '';
+    const isAdmin = currentDashboardUser?.role === 'admin';
+    const canSchedule = isAdmin && ['off','scheduled'].includes(status)
+      && adventState?.run?.state === 'idle';
+    const scheduleButton = document.getElementById('advent-live-schedule');
+    scheduleButton.textContent = status === 'scheduled' ? 'Update live schedule' : 'Schedule live conversion';
+    scheduleButton.disabled = !canSchedule || adventBusy;
+    scheduleButton.style.display = canSchedule ? '' : 'none';
+    input.disabled = !canSchedule || adventBusy;
+    const cancelButton = document.getElementById('advent-live-cancel');
+    cancelButton.style.display = status === 'scheduled' && isAdmin ? '' : 'none';
+    cancelButton.disabled = status !== 'scheduled' || !isAdmin || adventBusy;
+    const statusText = document.getElementById('advent-live-status');
+    const warning = document.getElementById('advent-live-warning');
+    if (status === 'scheduled') {
+      statusText.textContent = `Scheduled for ${formatAdventUtc(live.firstPostAt)}. The selected channel and latest calendar settings will be used.`;
+      warning.style.display = '';
+    } else if (status === 'converting') {
+      statusText.textContent = 'Conversion has started. Test submissions are being cleared before the live calendar begins.';
+      warning.style.display = '';
+    } else if (status === 'running') {
+      statusText.textContent = `Live calendar started at ${formatAdventUtc(live.firstPostAt)}. Later days are scheduled for 00:00 UTC.`;
+      warning.textContent = 'The live calendar is active. Test submissions were cleared at conversion; live submissions now build a fresh scoreboard.';
+      warning.style.display = '';
+    } else if (status === 'completed') {
+      statusText.textContent = 'The live Advent calendar is complete.';
+      warning.style.display = 'none';
+    } else {
+      statusText.textContent = isAdmin
+        ? 'No live start is scheduled. Choose a future UTC date and time when the first calendar picture should post.'
+        : 'No live start is scheduled. Only an admin can schedule the conversion.';
+      warning.textContent = 'At the scheduled start, every Advent test submission (pending, approved, and rejected) will be permanently deleted. Calendar settings and uploaded pictures carry into the live event; sent Discord messages are not deleted. This cannot be undone.';
+      warning.style.display = '';
+    }
+    if (!isAdmin && status === 'scheduled') {
+      statusText.textContent += ' Only an admin can change or cancel the schedule.';
+    }
+  }
+  function renderAdventControls(run, liveStatus = 'off') {
     const host = document.getElementById('advent-run-controls');
     const buttons = [];
-    if (run.state === 'idle') buttons.push(['start','Start test run','btn-save']);
-    if (run.state === 'running') buttons.push(['pause','Pause','btn-edit'], ['advance','Advance one day','btn-edit']);
-    if (run.state === 'paused') buttons.push(['resume','Resume','btn-save'], ['advance','Advance (starts next day)','btn-edit']);
-    if (run.state !== 'idle') buttons.push(['reset','Reset test','btn-danger']);
-    if (run.state === 'running' || run.state === 'paused') buttons.push(['announce','Retry announcement','btn-edit']);
+    if (liveStatus === 'off' && run.state === 'idle') buttons.push(['start','Start test run','btn-save']);
+    if (liveStatus === 'off' && run.state === 'running') buttons.push(['pause','Pause','btn-edit'], ['advance','Advance one day','btn-edit']);
+    if (liveStatus === 'off' && run.state === 'paused') buttons.push(['resume','Resume','btn-save'], ['advance','Advance (starts next day)','btn-edit']);
+    if (liveStatus === 'off' && run.state !== 'idle') buttons.push(['reset','Reset test','btn-danger']);
+    if (liveStatus === 'off' && (run.state === 'running' || run.state === 'paused')) buttons.push(['announce','Retry announcement','btn-edit']);
     const behavior = run.state === 'paused'
       ? '<span class="advent-muted">Resume preserves remaining day time. Advance starts the next day.</span>'
       : run.state === 'running' ? '<span class="advent-muted">Pausing preserves the remaining day time.</span>' : '';
@@ -3826,16 +3914,45 @@
     if (!adventSelectedDay || !adventState) return;
     const day = adventSelectedDay;
     document.getElementById('advent-day-heading').textContent = `Day ${day} challenge`;
-    input.disabled = false;
+    const liveLocked = ['converting','running','completed'].includes(adventState?.live?.status);
+    input.disabled = liveLocked;
     input.dataset.lockKey = `advent.test.challenge.${day}`;
     if (!adventDirty(input)) input.value = adventState.config.challenges[day - 1] || '';
-    document.getElementById('advent-save-challenge').disabled = adventBusy;
+    document.getElementById('advent-save-challenge').disabled = adventBusy || liveLocked;
     hydrateDashboardLockControls(document.getElementById('section-advent'));
   }
   document.getElementById('advent-challenge-text').addEventListener('input', event => { event.currentTarget.dataset.dirty = 'true'; });
   ['advent-year','advent-duration'].forEach(id => document.getElementById(id).addEventListener('input', event => {
     event.currentTarget.dataset.dirty = 'true';
   }));
+  document.getElementById('advent-live-first-post').addEventListener('input', event => {
+    event.currentTarget.dataset.dirty = 'true';
+  });
+  async function scheduleAdventLive() {
+    if (adventBusy) return;
+    const input = document.getElementById('advent-live-first-post');
+    if (!input.value) return showToast('Choose the first picture date and time in UTC.', true);
+    let firstPostAt;
+    try { firstPostAt = new Date(`${input.value}:00.000Z`).toISOString(); }
+    catch { return showToast('Choose a valid UTC date and time.', true); }
+    const confirmation = prompt(
+      `Schedule the first picture for ${formatAdventUtc(firstPostAt)}? At that time, ALL test submission records (pending, approved, and rejected) will be permanently deleted. Calendar settings and images will be kept; existing Discord messages will not be deleted. Type PROMOTE LIVE CALENDAR to confirm.`,
+    );
+    if (confirmation !== 'PROMOTE LIVE CALENDAR') {
+      if (confirmation !== null) showToast('Live schedule not saved: confirmation did not match.', true);
+      return;
+    }
+    await adventMutation(() => api('POST', '/api/advent/test/live/schedule', {
+      firstPostAt, confirmation,
+    }), 'Live calendar schedule saved. Test submissions remain until the scheduled start.', () => {
+      input.dataset.dirty = 'false';
+    });
+  }
+  async function cancelAdventLive() {
+    if (adventBusy || !confirm('Cancel the scheduled live conversion? No test submissions will be deleted, and the calendar will remain in test mode.')) return;
+    await adventMutation(() => api('POST', '/api/advent/test/live/cancel', {}),
+      'Live schedule canceled. Test submissions were kept.');
+  }
   async function saveAdventConfig() {
     if (!adventState || adventBusy) return;
     const year = Number(document.getElementById('advent-year').value);
@@ -3875,20 +3992,20 @@
     if (adventBusy) return;
     adventBusy = true;
     adventRequestGeneration++;
-    adventSetStatus('Saving test change…');
+    adventSetStatus('Saving Advent calendar change…');
     renderAdvent();
     try {
       const res = await request();
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Test change failed (HTTP ${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Advent calendar change failed (HTTP ${res.status}).`);
       if (!data.config || !data.run) throw new Error('The server returned an incomplete Advent test state.');
       adventState = data;
       afterSuccess?.();
       adventSetStatus(success);
       showToast(success);
     } catch (error) {
-      showToast(error.message || 'Advent test change failed.', true);
-      adventSetStatus(error.message || 'Advent test change failed.', true);
+      showToast(error.message || 'Advent calendar change failed.', true);
+      adventSetStatus(error.message || 'Advent calendar change failed.', true);
     } finally {
       adventBusy = false;
       renderAdvent();
@@ -3970,9 +4087,15 @@
   function renderAdventAnnouncements(announcements) {
     const host = document.getElementById('advent-announcements');
     if (!announcements.length) { host.innerHTML = '<div class="advent-empty">No announcements have been recorded.</div>'; return; }
+    const liveStatus = adventState?.live?.status || 'off';
+    const retryText = liveStatus === 'off'
+      ? '<button type="button" class="btn-edit" data-lock-action-key="advent.test.announce" onclick="adventAction(&quot;announce&quot;)">Retry</button>'
+      : liveStatus === 'scheduled'
+        ? '<span class="advent-muted">Test retries pause until this schedule is canceled or starts.</span>'
+        : '<span class="advent-muted">Automatic live retry is active.</span>';
     host.innerHTML = announcements.slice().sort((a,b) => Number(a.day) - Number(b.day)).map(item => {
       const failed = item.status === 'failed' || item.error;
-      return `<div class="advent-announcement"><span>Day ${Number(item.day) || '—'} · ${esc(item.status || 'unknown')}${item.messageId ? ` · Message ${esc(item.messageId)}` : ''}${item.error ? ` · ${esc(item.error)}` : ''}${item.message ? ` · ${esc(item.message)}` : ''}</span>${failed ? '<button type="button" class="btn-edit" data-lock-action-key="advent.test.announce" onclick="adventAction(&quot;announce&quot;)">Retry</button>' : ''}</div>`;
+      return `<div class="advent-announcement"><span>Day ${Number(item.day) || '—'} · ${esc(item.status || 'unknown')}${item.messageId ? ` · Message ${esc(item.messageId)}` : ''}${item.error ? ` · ${esc(item.error)}` : ''}${item.message ? ` · ${esc(item.message)}` : ''}</span>${failed ? retryText : ''}</div>`;
     }).join('');
     hydrateDashboardLockControls(host);
   }
@@ -4034,6 +4157,7 @@
     renderAdventImageQueue();
   }
   function renderAdventImageQueue() {
+    const liveLocked = ['converting','running','completed'].includes(adventState?.live?.status);
     const counts = new Map();
     adventImageQueue.forEach(item => {
       if (item.day !== null) counts.set(item.day, (counts.get(item.day) || 0) + 1);
@@ -4047,16 +4171,16 @@
         <a href="${escAttr(item.url)}" target="_blank" rel="noopener"><img src="${escAttr(item.url)}" alt="Preview of ${escAttr(item.file.name)}" style="width:100%;height:140px;object-fit:contain;background:#111b19;"></a>
         <p style="overflow-wrap:anywhere;">${esc(item.file.name)} · ${(item.file.size / 1024 / 1024).toFixed(1)} MB</p>
         <label for="advent-image-assignment-${index}">Assign to calendar stage</label>
-        <select id="advent-image-assignment-${index}" style="width:100%;" onchange="assignAdventImage(${index},this.value)" ${adventBusy ? 'disabled' : ''}>
+        <select id="advent-image-assignment-${index}" style="width:100%;" onchange="assignAdventImage(${index},this.value)" ${adventBusy || liveLocked ? 'disabled' : ''}>
           <option value="" ${item.day === null ? 'selected' : ''}>Skip this picture</option>
           ${Array.from({length:26},(_,day) => `<option value="${day}" ${item.day === day ? 'selected' : ''}>${day === 0 ? 'Fully closed (optional)' : `Day ${day} opened`}${saved.some(image => image.day === day) ? ' · replaces saved picture' : ''}</option>`).join('')}
         </select><p role="status" style="overflow-wrap:anywhere;color:${warning ? '#ff9999' : '#a9c4b6'};">${esc(warning || item.status)}</p></div>`;
     }).join('');
-    document.getElementById('advent-images-save').disabled = adventBusy || !adventImageQueue.some(item => item.day !== null) ||
+    document.getElementById('advent-images-save').disabled = adventBusy || liveLocked || !adventImageQueue.some(item => item.day !== null) ||
       adventImageQueue.some(item => item.day !== null && (item.error || counts.get(item.day) > 1 ||
         (currentDashboardUser?.role !== 'admin' && lockIsActive(`advent.test.image.${item.day}`))));
-    document.getElementById('advent-images-clear').disabled = adventBusy || !adventImageQueue.length;
-    document.getElementById('advent-images-files').disabled = adventBusy;
+    document.getElementById('advent-images-clear').disabled = adventBusy || liveLocked || !adventImageQueue.length;
+    document.getElementById('advent-images-files').disabled = adventBusy || liveLocked;
   }
   async function prepareAdventImage(file) {
     if (!adventImageType(file) || file.size > 10 * 1024 * 1024) {
@@ -4136,6 +4260,7 @@
     }
   }
   function renderAdventImages() {
+    const liveLocked = ['converting','running','completed'].includes(adventState?.live?.status);
     const select = document.getElementById('advent-image-day');
     const selected = Number(select.value || 0);
     const images = adventState?.config?.calendarImages || [];
@@ -4145,10 +4270,10 @@
     for (const id of ['advent-image-upload', 'advent-image-remove']) {
       const button = document.getElementById(id);
       button.dataset.lockActionKey = `advent.test.image.${selected}`;
-      button.dataset.actionDisabled = String(adventBusy || (id === 'advent-image-remove' && !custom));
+      button.dataset.actionDisabled = String(adventBusy || liveLocked || (id === 'advent-image-remove' && !custom));
     }
-    document.getElementById('advent-image-file').disabled = adventBusy;
-    document.getElementById('advent-image-day').disabled = adventBusy;
+    document.getElementById('advent-image-file').disabled = adventBusy || liveLocked;
+    document.getElementById('advent-image-day').disabled = adventBusy || liveLocked;
     document.getElementById('advent-image-view').disabled = adventBusy;
     document.getElementById('advent-image-status').textContent = `${images.length} / 26 custom pictures uploaded. ${custom ? 'This stage uses your uploaded picture.' : 'This stage uses the generated calendar.'}`;
     hydrateDashboardLockControls(document.getElementById('section-advent'));

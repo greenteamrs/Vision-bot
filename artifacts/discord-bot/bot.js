@@ -1158,7 +1158,7 @@ client.once('ready', async () => {
   await BotDirectMessage.init();
   await adventService.init();
   setInterval(() => adventService.run().catch(error => {
-    console.error('[Advent] Test scheduler failed:', error.message);
+    console.error('[Advent] Scheduler failed:', error.message);
   }), 15000);
   eventReminders.run();
   cron.schedule('* * * * *', () => eventReminders.run());

@@ -21,12 +21,14 @@ async function main() {
   let failCommands = false;
   const fixture = {
     config: { year: 2026, challenges: [...DEFAULT_CHALLENGES], dayDurationSeconds: 60, channelId: TEST_CHANNEL_ID, calendarImages: [],
+      liveStatus:'off', liveFirstPostAt:null,
       announcementTemplate: defaultAnnouncement(1), announcementClosingMessage: defaultAnnouncement(26) },
     channels: [
       { id:TEST_CHANNEL_ID, name:'advent-test', type:0 },
       { id:'1572351838823653398', name:'events', type:0 },
     ],
     run: { id: 'browser-fixture', state: 'idle', day: 0, opened: 0, dayEndsAt: null },
+    live: { status:'off', firstPostAt:null, nextDay:1 },
     submissions: [{
       _id: '000000000000000000000001', day: 1, userId: 'member-1', username: 'Test member', challenge: DEFAULT_CHALLENGES[0],
       status: 'pending', note: 'Test screenshot', proofUrl: '', createdAt: '2026-12-01T12:00:00Z',
@@ -73,6 +75,14 @@ async function main() {
       fixture.config.announcementClosingMessage = body.text;
     } else if (req.method === 'PATCH' && req.url.includes('/challenges/')) {
       fixture.config.challenges[Number(req.url.split('/').at(-1)) - 1] = body.text;
+    } else if (req.method === 'POST' && req.url.endsWith('/live/schedule')) {
+      fixture.live = { status:'scheduled', firstPostAt:body.firstPostAt, nextDay:1 };
+      fixture.config.liveStatus = 'scheduled';
+      fixture.config.liveFirstPostAt = body.firstPostAt;
+    } else if (req.method === 'POST' && req.url.endsWith('/live/cancel')) {
+      fixture.live = { status:'off', firstPostAt:null, nextDay:1 };
+      fixture.config.liveStatus = 'off';
+      fixture.config.liveFirstPostAt = null;
     } else if (req.method === 'PATCH') {
       Object.assign(fixture.config, body);
     } else if (req.url.endsWith('/actions')) {
@@ -158,6 +168,17 @@ async function main() {
     assert.equal(await evaluate(`document.querySelectorAll('.advent-door').length`), 25);
     assert.equal(await evaluate(`document.getElementById('advent-image-day').options.length`), 26);
     assert.equal(await evaluate(`document.getElementById('advent-broadcast-channel').options.length`), 2);
+    assert.match(await evaluate(`document.getElementById('advent-live-warning').textContent`), /permanently deleted/);
+    await evaluate(`window.prompt=()=> 'PROMOTE LIVE CALENDAR';
+      document.getElementById('advent-live-first-post').value='2026-12-01T10:30';
+      document.getElementById('advent-live-first-post').dispatchEvent(new Event('input',{bubbles:true}));
+      scheduleAdventLive()`);
+    assert.equal(fixture.live.status, 'scheduled');
+    assert.equal(fixture.live.firstPostAt, '2026-12-01T10:30:00.000Z');
+    assert.match(await evaluate(`document.getElementById('advent-live-status').textContent`), /Dec 1/);
+    assert.equal(await evaluate(`document.getElementById('advent-live-cancel').style.display`), '');
+    await evaluate(`window.confirm=()=>true; cancelAdventLive()`);
+    assert.equal(fixture.live.status, 'off');
     await evaluate(`document.getElementById('advent-broadcast-channel').value='1572351838823653398'; saveAdventChannel();`);
     assert.equal(fixture.config.channelId, '1572351838823653398');
     await evaluate(`document.getElementById('advent-message-text').value='My full announcement\\nMy custom rules {challenge}';

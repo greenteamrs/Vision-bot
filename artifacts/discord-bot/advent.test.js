@@ -1,7 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID, clock, actionUpdate, settingsInput, challengeText, assertAccepting, defaultAnnouncement } = require('./advent-domain');
+const { DEFAULT_CHALLENGES, TEST_CHANNEL_ID, clock, liveClock, liveDayDueAt, validateLiveStart,
+  actionUpdate, settingsInput, challengeText, assertAccepting, defaultAnnouncement } = require('./advent-domain');
 const { createAdventService } = require('./advent-service');
 const { renderCalendar } = require('./advent-calendar');
 const { Readable } = require('node:stream');
@@ -12,6 +13,7 @@ const { splitAnnouncement } = require('./advent-delivery');
 const START = Date.parse('2026-12-01T00:00:00Z');
 const defaults = () => ({
   _id: 'test', runId: 'run-test', year: 2026, channelId: TEST_CHANNEL_ID, challenges: [...DEFAULT_CHALLENGES],
+  liveStatus:'off', liveFirstPostAt:null, liveRunId:'', liveNextDay:1, liveStartedAt:null,
   state: 'idle', startDay: 0, startedAt: null, revision: 0, dayDurationSeconds: 86400, pausedElapsedMs: 0,
 });
 
@@ -36,6 +38,7 @@ function fakeModel({ defaults: makeDefaults = () => ({}), unique }) {
     find(query) {
       return { sort: () => ({ lean: async () => rows.filter(row => matches(row, query)).map(row => ({ ...row })) }) };
     },
+    findOne(query) { return queryResult(() => rows.find(row => matches(row, query)) || null); },
     findOneAndUpdate(query, update, options = {}) {
       return queryResult(() => {
         let row = rows.find(item => matches(item, query));
@@ -56,6 +59,12 @@ function fakeModel({ defaults: makeDefaults = () => ({}), unique }) {
     async updateOne(query, update) {
       const row = rows.find(item => matches(item, query));
       if (row) Object.assign(row, update.$set);
+    },
+    async deleteMany(query = {}) {
+      const before = rows.length;
+      const retained = rows.filter(row => !matches(row, query));
+      rows.splice(0, rows.length, ...retained);
+      return { deletedCount: before - rows.length };
     },
   };
   return Model;
@@ -160,6 +169,189 @@ function fixture() {
   });
   return f;
 }
+
+test('live UTC clock starts on the chosen timestamp then changes days at midnight', () => {
+  const config = {
+    runId:'live-run', liveStatus:'running',
+    liveFirstPostAt:new Date('2026-12-01T23:30:00.000Z'),
+  };
+  const beforeMidnight = liveClock(config, Date.parse('2026-12-01T23:59:59.000Z'));
+  assert.equal(beforeMidnight.day, 1);
+  assert.equal(beforeMidnight.opened, 1);
+  assert.equal(beforeMidnight.dayEndsAt, '2026-12-02T00:00:00.000Z');
+  assert.equal(liveClock(config, Date.parse('2026-12-02T00:00:00.000Z')).day, 2);
+  assert.equal(liveDayDueAt(config.liveFirstPostAt, 1).toISOString(), '2026-12-01T23:30:00.000Z');
+  assert.equal(liveDayDueAt(config.liveFirstPostAt, 2).toISOString(), '2026-12-02T00:00:00.000Z');
+  assert.equal(liveDayDueAt(config.liveFirstPostAt, 26).toISOString(), '2026-12-26T00:00:00.000Z');
+  assert.equal(validateLiveStart('2026-12-01T00:01:00.000Z', START).toISOString(), '2026-12-01T00:01:00.000Z');
+  assert.throws(() => validateLiveStart('2026-12-01T01:00:00+01:00', START), /in UTC/);
+  assert.throws(() => validateLiveStart('2026-11-30T23:59:59.000Z', START), /future/);
+});
+
+test('scheduling pauses test participation but keeps submissions until canceled or launch', async () => {
+  const f = fixture();
+  f.AdventSubmission.rows.push(
+    { runId:'run-test', day:1, userId:'pending', status:'pending' },
+    { runId:'run-test', day:1, userId:'approved', status:'approved' },
+    { runId:'older-test-run', day:1, userId:'rejected', status:'rejected' },
+  );
+  const schedule = await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-02T12:00:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  });
+  assert.equal(schedule.code, 200);
+  assert.equal(schedule.data.live.status, 'scheduled');
+  assert.equal(f.AdventSubmission.rows.length, 3);
+  assert.equal((await f.api('POST', '/actions', { action:'start' })).code, 400);
+  await f.message();
+  assert.match(f.replies.at(-1), /submissions are paused/);
+  assert.equal((await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-02T12:00:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  }, 'mod')).code, 403);
+  const cancel = await f.api('POST', '/live/cancel');
+  assert.equal(cancel.code, 200);
+  assert.equal(cancel.data.live.status, 'off');
+  assert.equal(f.AdventSubmission.rows.length, 3);
+  assert.equal((await f.api('POST', '/actions', { action:'start' })).code, 200);
+});
+
+test('live scheduling requires explicit confirmation, a future UTC time and an idle test', async () => {
+  const f = fixture();
+  assert.equal((await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-01T01:00:00.000Z',
+  })).code, 400);
+  assert.equal((await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-01T01:00:00+01:00', confirmation:'PROMOTE LIVE CALENDAR',
+  })).code, 400);
+  assert.equal((await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-11-30T23:00:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  })).code, 400);
+  await f.api('POST', '/actions', { action:'start' });
+  assert.equal((await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-02T00:00:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  })).code, 400);
+  assert.equal((await f.api('POST', '/live/cancel', {}, 'mod')).code, 403);
+});
+
+test('scheduled conversion clears every test submission and starts a fresh UTC live scoreboard', async () => {
+  const f = fixture();
+  f.AdventSubmission.rows.push(
+    { _id:'1', runId:'run-test', day:1, userId:'pending', status:'pending' },
+    { _id:'2', runId:'run-test', day:2, userId:'approved', status:'approved' },
+    { _id:'3', runId:'archived-test', day:3, userId:'rejected', status:'rejected' },
+  );
+  await f.api('PATCH', '/channel', { channelId:'1572351838823653398' });
+  await f.api('PATCH', '/challenges/1', { text:'Test a live challenge' });
+  const scheduled = await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-01T12:00:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  });
+  const liveRunId = scheduled.data.config.liveRunId;
+  assert.equal(f.AdventSubmission.rows.length, 3, 'records remain intact before the launch');
+  f.advance(12 * 60 * 60 * 1000);
+  await f.service.run();
+  assert.equal(f.AdventSubmission.rows.length, 0);
+  const first = await f.api('GET');
+  assert.equal(first.data.live.status, 'running');
+  assert.equal(first.data.run.id, liveRunId);
+  assert.equal(first.data.run.day, 1);
+  assert.equal(first.data.submissions.length, 0);
+  assert.equal(f.AdventAnnouncement.rows[0].runId, liveRunId);
+  assert.equal(f.AdventAnnouncement.rows[0].status, 'sent');
+  assert.equal(f.sent.length, 2, 'the picture posts before the challenge message');
+  assert.ok(f.sent.every(message => message.channelId === '1572351838823653398'));
+  assert.ok(f.sent[0].files?.length);
+  assert.match(f.sent[1].content, /Test a live challenge/);
+  await f.service.run();
+  assert.equal(f.sent.length, 2, 're-running the scheduler does not duplicate the live announcement');
+  await f.message({ channelId:'1572351838823653398', userId:'live-member' });
+  assert.equal(f.AdventSubmission.rows[0].runId, liveRunId);
+  assert.equal(f.AdventSubmission.rows[0].day, 1);
+  f.advance(12 * 60 * 60 * 1000);
+  await f.message({ channelId:'1572351838823653398', userId:'too-early-for-day-2' });
+  assert.match(f.replies.at(-1), /not accepting pictures/);
+  await f.service.run();
+  const second = await f.api('GET');
+  assert.equal(second.data.run.day, 2);
+  assert.equal(f.AdventAnnouncement.rows.find(row => row.day === 2).runId, liveRunId);
+  assert.equal(f.sent.length, 4);
+  await f.message({ channelId:'1572351838823653398', userId:'live-member-2' });
+  assert.equal(f.AdventSubmission.rows.find(row => row.userId === 'live-member-2').day, 2);
+});
+
+test('simulated live calendar posts all 25 days and the final closing picture at UTC midnight', async () => {
+  const f = fixture();
+  await f.api('PATCH', '/messages/closing', { text:'Live calendar closed. {day} doors are open.' });
+  await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-01T00:01:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  });
+  f.advance(60000);
+  await f.service.run();
+  for (let day = 2; day <= 26; day++) {
+    f.advance(day === 2 ? 23 * 60 * 60 * 1000 + 59 * 60 * 1000 : 24 * 60 * 60 * 1000);
+    await f.service.run();
+  }
+  const final = await f.api('GET');
+  const liveRunId = final.data.config.liveRunId;
+  assert.equal(final.data.live.status, 'completed');
+  assert.equal(final.data.live.nextDay, 27);
+  assert.equal(final.data.run.day, 26);
+  assert.equal(final.data.announcements.length, 26);
+  assert.ok(final.data.announcements.every(row => row.runId === liveRunId && row.status === 'sent'));
+  assert.equal(f.sent.length, 52, 'every daily or closing announcement has one image and one text message');
+  for (let day = 1; day <= 26; day++) {
+    const [picture, text] = f.sent.slice((day - 1) * 2, day * 2);
+    assert.ok(picture.files?.length, `day ${day} picture is posted first`);
+    assert.match(text.content, new RegExp(day === 26 ? 'Live calendar closed' : `December ${day} advent challenge`));
+  }
+  await f.service.run();
+  assert.equal(f.sent.length, 52, 'completed live event does not repost old days');
+});
+
+test('conversion resumes safely if submission cleanup fails mid-start', async () => {
+  const f = fixture();
+  f.AdventSubmission.rows.push({ runId:'run-test', day:1, userId:'member', status:'pending' });
+  await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-01T00:01:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  });
+  f.advance(60000);
+  const deleteMany = f.AdventSubmission.deleteMany;
+  let firstAttempt = true;
+  f.AdventSubmission.deleteMany = async (...args) => {
+    if (firstAttempt) { firstAttempt = false; throw new Error('temporary database issue'); }
+    return deleteMany(...args);
+  };
+  await assert.rejects(f.service.run(), /temporary database issue/);
+  assert.equal((await f.api('GET')).data.live.status, 'converting');
+  assert.equal(f.AdventSubmission.rows.length, 1);
+  await f.service.run();
+  assert.equal((await f.api('GET')).data.live.status, 'running');
+  assert.equal(f.AdventSubmission.rows.length, 0);
+  assert.equal(f.sent.length, 2);
+});
+
+test('failed live announcement retries automatically without clearing or duplicating live records', async t => {
+  t.mock.method(console, 'error', () => {});
+  const f = fixture();
+  f.AdventSubmission.rows.push({ runId:'run-test', day:1, userId:'test-member', status:'approved' });
+  await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-01T00:01:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  });
+  f.advance(60000);
+  f.sendError = true;
+  await f.service.run();
+  const failed = await f.api('GET');
+  const liveRunId = failed.data.config.liveRunId;
+  assert.equal(failed.data.live.status, 'running');
+  assert.equal(f.AdventSubmission.rows.length, 0);
+  assert.equal(failed.data.announcements[0].status, 'failed');
+  assert.equal(failed.data.live.nextDay, 1);
+  f.sendError = false;
+  await f.service.run();
+  const retried = await f.api('GET');
+  assert.equal(retried.data.announcements[0].status, 'sent');
+  assert.equal(retried.data.live.nextDay, 2);
+  assert.equal(f.AdventAnnouncement.rows.filter(row => row.runId === liveRunId && row.day === 1).length, 1);
+  assert.equal(f.sent.length, 2);
+});
 
 test('admin late proof belongs to the chosen member and day without consuming today', async () => {
   const f = fixture();

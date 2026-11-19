@@ -1,7 +1,8 @@
 const crypto = require('crypto');
 const { AttachmentBuilder } = require('discord.js');
 const models = require('./advent-models');
-const { TEST_CHANNEL_ID, clock, challengeText, settingsInput, actionUpdate, assertAccepting,
+const { TEST_CHANNEL_ID, clock, liveClock, liveDayDueAt, validateLiveStart,
+  challengeText, settingsInput, actionUpdate, assertAccepting,
   defaultAnnouncement, renderAnnouncement, announcementText } = require('./advent-domain');
 const { renderCalendar } = require('./advent-calendar');
 const { imageDay, normalizeCalendarImage, readImageBody, createAdventImageStore } = require('./advent-images');
@@ -83,6 +84,55 @@ function createAdventService({
     return target;
   }
 
+  async function validateBroadcastChannel(channelId) {
+    if (!/^\d{17,20}$/.test(String(channelId || ''))) throw new Error('Choose a valid Discord channel.');
+    const anchor = await client.channels.fetch(TEST_CHANNEL_ID);
+    const target = await client.channels.fetch(channelId);
+    if (!anchor?.guildId) throw new Error('Could not access the Advent test server.');
+    if (!target || target.guildId !== anchor.guildId || ![0, 5].includes(target.type)
+      || typeof target.send !== 'function') {
+      throw new Error('Choose a text or announcement channel in the Advent test server.');
+    }
+    const permissions = target.permissionsFor?.(client.user);
+    if (!permissions?.has('ViewChannel') || !permissions.has('SendMessages')) {
+      throw new Error('The bot needs View Channel and Send Messages permissions there.');
+    }
+    return target;
+  }
+
+  function assertCalendarEditable(config) {
+    if (['converting', 'running', 'completed'].includes(config.liveStatus || 'off')) {
+      throw new Error('Calendar settings are locked after the live event starts.');
+    }
+  }
+
+  function submissionContext(config, channelId, allowLate = false) {
+    if (String(channelId) !== String(config.channelId || TEST_CHANNEL_ID)) {
+      throw new Error(`Advent submissions are restricted to the selected channel (<#${config.channelId || TEST_CHANNEL_ID}>).`);
+    }
+    if (['scheduled', 'converting'].includes(config.liveStatus)) {
+      throw new Error('Advent submissions are paused while the live launch is scheduled.');
+    }
+    if (config.liveStatus === 'running' || (allowLate && config.liveStatus === 'completed')) {
+      const current = liveClock(config, now());
+      const opened = Math.min(current?.opened || 0, Number(config.liveNextDay || 1) - 1);
+      const run = current ? { ...current, opened } : null;
+      if (!run || run.opened < 1 || (!allowLate && (run.state !== 'running' || run.day > 25 || run.day > opened))) {
+        throw new Error('The live Advent calendar is not accepting pictures right now.');
+      }
+      return { day:run.day, runId:config.runId, run, mode:'live' };
+    }
+    if (config.liveStatus && config.liveStatus !== 'off') {
+      throw new Error('The live Advent calendar is not accepting pictures right now.');
+    }
+    if (allowLate) {
+      const run = clock(config, now());
+      return { day:run.day, runId:config.runId, run, mode:'test' };
+    }
+    const run = assertAccepting(config, { channelId, now:now() });
+    return { day:run.day, runId:config.runId, run, mode:'test' };
+  }
+
   async function calendarAsset(config, run) {
     const day = Math.min(25, run.opened);
     const custom = (config.calendarImages || []).find(image => image.day === day);
@@ -121,6 +171,9 @@ function createAdventService({
 
   async function snapshot() {
     const config = await getConfig();
+    const live = liveClock(config, now());
+    const liveActive = ['running', 'closing', 'completed'].includes(live?.state);
+    const run = liveActive ? live : clock(config, now());
     const [submissions, announcements] = await Promise.all([
       AdventSubmission.find({ runId: config.runId }).sort({ createdAt: -1 }).lean(),
       AdventAnnouncement.find({ runId: config.runId }).sort({ day: 1 }).lean(),
@@ -140,21 +193,29 @@ function createAdventService({
     return {
       config: {
         year: config.year, challenges: config.challenges, channelId: config.channelId || TEST_CHANNEL_ID,
+        liveStatus: config.liveStatus || 'off',
+        liveFirstPostAt: config.liveFirstPostAt || null,
+        liveRunId: config.liveRunId || '',
         announcementTemplate: dailyTemplate(config),
         announcementClosingMessage: closingMessage(config),
         dayDurationSeconds: config.dayDurationSeconds,
         calendarImages: (config.calendarImages || []).map(({ day, size, updatedAt, contentType }) =>
           ({ day, size, updatedAt, contentType:contentType || 'image/png' })),
       },
-      channels, channelListError, run: clock(config, now()), submissions, announcements,
+      channels, channelListError, run,
+      live: {
+        status: config.liveStatus || 'off',
+        firstPostAt: config.liveFirstPostAt || null,
+        nextDay: config.liveNextDay || 1,
+      },
+      submissions, announcements,
     };
   }
 
-  async function announce(config) {
-    const run = clock(config, now());
-    if (run.state === 'idle' || run.state === 'paused' || run.day < 1) return;
-    const key = { runId: config.runId, day: run.day };
-    const marker = `advent-test:${config.runId}:${run.day}`;
+  async function deliverDay(config, run, mode, runId = config.runId) {
+    if (run.day < 1) return false;
+    const key = { runId, day: run.day };
+    const marker = `advent-${mode}:${runId}:${run.day}`;
     let delivery;
     try {
       delivery = await AdventAnnouncement.findOneAndUpdate({
@@ -164,7 +225,10 @@ function createAdventService({
         $set: { status: 'sending', leaseUntil: new Date(now() + 120000), error: '' },
       }, { upsert: true, new: true }).lean();
     } catch (error) {
-      if (error.code === 11000) return; // Sent already, or another process owns the lease.
+      if (error.code === 11000) {
+        const existing = await AdventAnnouncement.findOne(key).lean();
+        return existing?.status === 'sent';
+      }
       throw error;
     }
     try {
@@ -173,8 +237,13 @@ function createAdventService({
       // Snowflake nonce also guards Discord's recent-message retry window.
       const recent = await target.messages.fetch({ limit: 100 });
       const template = run.day === 26 ? closingMessage(config) : dailyTemplate(config);
+      const duration = mode === 'live' && run.dayEndsAt
+        ? Math.max(1, Math.floor((new Date(run.dayEndsAt).getTime()
+          - new Date(liveDayDueAt(config.liveFirstPostAt, run.day)).getTime()) / 1000))
+        : config.dayDurationSeconds;
       const text = renderAnnouncement(template, config, run.day,
-        run.dayEndsAt ? `<t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>` : '');
+        run.dayEndsAt ? `<t:${Math.floor(new Date(run.dayEndsAt).getTime() / 1000)}:F>` : '',
+        mode === 'live' ? duration : config.dayDurationSeconds);
       const messageId = await deliverAnnouncement({
         target, recent, marker, delivery: { ...delivery, botId: client.user.id }, text,
         ...await calendarAsset(config, run), now,
@@ -183,18 +252,69 @@ function createAdventService({
       await AdventAnnouncement.updateOne({ _id: delivery._id }, {
         $set: { status: 'sent', messageId, leaseUntil: null, error: '' },
       });
+      return true;
     } catch (error) {
       await AdventAnnouncement.updateOne({ _id: delivery._id }, {
         $set: { status: 'failed', leaseUntil: null, error: String(error.message).slice(0, 500) },
       });
-      console.error('[Advent] Test announcement failed:', error.message);
+      console.error(`[Advent] ${mode} announcement failed:`, error.message);
       // Recorded in the dashboard and retried by the next scheduler tick.
+      return false;
+    }
+  }
+
+  async function announce(config) {
+    const run = clock(config, now());
+    if (run.state === 'idle' || run.state === 'paused' || run.day < 1) return;
+    await deliverDay(config, run, 'test');
+  }
+
+  async function announceLive(config) {
+    let nextDay = Number(config.liveNextDay || 1);
+    while (nextDay <= 26 && now() >= liveDayDueAt(config.liveFirstPostAt, nextDay).getTime()) {
+      const run = {
+        id: config.runId,
+        state: nextDay === 26 ? 'closing' : 'running',
+        day: nextDay,
+        opened: Math.min(25, nextDay),
+        dayEndsAt: nextDay <= 25
+          ? liveDayDueAt(config.liveFirstPostAt, nextDay + 1).toISOString()
+          : null,
+      };
+      if (!await deliverDay(config, run, 'live')) return;
+      const changes = { liveNextDay: nextDay + 1 };
+      if (nextDay === 26) changes.liveStatus = 'completed';
+      config = await update(config, changes);
+      nextDay += 1;
     }
   }
 
   async function run() {
     return serial(async () => {
-      const config = await getConfig();
+      let config = await getConfig();
+      if (config.liveStatus === 'scheduled'
+        && new Date(config.liveFirstPostAt).getTime() <= now()) {
+        config = await update(config, { liveStatus: 'converting' });
+      }
+      if (config.liveStatus === 'converting') {
+        // This is intentionally idempotent: a restart during conversion repeats
+        // the delete before the fresh live run is activated.
+        await AdventSubmission.deleteMany({});
+        config = await getConfig();
+        if (config.liveStatus === 'converting') {
+          config = await update(config, {
+            runId: config.liveRunId,
+            liveStatus: 'running',
+            liveStartedAt: new Date(config.liveFirstPostAt),
+            liveNextDay: 1,
+          });
+        }
+      }
+      if (config.liveStatus === 'running') {
+        await announceLive(config);
+        return;
+      }
+      if (config.liveStatus !== 'off') return;
       await announce(config);
     });
   }
@@ -216,16 +336,13 @@ function createAdventService({
     await serial(async () => {
       try {
         const config = await getConfig();
-        if (interaction.channelId !== String(config.channelId || TEST_CHANNEL_ID)) {
-          throw new Error(`Advent submissions are restricted to the selected channel <#${config.channelId || TEST_CHANNEL_ID}>.`);
-        }
+        const active = submissionContext(config, interaction.channelId, adminSubmission);
         let user = interaction.user;
-        let day;
+        let day = active.day;
         if (adminSubmission) {
-          const run = clock(config, now());
           day = interaction.options.getInteger('day');
-          if (run.state === 'idle' || !Number.isInteger(day) || day < 1 || day > 25 || day > run.opened) {
-            throw new Error('Choose an already opened day (1–25) in the current test run.');
+          if (!Number.isInteger(day) || day < 1 || day > 25 || day > active.run.opened) {
+            throw new Error(`Choose an already opened day (1–25) in the current ${active.mode} run.`);
           }
           user = interaction.options.getUser('member');
           if (!user || user.bot) throw new Error('Choose a member of this server, not a bot.');
@@ -233,15 +350,13 @@ function createAdventService({
           if (!target || target.guildId !== interaction.guildId) throw new Error('Use this command in the advent test server.');
           const member = await interaction.guild.members.fetch(user.id).catch(() => null);
           if (!member) throw new Error('That member is not in this server.');
-        } else {
-          day = assertAccepting(config, { channelId: interaction.channelId, now: now() }).day;
         }
         const image = interaction.options.getAttachment('screenshot');
         if (!image || !(image.contentType?.startsWith('image/')
           || (!image.contentType && /\.(png|jpe?g|gif|webp)$/i.test(image.name || '')))) {
           throw new Error('Attach a screenshot image (PNG, JPG, GIF or WebP).');
         }
-        const key = { runId: config.runId, day, userId: user.id };
+        const key = { runId: active.runId, day, userId: user.id };
         const duplicateMessage = adminSubmission
           ? `This member already has a pending or approved picture for day ${day}. No picture was replaced.`
           : 'You already have a pending or approved picture for today. Rejected pictures can be resubmitted.';
@@ -277,8 +392,8 @@ function createAdventService({
         }
         await interaction.editReply({
           content: adminSubmission
-            ? `TEST: December ${day} picture for ${user.username} was submitted by an admin for staff review. Other days are unaffected.`
-            : `TEST: your December ${day} picture was submitted for staff review.`,
+            ? `${active.mode === 'test' ? 'TEST: ' : ''}December ${day} picture for ${user.username} was submitted by an admin for staff review. Other days are unaffected.`
+            : `${active.mode === 'test' ? 'TEST: ' : ''}your December ${day} picture was submitted for staff review.`,
           allowedMentions: { parse: [] },
         });
       } catch (error) {
@@ -297,9 +412,10 @@ function createAdventService({
       }
       if (req.method === 'GET' && pathname === `${base}/calendar.png`) {
         const config = await getConfig();
+        const live = liveClock(config, now());
         const run = _params?.has('day')
           ? { day: imageDay(_params.get('day')), opened: imageDay(_params.get('day')) }
-          : clock(config, now());
+          : (['running', 'closing', 'completed'].includes(live?.state) ? live : clock(config, now()));
         const asset = await calendarAsset(config, run);
         res.writeHead(200, { 'Content-Type': asset.contentType, 'Cache-Control': 'no-store', 'X-Content-Type-Options':'nosniff' });
         res.end(asset.bytes);
@@ -309,25 +425,66 @@ function createAdventService({
         sendJson(res, 403, { error: 'Staff access required.' });
         return true;
       }
+      if (req.method === 'POST' && pathname === `${base}/live/schedule`) {
+        if (authUser.role !== 'admin') {
+          sendJson(res, 403, { error: 'Only an admin can schedule the live Advent calendar.' });
+          return true;
+        }
+        const body = await readBody(req);
+        await serial(async () => {
+          const config = await getConfig();
+          if (body.confirmation !== 'PROMOTE LIVE CALENDAR') {
+            throw new Error('Confirm with PROMOTE LIVE CALENDAR. All Advent test submissions will be permanently deleted when the live event starts.');
+          }
+          if (!['off', 'scheduled'].includes(config.liveStatus || 'off')) {
+            throw new Error('The live calendar can only be scheduled before conversion begins.');
+          }
+          if (clock(config, now()).state !== 'idle') {
+            throw new Error('Reset the Advent test to idle before scheduling the live event.');
+          }
+          if (await dashboardEditBlocked(authUser, res, ['advent.live.schedule'])) return;
+          const firstPostAt = validateLiveStart(body.firstPostAt, now());
+          await validateBroadcastChannel(config.channelId || TEST_CHANNEL_ID);
+          const values = {
+            liveStatus: 'scheduled',
+            liveFirstPostAt: firstPostAt,
+            liveRunId: config.liveStatus === 'scheduled' && config.liveRunId
+              ? config.liveRunId : crypto.randomUUID(),
+            liveNextDay: 1,
+          };
+          await update(config, values);
+          sendJson(res, 200, await snapshot());
+        });
+        return true;
+      }
+      if (req.method === 'POST' && pathname === `${base}/live/cancel`) {
+        if (authUser.role !== 'admin') {
+          sendJson(res, 403, { error: 'Only an admin can cancel the live schedule.' });
+          return true;
+        }
+        await serial(async () => {
+          const config = await getConfig();
+          if (config.liveStatus !== 'scheduled'
+            || new Date(config.liveFirstPostAt).getTime() <= now()) {
+            throw new Error('The live schedule can no longer be canceled after its start time.');
+          }
+          if (await dashboardEditBlocked(authUser, res, ['advent.live.cancel'])) return;
+          await update(config, {
+            liveStatus: 'off', liveFirstPostAt: null, liveRunId: '', liveNextDay: 1,
+          });
+          sendJson(res, 200, await snapshot());
+        });
+        return true;
+      }
       const imageSlot = pathname.match(/^\/api\/advent\/test\/images\/(\d+)$/);
       if (req.method === 'PATCH' && pathname === `${base}/channel`) {
         await serial(async () => {
           const config = await getConfig();
+          assertCalendarEditable(config);
           if (clock(config, now()).state !== 'idle') throw new Error('Reset the test before changing its broadcast channel.');
           if (await dashboardEditBlocked(authUser, res, ['advent.test.channelId'])) return;
           const channelId = String((await readBody(req)).channelId || '');
-          if (!/^\d{17,20}$/.test(channelId)) throw new Error('Choose a valid Discord channel.');
-          const anchor = await client.channels.fetch(TEST_CHANNEL_ID);
-          const target = await client.channels.fetch(channelId);
-          if (!anchor?.guildId) throw new Error('Could not access the Advent test server.');
-          if (!target || target.guildId !== anchor.guildId
-            || ![0, 5].includes(target.type) || typeof target.send !== 'function') {
-            throw new Error('Choose a text or announcement channel in the Advent test server.');
-          }
-          const permissions = target.permissionsFor?.(client.user);
-          if (!permissions?.has('ViewChannel') || !permissions.has('SendMessages')) {
-            throw new Error('The bot needs View Channel and Send Messages permissions there.');
-          }
+          await validateBroadcastChannel(channelId);
           await update(config, { channelId });
           sendJson(res, 200, await snapshot());
         });
@@ -342,6 +499,7 @@ function createAdventService({
         const asset = req.method === 'POST' ? await normalizeCalendarImage(await readImageBody(req)) : null;
         await serial(async () => {
           const config = await getConfig();
+          assertCalendarEditable(config);
           const previous = (config.calendarImages || []).find(image => image.day === day);
           const calendarImages = (config.calendarImages || []).filter(image => image.day !== day);
           let newId;
@@ -368,6 +526,7 @@ function createAdventService({
         const body = await readBody(req);
         await serial(async () => {
           let config = await getConfig();
+          if (!review) assertCalendarEditable(config);
           if (announcement) {
             const isDaily = announcement[1] === 'daily';
             const lockKey = isDaily ? 'advent.test.message.template' : 'advent.test.message.closing';
@@ -407,6 +566,9 @@ function createAdventService({
           } else {
             const action = body.action;
             if (!['start', 'pause', 'resume', 'advance', 'reset', 'announce'].includes(action)) throw new Error('Unknown test action.');
+            if ((config.liveStatus || 'off') !== 'off') {
+              throw new Error('Test controls are paused while a live calendar is scheduled or active.');
+            }
             if (await dashboardEditBlocked(authUser, res, [`advent.test.${action}`])) return;
             if (action === 'reset') {
               if (body.confirmation !== 'RESET TEST') throw new Error('Confirm the reset with RESET TEST. Existing submissions will be archived, not deleted.');
@@ -422,7 +584,7 @@ function createAdventService({
         });
         return true;
       }
-      sendJson(res, 404, { error: 'Advent route not found. Only test mode is available.' });
+      sendJson(res, 404, { error: 'Advent route not found.' });
     } catch (error) {
       sendJson(res, 400, { error: error.message });
     }

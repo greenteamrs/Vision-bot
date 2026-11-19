@@ -1,4 +1,5 @@
 const TEST_CHANNEL_ID = '1572351838823653397';
+const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CHALLENGES = [
   'tempoross unique (4 rarest)',
   'tormented demons claws/synapse',
@@ -48,6 +49,45 @@ function clock(config, now = Date.now()) {
   };
 }
 
+function liveClock(config, now = Date.now()) {
+  const status = config.liveStatus || 'off';
+  const firstPostAt = config.liveFirstPostAt ? new Date(config.liveFirstPostAt) : null;
+  if (status === 'off' || !firstPostAt || Number.isNaN(firstPostAt.getTime())) return null;
+  const base = { id: config.runId, firstPostAt: firstPostAt.toISOString() };
+  if (status === 'scheduled') return { ...base, state:'scheduled', day:0, opened:0, dayEndsAt:null };
+  if (status === 'converting') return { ...base, state:'converting', day:0, opened:0, dayEndsAt:null };
+  if (status === 'completed') return { ...base, state:'completed', day:26, opened:25, dayEndsAt:null };
+  const nextMidnight = Date.UTC(firstPostAt.getUTCFullYear(), firstPostAt.getUTCMonth(), firstPostAt.getUTCDate() + 1);
+  const day = Math.min(26, now < nextMidnight ? 1 : 2 + Math.floor((now - nextMidnight) / DAY_MS));
+  return {
+    ...base,
+    state: day <= 25 ? 'running' : 'closing',
+    day,
+    opened: Math.min(25, day),
+    dayEndsAt: day <= 25 ? new Date(nextMidnight + (day - 1) * DAY_MS).toISOString() : null,
+  };
+}
+
+function liveDayDueAt(firstPostAt, day) {
+  const first = new Date(firstPostAt);
+  if (Number.isNaN(first.getTime()) || !Number.isInteger(day) || day < 1 || day > 26) {
+    throw new Error('Choose a valid live day and first-post date.');
+  }
+  if (day === 1) return first;
+  const nextMidnight = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate() + 1);
+  return new Date(nextMidnight + (day - 2) * DAY_MS);
+}
+
+function validateLiveStart(value, now = Date.now()) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    throw new Error('Choose the first-post date and time in UTC.');
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime()) || date.toISOString() !== value) throw new Error('Choose a valid UTC date and time.');
+  if (date.getTime() <= now) throw new Error('The first picture must be scheduled for a future date and time.');
+  return date;
+}
+
 function challengeText(value) {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text || text.length > 1000) throw new Error('Challenge must contain 1–1000 characters.');
@@ -57,13 +97,13 @@ function challengeText(value) {
 function defaultAnnouncement(day) {
   return day === 26
     ? '**Advent calendar complete**\n\nAll 25 doors are open! Picture submissions are closed. Staff can still review submissions in the dashboard.'
-    : '**December {day} advent challenge**\n\n**{challenge}**\n\nComplete this challenge during the current test day. Use `/adventsubmit` with your screenshot in this channel. Staff will review it.\nCloses {closes}.\nOne test day lasts {duration} seconds.';
+    : '**December {day} advent challenge**\n\n**{challenge}**\n\nComplete this challenge during the current calendar day. Use `/adventsubmit` with your screenshot in this channel. Staff will review it.\nCloses {closes}.\nOne calendar day lasts {duration} seconds.';
 }
 
-function renderAnnouncement(text, config, day, closes = '<t:1796169600:F>') {
+function renderAnnouncement(text, config, day, closes = '<t:1796169600:F>', duration = config.dayDurationSeconds) {
   const values = {
     day: String(day), challenge: config.challenges[day - 1] || '',
-    closes, duration: String(config.dayDurationSeconds),
+    closes, duration: String(duration),
   };
   const result = text.replace(/\{(day|challenge|closes|duration)\}/g, (_, key) => values[key]);
   if (result.length > 4096) throw new Error('The full announcement exceeds the supported 4096-character limit after filling in its placeholders.');
@@ -135,6 +175,7 @@ function assertAccepting(config, { channelId, now = Date.now() }) {
 }
 
 module.exports = {
-  TEST_CHANNEL_ID, DEFAULT_CHALLENGES, clock, challengeText, settingsInput, actionUpdate, assertAccepting,
+  TEST_CHANNEL_ID, DEFAULT_CHALLENGES, clock, liveClock, liveDayDueAt, validateLiveStart,
+  challengeText, settingsInput, actionUpdate, assertAccepting,
   defaultAnnouncement, renderAnnouncement, announcementText,
 };

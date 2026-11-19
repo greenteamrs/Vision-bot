@@ -39,6 +39,12 @@ Keep durable image storage compatible with the bot's Render hosting and existing
 
 **How to apply:** preserve this hosting constraint when extending uploads or introducing live calendars; explicitly plan any storage migration rather than assuming a Replit runtime.
 
+When converting the configured test calendar to live, carry settings and uploaded pictures only. Permanently remove all test submissions at the scheduled live start, keep already-posted Discord messages, and start the live scoreboard empty. The first picture uses the admin-selected UTC date and time; later daily posts run at 00:00 UTC.
+
+**Why:** the user approved this exact live-conversion behavior.
+
+**How to apply:** do not purge submissions when a schedule is created or canceled. Perform the deletion only when conversion begins, and never delete announcement messages or calendar assets as part of promotion.
+
 Do not decode untrusted uploads through the native image renderer.
 
 **Why:** a malformed PNG caused a native segmentation fault, not a catchable JavaScript exception, during validation tests.

@@ -19,14 +19,17 @@ function createAdventService({
   let channelListCache = null;
   let channelListCacheAt = 0;
   async function availableChannels() {
-    if (listChannels) return listChannels();
+    const sanitize = channels => (Array.isArray(channels) ? channels : [])
+      .filter(item => item && typeof item.id === 'string' && typeof item.name === 'string')
+      .map(({ id, name, type }) => ({ id, name, type }));
+    if (listChannels) return sanitize(await listChannels());
     if (channelListCache && now() - channelListCacheAt < 60000) return channelListCache;
     const anchor = await client.channels.fetch(TEST_CHANNEL_ID);
     const guild = anchor?.guild;
     if (!guild?.channels?.fetch) throw new Error('Could not load channels from the Advent test server.');
     const channels = await guild.channels.fetch();
     channelListCache = [...channels.values()].filter(item => {
-      if (item.guildId !== guild.id || ![0, 5].includes(item.type) || typeof item.send !== 'function') return false;
+      if (!item || item.guildId !== guild.id || ![0, 5].includes(item.type) || typeof item.send !== 'function') return false;
       const permissions = item.permissionsFor?.(client.user);
       return Boolean(permissions?.has('ViewChannel') && permissions.has('SendMessages'));
     }).map(item => ({ id: item.id, name: item.name, type: item.type }));
@@ -74,7 +77,7 @@ function createAdventService({
 
   async function channel(channelId = TEST_CHANNEL_ID) {
     const target = await client.channels.fetch(channelId);
-    if (!target?.isTextBased() || !target.guildId || typeof target.send !== 'function') {
+    if (!target || !target.isTextBased() || !target.guildId || typeof target.send !== 'function') {
       throw new Error('The advent test channel is unavailable or is not a server text channel.');
     }
     return target;
@@ -126,7 +129,14 @@ function createAdventService({
     for (let i = 0; i < submissions.length; i += 5) {
       await Promise.all(submissions.slice(i, i + 5).map(freshProof));
     }
-    const channels = await availableChannels();
+    let channels = [];
+    let channelListError = '';
+    try {
+      channels = await availableChannels();
+    } catch (error) {
+      channelListError = 'Discord channels could not be loaded. Advent settings are still available.';
+      console.error('[Advent] Could not load broadcast-channel choices:', error.message);
+    }
     return {
       config: {
         year: config.year, challenges: config.challenges, channelId: config.channelId || TEST_CHANNEL_ID,
@@ -136,7 +146,7 @@ function createAdventService({
         calendarImages: (config.calendarImages || []).map(({ day, size, updatedAt, contentType }) =>
           ({ day, size, updatedAt, contentType:contentType || 'image/png' })),
       },
-      channels, run: clock(config, now()), submissions, announcements,
+      channels, channelListError, run: clock(config, now()), submissions, announcements,
     };
   }
 
@@ -220,7 +230,7 @@ function createAdventService({
           user = interaction.options.getUser('member');
           if (!user || user.bot) throw new Error('Choose a member of this server, not a bot.');
           const target = await client.channels.fetch(config.channelId || TEST_CHANNEL_ID);
-          if (target.guildId !== interaction.guildId) throw new Error('Use this command in the advent test server.');
+          if (!target || target.guildId !== interaction.guildId) throw new Error('Use this command in the advent test server.');
           const member = await interaction.guild.members.fetch(user.id).catch(() => null);
           if (!member) throw new Error('That member is not in this server.');
         } else {
@@ -309,7 +319,8 @@ function createAdventService({
           if (!/^\d{17,20}$/.test(channelId)) throw new Error('Choose a valid Discord channel.');
           const anchor = await client.channels.fetch(TEST_CHANNEL_ID);
           const target = await client.channels.fetch(channelId);
-          if (!anchor?.guildId || target?.guildId !== anchor.guildId
+          if (!anchor?.guildId) throw new Error('Could not access the Advent test server.');
+          if (!target || target.guildId !== anchor.guildId
             || ![0, 5].includes(target.type) || typeof target.send !== 'function') {
             throw new Error('Choose a text or announcement channel in the Advent test server.');
           }

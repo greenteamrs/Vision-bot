@@ -635,7 +635,7 @@
             <div style="flex:1;min-width:220px;"><label for="advent-broadcast-channel">Calendar broadcast channel</label><select id="advent-broadcast-channel" data-lock-key="advent.test.channelId"></select></div>
             <button class="btn-save" id="advent-save-channel" type="button" onclick="saveAdventChannel()">Save channel</button>
           </div>
-          <p class="advent-muted" style="margin-top:8px;">Choose a text channel in the Advent test server where the bot can view and send messages. The same channel will accept `/adventsubmit`. Channel changes are available while the test is idle.</p>
+          <p class="advent-muted" id="advent-channel-status" style="margin-top:8px;">Choose a text channel in the Advent test server where the bot can view and send messages. The same channel will accept `/adventsubmit`. Channel changes are available while the test is idle.</p>
           <p class="advent-muted" style="margin-top:10px;">Settings can only be changed while the test run is idle. Future challenge text is staff-only.</p>
         </div>
         <div class="card">
@@ -3742,7 +3742,10 @@
     document.getElementById('advent-save-config').disabled = !idle || adventBusy;
     const channelSelect = document.getElementById('advent-broadcast-channel');
     const selectedChannel = String(config.channelId || '');
-    const channels = Array.isArray(adventState.channels) ? adventState.channels : [];
+    const channels = Array.isArray(adventState.channels)
+      ? adventState.channels.filter(channel => channel && typeof channel.id === 'string' && typeof channel.name === 'string') : [];
+    document.getElementById('advent-channel-status').textContent = adventState.channelListError
+      || 'Choose a text channel in the Advent test server where the bot can view and send messages. The same channel will accept /adventsubmit. Channel changes are available while the test is idle.';
     const channelOptions = channels.map(channel =>
       `<option value="${escAttr(channel.id)}">${esc(channel.name.startsWith('#') ? channel.name : `#${channel.name}`)}</option>`);
     if (selectedChannel && !channels.some(channel => String(channel.id) === selectedChannel)) {

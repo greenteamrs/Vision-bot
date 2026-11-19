@@ -65,7 +65,7 @@ function fixture() {
   let time = START;
   const sent = [];
   const replies = [];
-  const f = { blocked: false, sendError: false };
+  const f = { blocked: false, sendError: false, channelListError: false, channelListContainsNull: false };
   const AdventTest = fakeModel({ defaults, unique: ['_id'] });
   const AdventSubmission = fakeModel({ unique: ['runId', 'day', 'userId'] });
   const AdventAnnouncement = fakeModel({ unique: ['runId', 'day'] });
@@ -105,9 +105,13 @@ function fixture() {
   };
   const service = createAdventService({
     client, AdventTest, AdventSubmission, AdventAnnouncement, imageStore, now: () => time,
-    listChannels: async () => [...channelRecords.values()].filter(record =>
-      record.guildId === 'guild' && [0, 5].includes(record.type) && record.canSend)
-      .map(({ id, name, type }) => ({ id, name, type })),
+    listChannels: async () => {
+      if (f.channelListError) throw new Error('Discord API unavailable');
+      const found = [...channelRecords.values()].filter(record =>
+        record.guildId === 'guild' && [0, 5].includes(record.type) && record.canSend)
+        .map(({ id, name, type }) => ({ id, name, type }));
+      return f.channelListContainsNull ? [null, ...found] : found;
+    },
     canAdminSubmit: interaction => interaction.member?.admin === true,
     readBody: async req => req.body,
     sendJson: (res, code, data) => Object.assign(res, { code, data }),
@@ -249,6 +253,33 @@ test('broadcast channel choices are limited to sendable text channels in the tes
   assert.match(f.replies.at(-1), /selected channel/);
   await f.message({ channelId:'1572351838823653398' });
   assert.equal(f.AdventSubmission.rows[0].sourceChannelId, '1572351838823653398');
+});
+
+test('calendar settings still load when Discord channel discovery fails', async t => {
+  t.mock.method(console, 'error', () => {});
+  const f = fixture();
+  f.AdventTest.rows.push({
+    ...defaults(), year:2030, challenges:[...DEFAULT_CHALLENGES], dayDurationSeconds:3600,
+    announcementTemplate:'Saved shared challenge template', calendarImages:[{day:1,fileId:'saved-image',size:123}],
+  });
+  f.channelListError = true;
+  const response = await f.api('GET');
+  assert.equal(response.code, 200);
+  assert.equal(response.data.config.year, 2030);
+  assert.equal(response.data.config.dayDurationSeconds, 3600);
+  assert.equal(response.data.config.announcementTemplate, 'Saved shared challenge template');
+  assert.equal(response.data.config.calendarImages[0].day, 1);
+  assert.match(response.data.channelListError, /settings are still available/);
+  assert.deepEqual(response.data.channels, []);
+});
+
+test('null Discord channel results are ignored without breaking calendar settings', async () => {
+  const f = fixture();
+  f.channelListContainsNull = true;
+  const response = await f.api('GET');
+  assert.equal(response.code, 200);
+  assert.equal(response.data.channels.length, 2);
+  assert.equal(response.data.config.challenges.length, 25);
 });
 
 test('UTC day window is inclusive at opening and exclusive at midnight', () => {

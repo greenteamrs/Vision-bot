@@ -250,8 +250,9 @@ function createAdventService({
         save: values => AdventAnnouncement.updateOne({ _id: delivery._id }, { $set: values }),
       });
       await AdventAnnouncement.updateOne({ _id: delivery._id }, {
-        $set: { status: 'sent', messageId, leaseUntil: null, error: '' },
+        $set: { status: 'sent', messageId, channelId: target.id, leaseUntil: null, error: '' },
       });
+      console.info(`[Advent] ${mode} day ${run.day} posted in channel ${target.id}`);
       return true;
     } catch (error) {
       await AdventAnnouncement.updateOne({ _id: delivery._id }, {

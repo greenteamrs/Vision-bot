@@ -3764,17 +3764,24 @@
     renderAdventLiveSchedule();
     const channelSelect = document.getElementById('advent-broadcast-channel');
     const selectedChannel = String(config.channelId || '');
+    const channelDraft = channelSelect.dataset.dirty === 'true' ? channelSelect.value : '';
     const channels = Array.isArray(adventState.channels)
       ? adventState.channels.filter(channel => channel && typeof channel.id === 'string' && typeof channel.name === 'string') : [];
-    document.getElementById('advent-channel-status').textContent = adventState.channelListError
-      || `Choose a text channel in the Advent server where the bot can view and send messages. This channel is used for the test and live calendar, and accepts /adventsubmit.`;
     const channelOptions = channels.map(channel =>
       `<option value="${escAttr(channel.id)}">${esc(channel.name.startsWith('#') ? channel.name : `#${channel.name}`)}</option>`);
     if (selectedChannel && !channels.some(channel => String(channel.id) === selectedChannel)) {
       channelOptions.unshift(`<option value="${escAttr(selectedChannel)}" disabled>${esc(`Unavailable channel (${selectedChannel})`)}</option>`);
     }
     channelSelect.innerHTML = channelOptions.length ? channelOptions.join('') : '<option value="">No sendable channels found</option>';
-    channelSelect.value = selectedChannel;
+    channelSelect.value = channelDraft && channels.some(channel => String(channel.id) === channelDraft)
+      ? channelDraft : selectedChannel;
+    const channelDirty = channelSelect.value !== selectedChannel;
+    channelSelect.dataset.dirty = String(channelDirty);
+    const selectedChannelName = channels.find(channel => String(channel.id) === selectedChannel)?.name || selectedChannel;
+    document.getElementById('advent-channel-status').textContent = adventState.channelListError
+      || (channelDirty
+        ? 'Unsaved channel selection. Click Save channel before starting the test.'
+        : `Saved channel: #${selectedChannelName}. Test posts, live posts, and /adventsubmit use this channel.`);
     channelSelect.disabled = !idle || adventBusy || !channels.length;
     channelSelect.dataset.lockBaseDisabled = String(!idle || adventBusy || !channels.length);
     document.getElementById('advent-save-channel').disabled = !idle || adventBusy || !channels.length;
@@ -3809,7 +3816,7 @@
     }
     document.getElementById('advent-scoreboard-copy').textContent =
       `${liveStatus === 'running' || liveStatus === 'completed' ? 'Live' : 'Test'} scoreboard · 1 point per approved day, out of 25. Equal scores share a place. Members appear after their first submission. Missed days are past days without approval; pending proof can still be reviewed.`;
-    renderAdventControls(run, liveStatus);
+    renderAdventControls(run, liveStatus, channelDirty);
     renderAdventDoors(config.challenges, run);
     renderAdventAnnouncements(announcements);
     renderAdventImages();
@@ -3873,7 +3880,7 @@
       statusText.textContent += ' Only an admin can change or cancel the schedule.';
     }
   }
-  function renderAdventControls(run, liveStatus = 'off') {
+  function renderAdventControls(run, liveStatus = 'off', channelDirty = false) {
     const host = document.getElementById('advent-run-controls');
     const buttons = [];
     if (liveStatus === 'off' && run.state === 'idle') buttons.push(['start','Start test run','btn-save']);
@@ -3883,8 +3890,13 @@
     if (liveStatus === 'off' && (run.state === 'running' || run.state === 'paused')) buttons.push(['announce','Retry announcement','btn-edit']);
     const behavior = run.state === 'paused'
       ? '<span class="advent-muted">Resume preserves remaining day time. Advance starts the next day.</span>'
-      : run.state === 'running' ? '<span class="advent-muted">Pausing preserves the remaining day time.</span>' : '';
-    host.innerHTML = buttons.map(([action,label,cls]) => `<button type="button" class="${cls}" data-lock-action-key="advent.test.${action}" data-action-disabled="${adventBusy}" onclick="adventAction('${action}')">${label}</button>`).join('') + behavior;
+      : run.state === 'running' ? '<span class="advent-muted">Pausing preserves the remaining day time.</span>'
+      : channelDirty && liveStatus === 'off' && run.state === 'idle'
+        ? '<span class="advent-muted">Save the selected channel before starting the test.</span>' : '';
+    host.innerHTML = buttons.map(([action,label,cls]) => {
+      const blocked = adventBusy || (action === 'start' && channelDirty);
+      return `<button type="button" class="${cls}" data-lock-action-key="advent.test.${action}" data-action-disabled="${blocked}" onclick="adventAction('${action}')">${label}</button>`;
+    }).join('') + behavior;
     hydrateDashboardLockControls(host);
   }
   function renderAdventDoors(challenges, run) {
@@ -3927,6 +3939,12 @@
   }));
   document.getElementById('advent-live-first-post').addEventListener('input', event => {
     event.currentTarget.dataset.dirty = 'true';
+  });
+  document.getElementById('advent-broadcast-channel').addEventListener('change', event => {
+    const selected = String(event.currentTarget.value || '');
+    const saved = String(adventState?.config?.channelId || '');
+    event.currentTarget.dataset.dirty = String(selected !== saved);
+    renderAdvent();
   });
   async function scheduleAdventLive() {
     if (adventBusy) return;
@@ -3978,6 +3996,11 @@
   }
   async function adventAction(action) {
     if (adventBusy) return;
+    if (action === 'start'
+      && String(document.getElementById('advent-broadcast-channel').value || '')
+        !== String(adventState?.config?.channelId || '')) {
+      return showToast('Save the selected broadcast channel before starting the test.', true);
+    }
     const body = { action };
     if (action === 'reset') {
       const confirmation = prompt('Reset the test run? Existing submissions will be archived, not deleted or cleared. Edited challenges will be retained. Type RESET TEST to confirm.');

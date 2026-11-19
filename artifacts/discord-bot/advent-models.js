@@ -56,6 +56,7 @@ const announcementSchema = new mongoose.Schema({
   status: { type: String, enum: ['sending', 'sent', 'failed'], required: true },
   leaseUntil: Date,
   messageId: { type: String, default: '' },
+  channelId: { type: String, default: '' },
   imageMessageId: { type: String, default: '' },
   textMessageIds: { type: [String], default: [] },
   textChunks: { type: [String], default: [] },

@@ -70,8 +70,8 @@ function fakeModel({ defaults: makeDefaults = () => ({}), unique }) {
   return Model;
 }
 
-function fixture() {
-  let time = START;
+function fixture(initialTime = START) {
+  let time = initialTime;
   const sent = [];
   const replies = [];
   const f = { blocked: false, sendError: false, channelListError: false, channelListContainsNull: false };
@@ -275,6 +275,38 @@ test('scheduled conversion clears every test submission and starts a fresh UTC l
   assert.equal(f.sent.length, 4);
   await f.message({ channelId:'1572351838823653398', userId:'live-member-2' });
   assert.equal(f.AdventSubmission.rows.find(row => row.userId === 'live-member-2').day, 2);
+});
+
+test('Dec 1 at 00:00 UTC posts the first live picture only at the scheduled instant', async () => {
+  const f = fixture(START - 60000);
+  await f.api('PATCH', '/channel', { channelId:'1572351838823653398' });
+  f.AdventSubmission.rows.push(
+    { _id:'test-pending', runId:'run-test', day:1, userId:'pending', status:'pending' },
+  );
+  const scheduled = await f.api('POST', '/live/schedule', {
+    firstPostAt:'2026-12-01T00:00:00.000Z', confirmation:'PROMOTE LIVE CALENDAR',
+  });
+  assert.equal(scheduled.code, 200);
+  assert.equal(scheduled.data.live.firstPostAt.toISOString(), '2026-12-01T00:00:00.000Z');
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.AdventSubmission.rows.length, 1);
+
+  f.advance(59999);
+  await f.service.run();
+  assert.equal(f.sent.length, 0, 'the bot waits until the exact scheduled UTC instant');
+  assert.equal(f.AdventSubmission.rows.length, 1, 'test submissions remain until launch');
+
+  f.advance(1);
+  await f.service.run();
+  const live = await f.api('GET');
+  assert.equal(live.data.live.status, 'running');
+  assert.equal(live.data.run.day, 1);
+  assert.equal(f.AdventSubmission.rows.length, 0, 'test submissions are cleared at conversion');
+  assert.equal(f.sent.length, 2, 'the first picture and challenge text are both sent');
+  assert.ok(f.sent.every(message => message.channelId === '1572351838823653398'));
+  assert.ok(f.sent[0].files?.length, 'picture is sent first');
+  assert.match(f.sent[1].content, /December 1 advent challenge/);
+  assert.equal(live.data.announcements[0].channelId, '1572351838823653398');
 });
 
 test('simulated live calendar posts all 25 days and the final closing picture at UTC midnight', async () => {

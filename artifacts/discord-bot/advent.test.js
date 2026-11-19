@@ -11,7 +11,7 @@ const { splitAnnouncement } = require('./advent-delivery');
 
 const START = Date.parse('2026-12-01T00:00:00Z');
 const defaults = () => ({
-  _id: 'test', runId: 'run-test', year: 2026, challenges: [...DEFAULT_CHALLENGES],
+  _id: 'test', runId: 'run-test', year: 2026, channelId: TEST_CHANNEL_ID, challenges: [...DEFAULT_CHALLENGES],
   state: 'idle', startDay: 0, startedAt: null, revision: 0, dayDurationSeconds: 86400, pausedElapsedMs: 0,
 });
 
@@ -76,25 +76,38 @@ function fixture() {
     async get(id) { if (!imageFiles.has(id)) throw new Error('Image not found'); return imageFiles.get(id); },
     async remove(id) { imageFiles.delete(id); },
   };
+  const channelRecords = new Map([
+    [TEST_CHANNEL_ID, { id: TEST_CHANNEL_ID, name: 'advent-test', guildId:'guild', type:0, canSend:true }],
+    ['1572351838823653398', { id:'1572351838823653398', name:'events', guildId:'guild', type:0, canSend:true }],
+    ['1572351838823653399', { id:'1572351838823653399', name:'other-server', guildId:'other-guild', type:0, canSend:true }],
+    ['1572351838823653400', { id:'1572351838823653400', name:'voice', guildId:'guild', type:2, canSend:true }],
+    ['1572351838823653401', { id:'1572351838823653401', name:'no-permission', guildId:'guild', type:0, canSend:false }],
+  ]);
+  const makeChannel = record => ({
+    ...record, isTextBased: () => [0, 5].includes(record.type),
+    permissionsFor: () => ({ has: permission => record.canSend || permission === 'ViewChannel' }),
+    messages: { fetch: async () => ({ find: predicate => sent.find(predicate) }) },
+    send: async payload => {
+      if (f.sendError || (f.imageSendError && payload.files) || (f.textSendError && payload.content)) throw new Error('Missing channel permissions');
+      const message = { ...payload, id: `sent-${sent.length + 1}`, channelId:record.id, author: { id: 'bot' }, createdTimestamp: time,
+        attachments: { some: predicate => (payload.files || []).some(file => predicate({name:file.name})) } };
+      sent.push(message);
+      return message;
+    },
+  });
   const client = {
     user: { id: 'bot' },
     channels: { fetch: async id => {
-      assert.equal(id, TEST_CHANNEL_ID);
-      return {
-        guildId: 'guild', isTextBased: () => true,
-        messages: { fetch: async () => ({ find: predicate => sent.find(predicate) }) },
-        send: async payload => {
-          if (f.sendError || (f.imageSendError && payload.files) || (f.textSendError && payload.content)) throw new Error('Missing channel permissions');
-          const message = { ...payload, id: `sent-${sent.length + 1}`, author: { id: 'bot' }, createdTimestamp: time,
-            attachments: { some: predicate => (payload.files || []).some(file => predicate({name:file.name})) } };
-          sent.push(message);
-          return message;
-        },
-      };
+      const record = channelRecords.get(id);
+      if (!record) throw new Error('Unknown channel');
+      return makeChannel(record);
     } },
   };
   const service = createAdventService({
     client, AdventTest, AdventSubmission, AdventAnnouncement, imageStore, now: () => time,
+    listChannels: async () => [...channelRecords.values()].filter(record =>
+      record.guildId === 'guild' && [0, 5].includes(record.type) && record.canSend)
+      .map(({ id, name, type }) => ({ id, name, type })),
     canAdminSubmit: interaction => interaction.member?.admin === true,
     readBody: async req => req.body,
     sendJson: (res, code, data) => Object.assign(res, { code, data }),
@@ -178,7 +191,7 @@ test('admin proof validates permissions, channel, opened day, membership and scr
     assert.match(f.replies.at(-1), /already opened/);
   }
   await f.message({ ...options, channelId: 'wrong' });
-  assert.match(f.replies.at(-1), /test-only/);
+  assert.match(f.replies.at(-1), /selected channel/);
   await f.message({ ...options, missingMember: true });
   assert.match(f.replies.at(-1), /not in this server/);
   await f.message({ ...options, targetBot: true });
@@ -216,6 +229,28 @@ test('all 25 supplied challenges are seeded in their exact order', () => {
   assert.equal(DEFAULT_CHALLENGES[24], 'vale offerings fletching knife');
 });
 
+test('broadcast channel choices are limited to sendable text channels in the test server', async () => {
+  const f = fixture();
+  const state = await f.api('GET');
+  assert.deepEqual(state.data.channels.map(channel => channel.id), [TEST_CHANNEL_ID, '1572351838823653398']);
+  assert.equal(state.data.config.channelId, TEST_CHANNEL_ID);
+  const changed = await f.api('PATCH', '/channel', { channelId:'1572351838823653398' });
+  assert.equal(changed.code, 200);
+  assert.equal(changed.data.config.channelId, '1572351838823653398');
+  assert.equal((await f.api('PATCH', '/channel', { channelId:'1572351838823653399' })).code, 400);
+  assert.equal((await f.api('PATCH', '/channel', { channelId:'1572351838823653400' })).code, 400);
+  assert.equal((await f.api('PATCH', '/channel', { channelId:'1572351838823653401' })).code, 400);
+  assert.equal((await f.api('PATCH', '/channel', { channelId:'not-a-channel' })).code, 400);
+  await f.api('POST', '/actions', { action:'start' });
+  assert.equal((await f.api('PATCH', '/channel', { channelId:TEST_CHANNEL_ID })).code, 400);
+  assert.equal((await f.api('GET')).data.config.channelId, '1572351838823653398');
+  assert.equal(f.sent[0].channelId, '1572351838823653398');
+  await f.message({ channelId:TEST_CHANNEL_ID });
+  assert.match(f.replies.at(-1), /selected channel/);
+  await f.message({ channelId:'1572351838823653398' });
+  assert.equal(f.AdventSubmission.rows[0].sourceChannelId, '1572351838823653398');
+});
+
 test('UTC day window is inclusive at opening and exclusive at midnight', () => {
   const config = { ...defaults(), state: 'running', startDay: 1, startedAt: new Date(START) };
   assert.equal(clock(config, START).day, 1);
@@ -244,7 +279,7 @@ test('invalid state transitions, dates, clocks and challenge values are rejected
   assert.throws(() => settingsInput({ dayDurationSeconds: 86401 }, defaults()), /60/);
   assert.throws(() => challengeText('  '), /1–1000/);
   assert.throws(() => challengeText('a'.repeat(1001)), /1–1000/);
-  assert.throws(() => assertAccepting(defaults(), { channelId: 'live' }), /test channel/);
+  assert.throws(() => assertAccepting(defaults(), { channelId: 'live' }), /selected channel/);
   assert.throws(() => assertAccepting(defaults(), { channelId: TEST_CHANNEL_ID }), /not accepting/);
 });
 
@@ -420,7 +455,7 @@ test('test channel isolation applies to messages and all outbound announcements'
   const f = fixture();
   await f.api('POST', '/actions', { action: 'start' });
   await f.message({ channelId: 'live-channel' });
-  assert.match(f.replies.at(-1), /test-only/);
+  assert.match(f.replies.at(-1), /selected channel/);
   assert.equal(f.AdventSubmission.rows.length, 0);
   assert.equal((await f.api('POST', '/actions', { action: 'go-live' })).code, 400);
   assert.equal((await f.api('POST', '/actions', { action: 'advance' }, 'member')).code, 403);

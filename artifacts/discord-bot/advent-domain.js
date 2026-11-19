@@ -124,7 +124,9 @@ function actionUpdate(config, action, now = Date.now()) {
 }
 
 function assertAccepting(config, { channelId, now = Date.now() }) {
-  if (String(channelId) !== TEST_CHANNEL_ID) throw new Error('Advent testing is restricted to its test channel.');
+  if (String(channelId) !== String(config.channelId || TEST_CHANNEL_ID)) {
+    throw new Error(`Advent testing is restricted to its selected channel (<#${config.channelId || TEST_CHANNEL_ID}>).`);
+  }
   const run = clock(config, now);
   if (run.state !== 'running' || run.day < 1 || run.day > 25) {
     throw new Error('The advent test is not accepting pictures right now.');

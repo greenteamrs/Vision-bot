@@ -631,6 +631,11 @@
             <div><label for="advent-duration">Day duration · seconds (60–86,400)</label><input id="advent-duration" type="number" min="60" max="86400" step="1" data-lock-key="advent.test.dayDurationSeconds"></div>
             <button class="btn-save" id="advent-save-config" type="button" onclick="saveAdventConfig()">Save settings</button>
           </div>
+          <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-top:16px;">
+            <div style="flex:1;min-width:220px;"><label for="advent-broadcast-channel">Calendar broadcast channel</label><select id="advent-broadcast-channel" data-lock-key="advent.test.channelId"></select></div>
+            <button class="btn-save" id="advent-save-channel" type="button" onclick="saveAdventChannel()">Save channel</button>
+          </div>
+          <p class="advent-muted" style="margin-top:8px;">Choose a text channel in the Advent test server where the bot can view and send messages. The same channel will accept `/adventsubmit`. Channel changes are available while the test is idle.</p>
           <p class="advent-muted" style="margin-top:10px;">Settings can only be changed while the test run is idle. Future challenge text is staff-only.</p>
         </div>
         <div class="card">
@@ -3735,6 +3740,21 @@
       control.disabled = !idle || adventBusy;
     });
     document.getElementById('advent-save-config').disabled = !idle || adventBusy;
+    const channelSelect = document.getElementById('advent-broadcast-channel');
+    const selectedChannel = String(config.channelId || '');
+    const channels = Array.isArray(adventState.channels) ? adventState.channels : [];
+    const channelOptions = channels.map(channel =>
+      `<option value="${escAttr(channel.id)}">${esc(channel.name.startsWith('#') ? channel.name : `#${channel.name}`)}</option>`);
+    if (selectedChannel && !channels.some(channel => String(channel.id) === selectedChannel)) {
+      channelOptions.unshift(`<option value="${escAttr(selectedChannel)}" disabled>${esc(`Unavailable channel (${selectedChannel})`)}</option>`);
+    }
+    channelSelect.innerHTML = channelOptions.length ? channelOptions.join('') : '<option value="">No sendable channels found</option>';
+    channelSelect.value = selectedChannel;
+    channelSelect.disabled = !idle || adventBusy || !channels.length;
+    channelSelect.dataset.lockBaseDisabled = String(!idle || adventBusy || !channels.length);
+    document.getElementById('advent-save-channel').disabled = !idle || adventBusy || !channels.length;
+    document.getElementById('advent-save-channel').dataset.lockActionKey = 'advent.test.channelId';
+    document.getElementById('advent-save-channel').dataset.actionDisabled = String(!idle || adventBusy || !channels.length);
     const pill = document.getElementById('advent-run-pill');
     pill.textContent = run.state || 'unknown'; pill.className = `advent-pill ${escAttr(run.state || '')}`;
     document.getElementById('advent-run-copy').textContent = run.state === 'idle' ? 'Test run is idle'
@@ -3823,6 +3843,12 @@
       document.getElementById('advent-year').dataset.dirty = 'false';
       document.getElementById('advent-duration').dataset.dirty = 'false';
     });
+  }
+  async function saveAdventChannel() {
+    const channelId = document.getElementById('advent-broadcast-channel').value;
+    if (!channelId) return showToast('Choose a Discord channel first.', true);
+    await adventMutation(() => api('PATCH', '/api/advent/test/channel', { channelId }),
+      'Advent broadcast channel saved. /adventsubmit will use this channel too.');
   }
   async function saveAdventChallenge() {
     if (!adventSelectedDay || !adventState || adventBusy) return;

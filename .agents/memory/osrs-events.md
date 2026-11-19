@@ -21,11 +21,11 @@ Manual reminder resends are additional announcements; they do not cancel the sch
 
 **How to apply:** keep manual delivery tracking separate from automatic reminder deduplication.
 
-The advent event runs December 1–25 with the daily boundary at 00:00 UTC. The user's supplied daily challenges must remain editable. Members submit picture evidence only for the current day; staff manage the calendar and review all submissions in the dashboard, like bingo. A fully usable, isolated test environment must come before any live activation.
+The advent event runs December 1–25 with the daily boundary at 00:00 UTC. The user's supplied daily challenges must remain editable. Members submit picture evidence only for the current day; staff manage the calendar and review all submissions in the dashboard, like bingo. The test broadcast channel defaults to the specified channel but admins can select another sendable text channel in the same server while the test is idle. A fully usable, isolated test environment must come before any live activation.
 
 **Why:** the user chose 25 days and UTC game time, supplied 25 challenges, and explicitly required testing before going live.
 
-**How to apply:** keep simulated day advancement and test submissions separate from the real December schedule. Never activate the live event or reuse test progress as live progress without approval.
+**How to apply:** keep simulated day advancement and test submissions separate from the real December schedule. Restrict channel choices to the test server, require bot send permissions, and use the selected channel for both announcements and submissions. Never activate the live event or reuse test progress as live progress without approval.
 
 Admins may submit advent proof on behalf of a Discord member for a chosen already-opened day, including late proof. This exception must not consume that member's submission for the current day.
 

@@ -22,6 +22,10 @@ async function main() {
   const fixture = {
     config: { year: 2026, challenges: [...DEFAULT_CHALLENGES], dayDurationSeconds: 60, channelId: TEST_CHANNEL_ID, calendarImages: [],
       announcementTemplate: defaultAnnouncement(1), announcementClosingMessage: defaultAnnouncement(26) },
+    channels: [
+      { id:TEST_CHANNEL_ID, name:'advent-test', type:0 },
+      { id:'1572351838823653398', name:'events', type:0 },
+    ],
     run: { id: 'browser-fixture', state: 'idle', day: 0, opened: 0, dayEndsAt: null },
     submissions: [{
       _id: '000000000000000000000001', day: 1, userId: 'member-1', username: 'Test member', challenge: DEFAULT_CHALLENGES[0],
@@ -153,6 +157,9 @@ async function main() {
       loadAdvent();`);
     assert.equal(await evaluate(`document.querySelectorAll('.advent-door').length`), 25);
     assert.equal(await evaluate(`document.getElementById('advent-image-day').options.length`), 26);
+    assert.equal(await evaluate(`document.getElementById('advent-broadcast-channel').options.length`), 2);
+    await evaluate(`document.getElementById('advent-broadcast-channel').value='1572351838823653398'; saveAdventChannel();`);
+    assert.equal(fixture.config.channelId, '1572351838823653398');
     await evaluate(`document.getElementById('advent-message-text').value='My full announcement\\nMy custom rules {challenge}';
       draftAdventMessage(); loadAdvent();`);
     assert.equal(await evaluate(`document.getElementById('advent-message-text').value`),

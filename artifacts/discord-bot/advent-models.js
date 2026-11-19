@@ -6,6 +6,7 @@ const configSchema = new mongoose.Schema({
   _id: { type: String, default: 'test' },
   runId: { type: String, default: () => crypto.randomUUID() },
   year: { type: Number, default: () => Math.max(2026, new Date().getUTCFullYear()) },
+  channelId: { type: String, default: '1572351838823653397' },
   challenges: { type: [String], default: () => [...DEFAULT_CHALLENGES] },
   announcementTemplate: { type: String, default: '' },
   announcementClosingMessage: { type: String, default: '' },
@@ -40,6 +41,7 @@ const submissionSchema = new mongoose.Schema({
   reviewNote: { type: String, default: '' },
   reviewedBy: { type: String, default: '' },
   submittedByAdmin: { type: String, default: '' },
+  sourceChannelId: { type: String, default: '' },
 }, { timestamps: true });
 submissionSchema.index({ runId: 1, day: 1, userId: 1 }, { unique: true });
 

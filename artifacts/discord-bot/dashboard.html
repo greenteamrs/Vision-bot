@@ -4118,7 +4118,9 @@
         : '<span class="advent-muted">Automatic live retry is active.</span>';
     host.innerHTML = announcements.slice().sort((a,b) => Number(a.day) - Number(b.day)).map(item => {
       const failed = item.status === 'failed' || item.error;
-      return `<div class="advent-announcement"><span>Day ${Number(item.day) || '—'} · ${esc(item.status || 'unknown')}${item.messageId ? ` · Message ${esc(item.messageId)}` : ''}${item.error ? ` · ${esc(item.error)}` : ''}${item.message ? ` · ${esc(item.message)}` : ''}</span>${failed ? retryText : ''}</div>`;
+      const channelName = adventState?.channels?.find(channel => channel.id === item.channelId)?.name;
+      const destination = item.channelId ? ` · #${esc(channelName || item.channelId)}` : '';
+      return `<div class="advent-announcement"><span>Day ${Number(item.day) || '—'} · ${esc(item.status || 'unknown')}${destination}${item.messageId ? ` · Message ${esc(item.messageId)}` : ''}${item.error ? ` · ${esc(item.error)}` : ''}${item.message ? ` · ${esc(item.message)}` : ''}</span>${failed ? retryText : ''}</div>`;
     }).join('');
     hydrateDashboardLockControls(host);
   }

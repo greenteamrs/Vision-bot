@@ -179,7 +179,16 @@ async function main() {
     assert.equal(await evaluate(`document.getElementById('advent-live-cancel').style.display`), '');
     await evaluate(`window.confirm=()=>true; cancelAdventLive()`);
     assert.equal(fixture.live.status, 'off');
-    await evaluate(`document.getElementById('advent-broadcast-channel').value='1572351838823653398'; saveAdventChannel();`);
+    await evaluate(`{
+      const select=document.getElementById('advent-broadcast-channel');
+      select.value='1572351838823653398';
+      select.dispatchEvent(new Event('change',{bubbles:true}));
+      adventAction('start');
+    }`);
+    assert.equal(fixture.run.state, 'idle', 'an unsaved channel cannot start a test');
+    assert.equal(await evaluate(`document.getElementById('advent-run-controls').querySelector('button[data-lock-action-key="advent.test.start"]').disabled`), true);
+    assert.match(await evaluate(`document.getElementById('advent-channel-status').textContent`), /Unsaved channel selection/);
+    await evaluate(`saveAdventChannel()`);
     assert.equal(fixture.config.channelId, '1572351838823653398');
     await evaluate(`document.getElementById('advent-message-text').value='My full announcement\\nMy custom rules {challenge}';
       draftAdventMessage(); loadAdvent();`);

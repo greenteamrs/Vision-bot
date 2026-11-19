@@ -441,6 +441,7 @@ test('broadcast channel choices are limited to sendable text channels in the tes
   assert.equal((await f.api('PATCH', '/channel', { channelId:TEST_CHANNEL_ID })).code, 400);
   assert.equal((await f.api('GET')).data.config.channelId, '1572351838823653398');
   assert.equal(f.sent[0].channelId, '1572351838823653398');
+  assert.equal(f.AdventAnnouncement.rows[0].channelId, '1572351838823653398');
   await f.message({ channelId:TEST_CHANNEL_ID });
   assert.match(f.replies.at(-1), /selected channel/);
   await f.message({ channelId:'1572351838823653398' });

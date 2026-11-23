@@ -21,6 +21,12 @@ Manual reminder resends are additional announcements; they do not cancel the sch
 
 **How to apply:** keep manual delivery tracking separate from automatic reminder deduplication.
 
+All Discord moderators and administrators receive a direct message about one hour before each scheduled event ends, asking an admin to post the winners and prizes.
+
+**Why:** the user requested an end-of-event reminder similar to the existing start reminder.
+
+**How to apply:** include Calendar entries and scheduled OSRS events, skip drafts and completed events, and deduplicate/retry delivery per event end time and recipient.
+
 The advent event runs December 1–25 with the daily boundary at 00:00 UTC. The user's supplied daily challenges must remain editable. Members submit picture evidence only for the current day; staff manage the calendar and review all submissions in the dashboard, like bingo. The test broadcast channel defaults to the specified channel but admins can select another sendable text channel in the same server while the test is idle. A fully usable, isolated test environment must come before any live activation.
 
 **Why:** the user chose 25 days and UTC game time, supplied 25 challenges, and explicitly required testing before going live.

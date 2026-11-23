@@ -1153,7 +1153,7 @@
     <div class="field"><label>Event title</label><input type="text" id="event-title" placeholder="e.g. Clan raid" /></div>
     <div class="field"><label>Type</label><input type="text" id="event-type" placeholder="e.g. Raid, Meeting, Reminder" /></div>
     <div class="field"><label for="event-link">Event / tracker link (optional)</label><input type="url" id="event-link" maxlength="1000" placeholder="https://…" /></div>
-    <p style="color:#888;font-size:.8rem;">Mods and Discord administrators receive a DM seven days before the start, reminding them to post in the event channel. The link is included.</p>
+    <p style="color:#888;font-size:.8rem;">Mods and Discord administrators receive a DM seven days before an event starts and one hour before it ends. The start DM includes the event link; the end DM reminds an admin to post the winners and prizes.</p>
     <div class="field-grid">
       <div class="field"><label>Start</label><input type="datetime-local" id="event-start" /></div>
       <div class="field"><label>End</label><input type="datetime-local" id="event-end" /></div>
@@ -3347,7 +3347,7 @@
           <div class="field"><label for="ev-grid-size">Grid size</label><input id="ev-grid-size" data-lock-key="event.${escAttr(id || 'create')}.scoringConfig.gridSize" type="number" step="1" min="2" max="20" value="${escAttr(scoringDefaults.gridSize)}"></div>
         </div>
         <p style="color:#81958b;font-size:.76rem;margin-top:12px;">Adjust the supported scoring values for this preset. Bingo task boards use grid size and line bonus.</p>
-        <p style="color:#81958b;font-size:.76rem;">Upcoming/active events send mods and Discord administrators a DM seven days before the start, with the link and a reminder to post in the event channel. Drafts do not send reminders.</p>
+        <p style="color:#81958b;font-size:.76rem;">Upcoming/active events send mods and Discord administrators a DM seven days before they start and one hour before they end. The end reminder asks an admin to post the winners and prizes. Draft events do not send reminders.</p>
         <div class="save-row">
           <button class="btn-save" type="submit" ${id ? '' : 'data-lock-guard-key="event.create.action"'}>${id ? 'Save configuration' : 'Create event'}</button>
           <button class="btn-cancel" type="button" onclick="${id ? 'loadEventDetail()' : 'cancelEventCreate()'}">Cancel</button>

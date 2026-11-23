@@ -1,7 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { WEEK_MS, normalizeEventLink, reminderMessage, createEventReminderService } = require('./event-reminders');
+const {
+  WEEK_MS, HOUR_MS, normalizeEventLink, reminderMessage, endingReminderMessage, createEventReminderService,
+} = require('./event-reminders');
 const { normalizeEventInput } = require('./events-domain');
 
 function fixture() {
@@ -23,9 +25,11 @@ function fixture() {
       sent.push({ userId: member.id, ...payload });
     };
   });
-  const model = (rows, field) => ({
+  const model = (rows, fields) => ({
     findById(id) { return { lean: async () => rows.find(row => row._id === id) || null }; },
     find(query) {
+      const field = fields.find(candidate => Object.hasOwn(query, candidate));
+      assert.ok(field, `expected one of ${fields.join(', ')} in query`);
       assert.deepEqual(Object.keys(query[field]), ['$gt', '$lte']);
       return { lean: async () => rows.filter(row =>
         row[field] > query[field].$gt && row[field] <= query[field].$lte &&
@@ -49,7 +53,7 @@ function fixture() {
     },
   };
   const dependencies = {
-    CalendarEvent: model(calendar, 'start'), OsrsEvent: model(managed, 'startsAt'),
+    CalendarEvent: model(calendar, ['start', 'end']), OsrsEvent: model(managed, ['startsAt', 'endsAt']),
     Delivery, now: () => clock, isMod: m => m.mod, isAdmin: m => m.admin,
     client: { isReady: () => true, guilds: { cache: new Map([['guild', {
       roles: { fetch: async () => {} },
@@ -57,7 +61,10 @@ function fixture() {
     }]]) } },
     logger: { warn: message => errors.push(message), error: (...message) => errors.push(message.join(' ')) },
   };
-  const event = { _id: 'c1', title: 'Boss weekend', start: new Date(clock.getTime() + WEEK_MS), link: 'https://example.com/tracker' };
+  const event = {
+    _id: 'c1', title: 'Boss weekend', start: new Date(clock.getTime() + WEEK_MS),
+    end: new Date(clock.getTime() + WEEK_MS + HOUR_MS), link: 'https://example.com/tracker',
+  };
   calendar.push(event);
   return { ...dependencies, calendar, managed, mods, records, sent, errors, event,
     service: () => createEventReminderService(dependencies),
@@ -86,6 +93,55 @@ test('at seven days DMs all mods/admins once, excludes other members/bots, survi
   await f.service().run();
   assert.equal(f.sent.length, 2);
   assert.ok([...f.records.values()].every(r => r.status === 'sent'));
+});
+
+test('one hour before end DMs every moderator and admin for both event types exactly once', async () => {
+  const f = fixture();
+  f.event.start = new Date('2026-11-09T11:00:00Z');
+  f.event.end = new Date('2026-11-09T12:30:00Z');
+  f.managed.push({
+    _id:'osrs-event', name:'Drop race', startsAt:new Date('2026-11-09T11:00:00Z'),
+    endsAt:new Date('2026-11-09T12:45:00Z'), status:'active',
+  });
+  const service = f.service();
+  await service.run();
+  assert.deepEqual(f.sent.map(message => message.userId), ['mod', 'admin', 'mod', 'admin']);
+  assert.match(f.sent[0].content, /Boss weekend is ending in an hour/);
+  assert.match(f.sent[0].content, /One of the admins needs to make a post with the winners and prizes/);
+  assert.match(f.sent[0].content, /<t:\d+:R>/);
+  assert.ok(f.sent.every(message => message.allowedMentions.parse.length === 0));
+  assert.equal([...f.records.values()].filter(row => row.status === 'sent').length, 4);
+  await service.run();
+  assert.equal(f.sent.length, 4, 'repeated scheduler runs do not repeat completed reminders');
+});
+
+test('end reminders include events in the final hour and skip drafts, completed and expired events', async () => {
+  const f = fixture();
+  f.event.start = new Date('2026-11-09T11:00:00Z');
+  f.event.end = new Date('2026-11-09T13:00:01Z');
+  f.managed.push(
+    { _id:'draft', name:'Draft', startsAt:f.event.start, endsAt:new Date('2026-11-09T12:30:00Z'), status:'draft' },
+    { _id:'completed', name:'Completed', startsAt:f.event.start, endsAt:new Date('2026-11-09T12:30:00Z'), status:'completed' },
+    { _id:'expired', name:'Expired', startsAt:f.event.start, endsAt:new Date('2026-11-09T11:59:00Z'), status:'active' },
+  );
+  await f.service().run();
+  assert.equal(f.sent.length, 0);
+
+  f.event.end = new Date('2026-11-09T12:59:00Z');
+  await f.service().run();
+  assert.deepEqual(f.sent.map(message => message.userId), ['mod', 'admin']);
+});
+
+test('end reminder is eligible again when an event end time changes within the final hour', async () => {
+  const f = fixture();
+  f.event.start = new Date('2026-11-09T11:00:00Z');
+  f.event.end = new Date('2026-11-09T12:30:00Z');
+  const service = f.service();
+  await service.run();
+  assert.equal(f.sent.length, 2);
+  f.event.end = new Date('2026-11-09T12:45:00Z');
+  await service.run();
+  assert.equal(f.sent.length, 4);
 });
 
 test('future/past/draft/completed events skipped; short-notice scheduled events included', async () => {
@@ -139,6 +195,8 @@ test('permanent transient failures stop after three attempts; rescheduling has a
 
 test('message stays within Discord limits and UI/API wire links with existing locks', () => {
   assert.ok(reminderMessage({ name: 'n'.repeat(5000), start: new Date(), link: 'https://example.com/' + 'x'.repeat(970) }).length < 2000);
+  assert.match(endingReminderMessage({ name:'Boss event', end:new Date('2026-11-09T13:00:00Z') }), /Boss event is ending in an hour/);
+  assert.match(endingReminderMessage({ name:'Boss event', end:new Date('2026-11-09T13:00:00Z') }), /winners and prizes/);
   const html = fs.readFileSync(`${__dirname}/dashboard.html`, 'utf8');
   const bot = fs.readFileSync(`${__dirname}/bot.js`, 'utf8');
   const service = fs.readFileSync(`${__dirname}/event-service.js`, 'utf8');
@@ -149,6 +207,7 @@ test('message stays within Discord limits and UI/API wire links with existing lo
   assert.match(bot, /update.link = normalizeEventLink\(data.link\)/);
   assert.match(service, /\['name', 'description', 'link'/);
   assert.match(bot, /cron.schedule\('\* \* \* \* \*', \(\) => eventReminders.run\(\)\)/);
+  assert.match(html, /one hour before it ends/);
 });
 
 test('manual resend delivers again with latest link and preserves automatic delivery records', async () => {

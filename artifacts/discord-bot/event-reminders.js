@@ -1,4 +1,5 @@
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 const { randomUUID } = require('node:crypto');
 
 function normalizeEventLink(value) {
@@ -16,6 +17,11 @@ function normalizeEventLink(value) {
 function reminderMessage(event) {
   const timestamp = Math.floor(new Date(event.start).getTime() / 1000);
   return `Event reminder: ${event.name.slice(0, 150)}\nStarts: <t:${timestamp}:F> (<t:${timestamp}:R>)\nPlease make a post in the event channel for this event.${event.link ? `\nEvent / tracker link: ${event.link}` : ''}`;
+}
+
+function endingReminderMessage(event) {
+  const timestamp = Math.floor(new Date(event.end).getTime() / 1000);
+  return `${event.name.slice(0, 150)} is ending in an hour.\nOne of the admins needs to make a post with the winners and prizes.\nEnds: <t:${timestamp}:F> (<t:${timestamp}:R>)`;
 }
 
 function createEventReminderService({ CalendarEvent, OsrsEvent, Delivery, client, isMod, isAdmin, now = () => new Date(), logger = console }) {
@@ -85,20 +91,27 @@ function createEventReminderService({ CalendarEvent, OsrsEvent, Delivery, client
     running = true;
     try {
       const time = now();
-      const window = { $gt: time, $lte: new Date(time.getTime() + WEEK_MS) };
-      const [calendar, managed] = await Promise.all([
-        CalendarEvent.find({ start: window }).lean(),
-        OsrsEvent.find({ startsAt: window, status: { $in: ['upcoming', 'active'] } }).lean(),
+      const startWindow = { $gt: time, $lte: new Date(time.getTime() + WEEK_MS) };
+      const endWindow = { $gt: time, $lte: new Date(time.getTime() + HOUR_MS) };
+      const [calendarStarts, managedStarts, calendarEnds, managedEnds] = await Promise.all([
+        CalendarEvent.find({ start: startWindow }).lean(),
+        OsrsEvent.find({ startsAt: startWindow, status: { $in: ['upcoming', 'active'] } }).lean(),
+        CalendarEvent.find({ end: endWindow }).lean(),
+        OsrsEvent.find({ endsAt: endWindow, status: { $in: ['upcoming', 'active'] } }).lean(),
       ]);
       const events = [
-        ...calendar.map(e => ({ id: `calendar:${e._id}`, name: e.title, start: e.start, link: e.link })),
-        ...managed.map(e => ({ id: `event:${e._id}`, name: e.name, start: e.startsAt, link: e.link })),
+        ...calendarStarts.map(e => ({ id: `calendar:${e._id}`, name: e.title, start: e.start, link: e.link })),
+        ...managedStarts.map(e => ({ id: `event:${e._id}`, name: e.name, start: e.startsAt, link: e.link })),
+        ...calendarEnds.map(e => ({ id: `calendar:${e._id}`, name: e.title, end: e.end, reminderType: 'end' })),
+        ...managedEnds.map(e => ({ id: `event:${e._id}`, name: e.name, end: e.endsAt, reminderType: 'end' })),
       ];
       if (!events.length) return;
       const recipients = await getRecipients();
       for (const event of events) {
         for (const [userId, member] of recipients) {
-          const key = `${event.id}:${new Date(event.start).toISOString()}:${userId}`;
+          const key = event.reminderType === 'end'
+            ? `end:${event.id}:${new Date(event.end).toISOString()}:${userId}`
+            : `${event.id}:${new Date(event.start).toISOString()}:${userId}`;
           let claim;
           try {
             // Unique key plus a lease prevents simultaneous runs/restarts from
@@ -117,7 +130,9 @@ function createEventReminderService({ CalendarEvent, OsrsEvent, Delivery, client
           }
           let result;
           try {
-            await member.send({ content: reminderMessage(event), allowedMentions: { parse: [] } });
+            const content = event.reminderType === 'end'
+              ? endingReminderMessage(event) : reminderMessage(event);
+            await member.send({ content, allowedMentions: { parse: [] } });
             result = { status: 'sent', sentAt: now(), lastError: '' };
           } catch (error) {
             const blocked = [50007, 50013].includes(Number(error.code));
@@ -140,4 +155,4 @@ function createEventReminderService({ CalendarEvent, OsrsEvent, Delivery, client
   return { run, resend };
 }
 
-module.exports = { WEEK_MS, normalizeEventLink, reminderMessage, createEventReminderService };
+module.exports = { WEEK_MS, HOUR_MS, normalizeEventLink, reminderMessage, endingReminderMessage, createEventReminderService };
